@@ -49,7 +49,7 @@ export class EventManageApp {
     }
     async initiateGoogleOAuth() {
         try {
-            const response = await $.get('/api/initiateGoogleOAuth');
+            const response = await $.get('/oauth/google');
             if (response.authUrl) {
                 window.location.href = response.authUrl;
             } else {

@@ -25,7 +25,7 @@ const eventsRoutes = require('./routes/events');
 const calendarRoutes = require('./routes/calendar');
 const aiRoutes = require('./routes/ai');
 
-app.use('/oauth', oauthRoutes);
+app.use('/auth', oauthRoutes);
 app.use('/gmail', gmailRoutes);
 app.use('/events', eventsRoutes);
 app.use('/calendar', calendarRoutes);

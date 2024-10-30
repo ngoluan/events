@@ -10,6 +10,7 @@
   "routes/events.js",
   "routes/calendar.js",
   "routes/ai.js",
+  "public/styles.css",
   "public/scripts.js",
   "public/index.html",
   "public/calendar.js",

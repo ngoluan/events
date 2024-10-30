@@ -1,6 +1,147 @@
-/* src/styles.css */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Custom styles */
+@layer components {
+  /* Card styling */
+  .card {
+    @apply bg-base-200 text-base-content border border-base-300;
+  }
+
+  /* Form styling */
+  .form-control {
+    @apply relative space-y-1;
+  }
+
+  .form-control .label {
+    @apply pb-1;
+  }
+
+  .form-control .label-text {
+    @apply opacity-70 font-medium;
+  }
+
+  .input, .select, .textarea {
+    @apply bg-base-100 border-base-300 transition-all duration-200;
+    @apply focus:ring-2 focus:ring-primary/20 focus:border-primary;
+    @apply disabled:bg-base-200 disabled:cursor-not-allowed;
+  }
+
+  /* Message container */
+  .messages-container {
+    @apply space-y-4;
+  }
+
+  .sms {
+    @apply bg-base-200 border border-base-300 rounded-lg p-4;
+    @apply transition-all duration-200 hover:shadow-md;
+  }
+
+  /* Contacts styling */
+  .contactCont {
+    @apply p-2 hover:bg-base-300/50 rounded-lg transition-colors;
+  }
+
+  /* Button enhancements */
+  .btn {
+    @apply transition-all duration-200;
+  }
+
+  .btn:active {
+    @apply scale-95;
+  }
+
+  /* AI conversation styling */
+  #aiResult {
+    @apply space-y-4 bg-base-100;
+  }
+
+  .aiChatReponse {
+    @apply bg-base-200 border border-base-300 rounded-lg p-4;
+  }
+
+  /* Calendar customization */
+  .calendar {
+    @apply w-full border-collapse;
+  }
+
+  .calendar th {
+    @apply p-2 text-center border border-base-300 bg-base-300;
+  }
+
+  .calendar td {
+    @apply p-2 border border-base-300 align-top bg-base-100;
+    @apply transition-colors hover:bg-base-300/30;
+  }
+
+  .event-bar {
+    @apply text-xs p-1 mt-1 rounded cursor-pointer truncate;
+  }
+
+  .event-room-1 {
+    @apply bg-primary/30 hover:bg-primary/40;
+  }
+
+  .event-room-2 {
+    @apply bg-secondary/30 hover:bg-secondary/40;
+  }
+
+  /* Modal improvements */
+  .modal-box {
+    @apply bg-base-200 border border-base-300;
+  }
+
+  /* Bottom navigation */
+  .btm-nav {
+    @apply bg-base-200 border-t border-base-300;
+  }
+
+  .btm-nav > *.active {
+    @apply border-primary;
+  }
+
+  /* Custom scrollbar */
+  .custom-scrollbar::-webkit-scrollbar {
+    @apply w-2;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    @apply bg-base-100;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    @apply bg-base-300 rounded-full hover:bg-base-300/70;
+  }
+}
+
+@layer utilities {
+  .fade-in {
+    animation: fadeIn 0.3s ease-in-out;
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .slide-in {
+    animation: slideIn 0.3s ease-in-out;
+  }
+
+  @keyframes slideIn {
+    from {
+      transform: translateX(-10px);
+      opacity: 0;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+}
