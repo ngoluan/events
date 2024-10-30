@@ -4,6 +4,10 @@ const express = require('express');
 const path = require('path');
 const bodyParser = require('body-parser');
 const session = require('express-session');
+const GoogleAuth = require('./services/GoogleAuth');
+
+// Initialize GoogleAuth
+const googleAuth = new GoogleAuth();
 
 // Initialize app
 const app = express();
@@ -18,13 +22,14 @@ app.use(session({
   saveUninitialized: true,
 }));
 
-// Routes
-const oauthRoutes = require('./routes/oauth');
-const gmailRoutes = require('./routes/gmail');
+// Routes with googleAuth passed in
+const oauthRoutes = require('./routes/oauth')(googleAuth);
+const gmailRoutes = require('./routes/gmail')(googleAuth);
+const calendarRoutes = require('./routes/calendar')(googleAuth);
 const eventsRoutes = require('./routes/events');
-const calendarRoutes = require('./routes/calendar');
 const aiRoutes = require('./routes/ai');
 
+// Use the routers
 app.use('/auth', oauthRoutes);
 app.use('/gmail', gmailRoutes);
 app.use('/events', eventsRoutes);

@@ -1,10 +1,9 @@
 const { google } = require('googleapis');
-const GoogleAuth = require('./GoogleAuth');
 
 class GmailService {
-    constructor() {
+    constructor(auth) {
         // Create new instance of GoogleAuth
-        this.googleAuth = new GoogleAuth();
+        this.googleAuth = auth;
     }
 
     async listMessages(userEmail, gmailEmail, showCount) {
@@ -58,4 +57,4 @@ class GmailService {
 }
 
 // Export an instance of the service
-module.exports = new GmailService();
+module.exports = GmailService;

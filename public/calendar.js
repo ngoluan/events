@@ -63,10 +63,10 @@ class Calendar {
                 <span id="month" class="calendar-month"></span>
                 <span id="year" class="calendar-year"></span>
                 <div class="calendar-nav" style="display: inline-block;">
-                    <a id="left" href="#" class="btn btn-outline-primary btn-sm" data-toggle="tooltip" title="Previous Month">
+                    <a id="left" href="#" class="btn btn-outline-primary btn-sm" data-tip="tooltip" title="Previous Month">
                         <i class="bi bi-chevron-left"></i>
                     </a>
-                    <a id="right" href="#" class="btn btn-outline-primary btn-sm" data-toggle="tooltip" title="Next Month">
+                    <a id="right" href="#" class="btn btn-outline-primary btn-sm" data-tip="tooltip" title="Next Month">
                         <i class="bi bi-chevron-right"></i>
                     </a>
                 </div>
@@ -120,17 +120,18 @@ class Calendar {
 
             html += `<td class="day" data-date="${dayDate.toISOString().split('T')[0]}">${day}`;
 
-            // Filter events for this day
+            // Find events for the current day
             const eventsForDay = this.events.filter(event => {
                 const eventStart = new Date(event.startTime).setHours(0, 0, 0, 0);
                 const eventEnd = new Date(event.endTime).setHours(23, 59, 59, 999);
                 return dayDate >= eventStart && dayDate <= eventEnd;
             });
 
-            // Append event bars to the day cell with class-coding by room
+            // Render events
             eventsForDay.forEach(event => {
-                const roomClass = roomClasses[event.room] || "gray"; // Default to gray if room not found
-                html += `<div class="event-bar ${roomClass}" data-eventid="${event.id}" title="${event.title}: ${event.description}" >${event.title}</div>`;
+                html += `<div class="event-bar" data-eventid="${event.id}" title="${event.title}: ${event.description}">
+          ${event.title}
+        </div>`;
             });
 
             html += `</td>`;

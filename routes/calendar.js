@@ -1,21 +1,32 @@
-// app.js or routes/calendar.js
-
+//--- File: /home/luan_ngo/web/events/routes/calendar.js ---
 const express = require('express');
 const router = express.Router();
-const fs = require('fs');
-const path = require('path');
+const googleCalendarService = require('../services/googleCalendarService');
 
-// Define the route
-router.get('/getEventCalendar', (req, res) => {
-  const calendarFilePath = path.join(__dirname, 'path_to_your_calendar_file.ics');
+module.exports = (googleAuth) => {
+  // Initialize GoogleCalendarService with googleAuth
+  const calendarService = new googleCalendarService(googleAuth);
 
-  fs.readFile(calendarFilePath, 'utf8', (err, data) => {
-    if (err) {
-      console.error('Error reading calendar file:', err);
-      return res.status(500).send('Error reading calendar file');
+  router.get('/getEventCalendar', async (req, res) => {
+    try {
+      const events = await calendarService.listEvents();
+      res.json(events);
+    } catch (error) {
+      console.error('Error fetching events from Google Calendar:', error);
+      res.status(500).send('Error fetching events from Google Calendar');
     }
-    res.send(data);
   });
-});
 
-module.exports = router;
+  router.post('/calendar/events', async (req, res) => {
+    const eventData = req.body;
+    try {
+      const event = await calendarService.addEvent(eventData);
+      res.json(event);
+    } catch (error) {
+      console.error('Error adding event to calendar:', error);
+      res.status(500).send('Error adding event to calendar');
+    }
+  });
+
+  return router;
+};

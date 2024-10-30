@@ -31,13 +31,6 @@ export class EventManageApp {
         this.createCalendar();
         this.readGmail("all", false);
 
-        // Set up UI elements
-        this.setupUI();
-
-        // Initialize tooltips
-        $('[data-toggle="tooltip"]').tooltip();
-
-        // Check for OAuth success
         const urlParams = new URLSearchParams(window.location.search);
         if (urlParams.get('oauth') === 'success') {
             // Fetch the connected email from the backend
@@ -456,7 +449,7 @@ export class EventManageApp {
         }
 
         try {
-            const data = await $.get("/api/readGmail", { email: email, showCount: 25 });
+            const data = await $.get("/gmail/readGmail", { email: email, showCount: 25 });
             this.processEmails(data);
         } catch (error) {
             console.error("Failed to read Gmail:", error);
@@ -515,7 +508,7 @@ export class EventManageApp {
     }
 
     getAllContacts() {
-        $.get("/api/getEventsContacts", (contacts) => {
+        $.get("/events/getEventsContacts", (contacts) => {
             this.contacts = contacts;
             const $contactsContent = $("#contacts .content");
             $contactsContent.empty();
@@ -578,40 +571,31 @@ export class EventManageApp {
 
     /*** Calendar Methods ***/
 
-    createCalendar() {
+    async createCalendar() {
         this.mainCalendar = new Calendar('calendar');
-        $.get("/getEventCalendar", (data) => {
-            let eventData = ICAL.parse(data)[2];
-            eventData.shift();
-            eventData = eventData.map((o, i) => {
-                o = o[1];
-                const summary = _.find(o, x => x[0] === "summary");
-                if (!summary) return null;
-                const summaryText = summary[3];
+        try {
+            const data = await $.get("/calendar/getEventCalendar");
+
+            // Process the events data
+            const eventData = data.map((event, index) => {
                 const timezone = 'America/New_York';
-                o.startTime = moment.tz(o[0][3], "YYYYMMDDTHHmmssZ", timezone);
-                o.endTime = moment.tz(o[1][3], "YYYYMMDDTHHmmssZ", timezone);
-                let calendarEnd = o.endTime;
-                if (o.endTime.isAfter(o.startTime.clone().hour(23).minute(59))) {
-                    calendarEnd = o.startTime.clone().hour(23).minute(59);
-                }
-                const title = `${o.startTime.format("HHmm")} ${summaryText}`;
+                const startTime = moment.tz(event.start.dateTime || event.start.date, timezone);
+                const endTime = moment.tz(event.end.dateTime || event.end.date, timezone);
+
                 return {
-                    id: i,
-                    calendarId: 1,
-                    title: title,
-                    category: "time",
-                    isReadOnly: true,
-                    startTime: o.startTime.format("YYYY-MM-DDTHH:mm:ss"),
-                    labelEndTime: o.endTime.format("YYYY-MM-DDTHH:mm:ss"),
-                    endTime: calendarEnd.format("YYYY-MM-DDTHH:mm:ss"),
-                    o: o,
-                    description: summary,
-                    room: summaryText.includes("DiningRoom") ? "DiningRoom" : (summaryText.includes("Lounge") ? "Lounge" : "")
+                    id: index,
+                    title: event.summary || 'No Title',
+                    startTime: startTime.format(),
+                    endTime: endTime.format(),
+                    description: event.description || '',
+                    room: event.location || ''
                 };
-            }).filter(o => o && o.room !== "");
+            });
+
             this.mainCalendar.loadEvents(eventData);
-        });
+        } catch (error) {
+            console.error('Error loading calendar events:', error);
+        }
     }
 
     /*** Contact Methods ***/

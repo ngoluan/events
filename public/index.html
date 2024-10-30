@@ -1,5 +1,5 @@
 <!-- Change the html tag to use dark theme by default -->
-<html lang="en" >
+<html lang="en">
 
 <head>
     <title>Event Management</title>
@@ -396,17 +396,17 @@
                         </div>
                     </section>
                 </div>
-
-
-                <section id="calendar" class="card bg-base-100 shadow-lg">
-                    <div class="card-body">
-                        <h2 class="card-title text-lg mb-4">Calendar</h2>
-                        <div id="calendarContainer" class="w-full">
-                            <!-- Calendar will be rendered here -->
-                        </div>
-                    </div>
-                </section>
             </main>
+        </div>
+        <div class="container py-6">
+            <section id="calendar" class="card bg-base-100 shadow-lg ">
+                <div class="card-body">
+                    <h2 class="card-title text-lg mb-4">Calendar</h2>
+                    <div id="calendarContainer" class="w-full">
+                        <!-- Calendar will be rendered here -->
+                    </div>
+                </div>
+            </section>
         </div>
     </div>
 
@@ -477,9 +477,14 @@
 
     <!-- Scripts -->
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.21/lodash.min.js"
+        integrity="sha512-WFN04846sdKMIP5LKNphMaWzU7YpMyCU245etK3g/2ARYbPK9Ub18eG+ljU96qKRCWh+quCY7yefSmlkQw1ANQ=="
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.1/moment.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment-timezone/0.5.33/moment-timezone.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.21/lodash.min.js"></script>
+    <script
+        src="https://cdnjs.cloudflare.com/ajax/libs/moment-timezone/0.5.46/moment-timezone-with-data-10-year-range.js"
+        integrity="sha512-s932Fui209TZcBY5LqdHKbANLKNneRzBib2GE3HkZUQtoWY3LBUN2kaaZDK7+8z8WnFY23TPUNsDmIAY1AplPg=="
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="https://cdn.jsdelivr.net/npm/howler@2.2.3/dist/howler.min.js"></script>
     <script src="/calendar.js"></script>
     <script type="module">
