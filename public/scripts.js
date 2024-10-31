@@ -11,7 +11,9 @@ export class EventManageApp {
         // AI-related properties
         this.templates = {};
         this.userEmail = ''; // To store the authenticated user's email
-
+        this.emailFilters = {
+            showReplied: localStorage.getItem('showRepliedEmails') !== 'false'
+        };
     }
 
     async init() {
@@ -19,6 +21,7 @@ export class EventManageApp {
         this.sounds = {
             orderUp: new Howl({ src: ['./orderup.m4a'] })
         };
+
 
         // Load AI templates
         await this.loadTemplates();
@@ -29,7 +32,9 @@ export class EventManageApp {
         // Load initial data
         this.getAllContacts();
         this.createCalendar();
+        this.initializeEmailFilters();
         this.readGmail("all", false);
+
 
         const urlParams = new URLSearchParams(window.location.search);
         if (urlParams.get('oauth') === 'success') {
@@ -39,7 +44,63 @@ export class EventManageApp {
                 this.setConnectedEmail(response.email);
             }
         }
+
+
     }
+    initializeEmailFilters() {
+        const filterHtml = `
+            <div class="flex items-center gap-2 mb-3">
+                <label class="cursor-pointer label">
+                    <span class="label-text mr-2">Show Replied Emails</span>
+                    <input type="checkbox" class="toggle toggle-primary" id="toggleRepliedEmails" 
+                        ${this.emailFilters.showReplied ? 'checked' : ''}>
+                </label>
+            </div>
+        `;
+
+        // Insert after the card title
+        $("#messages .card-title").after(filterHtml);
+
+        // Initialize toggle event handler
+        $('#toggleRepliedEmails').on('change', (e) => {
+            this.emailFilters.showReplied = e.target.checked;
+            localStorage.setItem('showRepliedEmails', e.target.checked);
+            this.refreshEmails();
+        });
+    }
+    adjustMessagesContainerHeight() {
+        const messagesCard = document.querySelector('#messages .card-body');
+        const messagesContainer = document.querySelector('.messages-container');
+
+        if (!messagesCard || !messagesContainer) return;
+
+        // Get the card's total height
+        const cardHeight = messagesCard.offsetHeight;
+
+        // Calculate other elements' heights within the card
+        const otherElements = messagesCard.querySelectorAll('.card-title ');
+        let otherElementsHeight = 0;
+        otherElements.forEach(element => {
+            // Only count visible elements
+            if (window.getComputedStyle(element).display !== 'none') {
+                otherElementsHeight += element.offsetHeight;
+            }
+        });
+
+        // Calculate padding/margin if any
+        const containerStyle = window.getComputedStyle(messagesContainer);
+        const verticalPadding = parseFloat(containerStyle.paddingTop) +
+            parseFloat(containerStyle.paddingBottom) +
+            parseFloat(containerStyle.marginTop) +
+            parseFloat(containerStyle.marginBottom);
+
+        // Set the container height
+        const newHeight = cardHeight - otherElementsHeight - verticalPadding;
+        messagesContainer.style.maxHeight = `${Math.max(newHeight, 100)}px`; // Minimum height of 100px
+    }
+
+
+
     async initiateGoogleOAuth() {
         try {
             const response = await $.get('/oauth/google');
@@ -316,6 +377,20 @@ export class EventManageApp {
             this.sendToAiFromResult(e);
         });
 
+        $(document).off('click', '.toggle-button').on('click', '.toggle-button', (e) => {
+            e.preventDefault();
+            const $button = $(e.currentTarget);
+            const $email = $button.closest('.sms').find('.email');
+            const $icon = $button.find('i');
+
+            $email.toggleClass('expanded');
+
+            if ($email.hasClass('expanded')) {
+                $icon.removeClass('bi-chevron-down').addClass('bi-chevron-up');
+            } else {
+                $icon.removeClass('bi-chevron-up').addClass('bi-chevron-down');
+            }
+        });
         // Other event handlers can be added here
     }
 
@@ -432,80 +507,229 @@ export class EventManageApp {
         $('html, body').animate({ scrollTop: $("#aiText").offset().top }, 500);
         $("#aiText").focus();
     }
-
-    /*** Data Loading Methods ***/
-
-
     async readGmail(email, retrieveEmail = true) {
-        $("#messages .content").html("");
+        // Clear existing messages
+        $("#messages").find(".content").empty();
+
+        this.adjustMessagesContainerHeight();
+
+        // Show loading indicator
+        $("#messages").find(".content").html(`
+            <div class="alert alert-info">
+                <i class="bi bi-hourglass-split"></i>
+                Loading emails...
+            </div>
+        `);
 
         if (retrieveEmail) {
             try {
                 await $.get("/api/retrieveGmail");
-                this.utils.alert("Email retrieval complete.");
+                console.log("Email retrieval complete");
             } catch (error) {
                 console.error("Failed to retrieve Gmail:", error);
+                $("#messages").find(".content").html(`
+                    <div class="alert alert-danger">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        Failed to retrieve emails: ${error.message}
+                    </div>
+                `);
+                return;
             }
         }
 
         try {
-            const data = await $.get("/gmail/readGmail", { email: email, showCount: 25 });
-            this.processEmails(data);
+            const response = await $.get("/gmail/readGmail", {
+                email: email,
+                showCount: 25
+            });
+
+            if (!Array.isArray(response)) {
+                console.error("Invalid response format:", response);
+                $("#messages").find(".content").html(`
+                    <div class="alert alert-danger">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        Unexpected response format from server
+                    </div>
+                `);
+                return;
+            }
+
+            if (response.length > 0) {
+                this.processEmails(response);
+                // Adjust height after processing emails
+            } else {
+                $("#messages").find(".content").html(`
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i>
+                        No emails found
+                    </div>
+                `);
+            }
         } catch (error) {
             console.error("Failed to read Gmail:", error);
+            $("#messages").find(".content").html(`
+                <div class="alert alert-danger">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    Failed to load emails: ${error.message || 'Unknown error'}
+                </div>
+            `);
         }
-    }
 
+        // Final height adjustment
+    }
+    refreshEmails() {
+        const messagesContainer = $("#messages .messages-container");
+        const loadingHtml = `
+            <div class="alert alert-info">
+                <i class="bi bi-hourglass-split"></i>
+                Filtering emails...
+            </div>
+        `;
+        messagesContainer.html(loadingHtml);
+
+        // Get the cached emails
+        $.get("/gmail/readGmail", {
+            email: 'all',
+            showCount: 25
+        }).then(response => {
+            this.processEmails(response);
+        }).catch(error => {
+            console.error("Failed to refresh emails:", error);
+            messagesContainer.html(`
+                <div class="alert alert-danger">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    Failed to refresh emails: ${error.message || 'Unknown error'}
+                </div>
+            `);
+        });
+    }
+    initializeEmailToggles() {
+        $(document).off('click', '.toggle-button').on('click', '.toggle-button', (e) => {
+            e.preventDefault();
+            const $button = $(e.currentTarget);
+            const $email = $button.closest('.sms').find('.email');
+            const $icon = $button.find('i');
+            
+            $email.toggleClass('expanded');
+            
+            if ($email.hasClass('expanded')) {
+                $icon.removeClass('bi-chevron-down').addClass('bi-chevron-up');
+            } else {
+                $icon.removeClass('bi-chevron-up').addClass('bi-chevron-down');
+            }
+        });
+    }
     processEmails(data) {
+        if (!Array.isArray(data)) {
+            console.error("Invalid data format:", data);
+            return;
+        }
+    
         data = _.orderBy(data, ["timestamp"], ["desc"]);
         const exclusionArray = ["calendar-notification", "accepted this invitation", "peerspace", "tagvenue"];
         let html = '';
-
-        data.forEach((ele) => {
-            if (exclusionArray.some((exclusion) => ele.subject.toLowerCase().includes(exclusion) || ele.text.toLowerCase().includes(exclusion))) {
+    
+        data.forEach((email) => {
+            if (!email || !email.subject || !email.text) {
+                console.warn("Skipping invalid email entry:", email);
                 return;
             }
-            const emailAddressMatch = ele.from.match(/<([^>]+)>/);
-            const emailAddress = emailAddressMatch ? emailAddressMatch[1] : ele.from;
-            if (emailAddress !== "INTERAC" && ele.text) {
-                ele.text = ele.text.replace(/\n/g, "<br>");
+    
+            if (exclusionArray.some((exclusion) =>
+                email.subject.toLowerCase().includes(exclusion) ||
+                email.text.toLowerCase().includes(exclusion)
+            )) {
+                return;
             }
-
-            const isUnread = ele.labels.includes("UNREAD");
-            const isImportant = ele.labels.includes("IMPORTANT");
-            const unreadIcon = isUnread ? `<i class="bi bi-envelope-open-text text-warning" title="Unread"></i> ` : `<i class="bi bi-envelope text-secondary" title="Read"></i> `;
-            const importantIcon = isImportant ? `<i class="bi bi-star-fill text-danger" title="Important"></i> ` : "";
-
+    
+            const emailAddressMatch = email.from.match(/<([^>]+)>/);
+            const emailAddress = emailAddressMatch ? emailAddressMatch[1] : email.from;
+    
+            if (emailAddress !== "INTERAC" && email.text) {
+                email.text = email.text.replace(/\n/g, "<br>");
+            }
+    
+            const isUnread = email.labels && email.labels.includes("UNREAD");
+            const isImportant = email.labels && email.labels.includes("IMPORTANT");
+            const unreadIcon = isUnread
+                ? `<i class="bi bi-envelope-open-text text-warning" title="Unread"></i> `
+                : `<i class="bi bi-envelope text-secondary" title="Read"></i> `;
+            const importantIcon = isImportant
+                ? `<i class="bi bi-star-fill text-danger" title="Important"></i> `
+                : "";
+    
             html += `
-                <div class="sms" subject="${_.escape(ele.subject)}" to="${_.escape(emailAddress)}" data-id="${_.escape(ele.id)}">
-                    <a href="#" class="btn btn-primary toggle-button"><i class="bi bi-three-dots"></i></a>
-                    <div class="email">
-                        <strong>${unreadIcon}${importantIcon}From:</strong> ${_.escape(ele.from)} <br>
-                        <strong>To:</strong> ${_.escape(ele.to)}<br>
-                        <strong>Subject:</strong> ${_.escape(ele.subject)}<br>
-                        <strong>Time:</strong> ${moment.tz(ele.timestamp, 'America/New_York').format("MM/DD/YYYY HH:mm")}<br>
-                        ${ele.text}
+                <div class="sms" subject="${_.escape(email.subject)}" to="${_.escape(emailAddress)}" data-id="${_.escape(email.id)}">
+                    <div class="flex items-center justify-between mb-2">
+                        <button class="icon-btn toggle-button" title="Toggle Content">
+                            <i class="bi bi-chevron-down"></i>
+                        </button>
+                        <div class="flex gap-2">
+                            ${unreadIcon}
+                            ${importantIcon}
+                        </div>
                     </div>
-                    <a href="#" class="btn btn-primary summarizeEmailAI" title="Summarize">
-                        <i class="bi bi-list-task"></i>
-                    </a>
-                    <a href="#" class="btn btn-primary draftEventSpecificEmail" title="Draft Event Specific Email">
-                        <i class="bi bi-pencil"></i>
-                    </a>
-                    <a href="#" class="btn btn-primary getEventDetails" data-id="${_.escape(ele.id)}" title="Send Event Info to AI">
-                        <i class="bi bi-calendar-plus"></i>
-                    </a>
-                    <a href="#" class="btn btn-primary generateConfirmationEmail" data-id="${_.escape(ele.id)}" title="Generate Confirmation Email">
-                        <i class="bi bi-envelope"></i>
-                    </a>
-                    <a href="#" class="btn btn-primary sendToAiTextArea" subject="${_.escape(ele.subject)}" to="${_.escape(emailAddress)}" data-id="${_.escape(ele.id)}" title="Send to AI textarea">
-                        <i class="bi bi-send"></i>
-                    </a>
+                    
+                    <div class="email">
+                        <div class="email-header">
+                            <div><strong>From:</strong> ${_.escape(email.from)}</div>
+                            <div><strong>To:</strong> ${_.escape(email.to)}</div>
+                            <div><strong>Subject:</strong> ${_.escape(email.subject)}</div>
+                            <div><strong>Time:</strong> ${moment.tz(email.timestamp, 'America/New_York').format("MM/DD/YYYY HH:mm")}</div>
+                        </div>
+                        <div class="email-body">
+                            ${email.text}
+                        </div>
+                    </div>
+    
+                    <div class="action-buttons">
+                        <button class="icon-btn summarizeEmailAI" title="Summarize Email">
+                            <i class="bi bi-list-task"></i>
+                        </button>
+                        <button class="icon-btn draftEventSpecificEmail" title="Draft Event Email">
+                            <i class="bi bi-pencil"></i>
+                        </button>
+                        <button class="icon-btn getEventDetails" data-id="${_.escape(email.id)}" title="Get Event Information">
+                            <i class="bi bi-calendar-plus"></i>
+                        </button>
+                        <button class="icon-btn generateConfirmationEmail" data-id="${_.escape(email.id)}" title="Generate Confirmation">
+                            <i class="bi bi-envelope"></i>
+                        </button>
+                        <button class="icon-btn sendToAiTextArea" subject="${_.escape(email.subject)}" to="${_.escape(emailAddress)}" data-id="${_.escape(email.id)}" title="Send to AI">
+                            <i class="bi bi-send"></i>
+                        </button>
+                    </div>
                 </div>`;
         });
-
-        $("#messages .content").append(html);
+    
+        if (html) {
+            $(".messages-container").html(html);
+            this.initializeEmailToggles();
+            this.initializeTooltips();
+        } else {
+            $(".messages-container").html(`
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i>
+                    No matching emails found
+                </div>
+            `);
+        }
     }
+    
+    // Add this new method to initialize tooltips
+    initializeTooltips() {
+        // Remove any existing tooltip initialization
+        $('.icon-btn[data-tooltip]').tooltip('dispose');
+        
+        // Initialize Bootstrap tooltips
+        $('.icon-btn').tooltip({
+            placement: 'top',
+            trigger: 'hover'
+        });
+    }
+
+    // Also update the processEmails method to handle missing data gracefully
+    
 
     getAllContacts() {
         $.get("/events/getEventsContacts", (contacts) => {

@@ -21,20 +21,94 @@
     @apply opacity-70 font-medium;
   }
 
-  .input, .select, .textarea {
+  .input,
+  .select,
+  .textarea {
     @apply bg-base-100 border-base-300 transition-all duration-200;
     @apply focus:ring-2 focus:ring-primary/20 focus:border-primary;
     @apply disabled:bg-base-200 disabled:cursor-not-allowed;
   }
 
-  /* Message container */
+  /* Messages Container */
   .messages-container {
-    @apply space-y-4;
+    @apply flex-1 overflow-y-auto overflow-x-hidden space-y-4;
+    min-height: 100px;
+    padding: 1rem;
   }
 
+  #messages {
+    @apply flex flex-col h-full;
+  }
+
+  #messages .card-body {
+    @apply p-4;
+  }
+
+  #messages .card-title {
+    @apply mb-4 flex justify-between items-center;
+  }
+
+  /* Email Items */
   .sms {
-    @apply bg-base-200 border border-base-300 rounded-lg p-4;
-    @apply transition-all duration-200 hover:shadow-md;
+    @apply bg-white border border-gray-200 rounded-lg transition-all duration-200 p-4;
+  }
+
+  .toggle-button {
+    @apply inline-flex items-center justify-center w-8 h-8 rounded-full 
+           hover:bg-gray-100 transition-colors text-gray-600 hover:text-gray-800;
+  }
+
+  .email {
+    @apply transition-all duration-200 overflow-hidden;
+    max-height: 150px;
+  }
+
+  .email.expanded {
+    max-height: none;
+  }
+
+  .email-header {
+    @apply mb-3 text-sm text-gray-600 space-y-1;
+  }
+
+  .email-body {
+    @apply text-gray-800 whitespace-pre-line mt-4;
+  }
+
+
+
+  /* Email Filters */
+  .email-filters {
+    @apply flex items-center gap-4 mb-4 px-4 py-2 bg-gray-50 rounded-lg;
+  }
+
+  .toggle {
+    @apply relative inline-flex h-6 w-11 items-center rounded-full transition-colors;
+  }
+
+  .toggle-primary {
+    @apply bg-gray-200;
+  }
+
+  .toggle-primary:checked {
+    @apply bg-primary;
+  }
+
+  /* Icons and Status */
+  .email-icons {
+    @apply flex items-center gap-2 mb-2;
+  }
+
+  .status-icon {
+    @apply inline-flex items-center justify-center w-6 h-6 rounded-full;
+  }
+
+  .unread-icon {
+    @apply text-warning;
+  }
+
+  .important-icon {
+    @apply text-danger;
   }
 
   /* Contacts styling */
@@ -86,20 +160,6 @@
     @apply bg-secondary/30 hover:bg-secondary/40;
   }
 
-  /* Modal improvements */
-  .modal-box {
-    @apply bg-base-200 border border-base-300;
-  }
-
-  /* Bottom navigation */
-  .btm-nav {
-    @apply bg-base-200 border-t border-base-300;
-  }
-
-  .btm-nav > *.active {
-    @apply border-primary;
-  }
-
   /* Custom scrollbar */
   .custom-scrollbar::-webkit-scrollbar {
     @apply w-2;
@@ -112,36 +172,45 @@
   .custom-scrollbar::-webkit-scrollbar-thumb {
     @apply bg-base-300 rounded-full hover:bg-base-300/70;
   }
-}
 
-@layer utilities {
+  /* Fade and Slide animations */
   .fade-in {
     animation: fadeIn 0.3s ease-in-out;
-  }
-
-  @keyframes fadeIn {
-    from {
-      opacity: 0;
-      transform: translateY(10px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
   }
 
   .slide-in {
     animation: slideIn 0.3s ease-in-out;
   }
+}
 
-  @keyframes slideIn {
-    from {
-      transform: translateX(-10px);
-      opacity: 0;
-    }
-    to {
-      transform: translateX(0);
-      opacity: 1;
-    }
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
   }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(-10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Additional utility classes */
+.hover-lift {
+  @apply transition-transform duration-200 hover:-translate-y-0.5;
+}
+
+.icon-btn {
+  @apply inline-flex items-center justify-center w-8 h-8 rounded-full;
+  @apply hover:bg-gray-100 transition-colors text-gray-600 hover:text-gray-800;
 }

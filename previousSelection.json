@@ -1,14 +1,9 @@
 [
-  "services/googleCalendarService.js",
   "services/gmailService.js",
-  "services/eventService.js",
   "services/aiService.js",
-  "services/GoogleAuth.js",
-  "routes/oauth.js",
   "routes/gmail.js",
-  "routes/events.js",
-  "routes/calendar.js",
   "routes/ai.js",
   "public/scripts.js",
-  "public/calendar.js"
+  "public/calendar.js",
+  "src/styles.css"
 ]

@@ -1,78 +1,37 @@
 
-//--- File: /home/luan_ngo/web/events/services/googleCalendarService.js ---
-
-const { google } = require('googleapis');
-const fs = require('fs');
-const path = require('path');
-
-class GoogleCalendarService {
-  constructor(auth) {
-    this.credentialsPath = path.join(__dirname, '../credentials.json');
-    this.tokenPath = path.join(__dirname, '../token.json');
-    this.SCOPES = ['https:
-
-    this.auth = auth;
-
-  }
-
-  async listEvents() {
-    const calendar = google.calendar({ version: 'v3', auth: this.auth });
-    const res = await calendar.events.list({
-      calendarId: 'primary', 
-      timeMin: new Date().toISOString(), 
-      maxResults: 2500, 
-      singleEvents: true,
-      orderBy: 'startTime',
-    });
-    return res.data.items || [];
-  }
-
-  async addEvent(eventData) {
-    if (!this.auth) {
-      this.authorize();
-    }
-    const calendar = google.calendar({ version: 'v3', auth: this.auth });
-    const event = {
-      summary: `Event: ${eventData.name}`,
-      location: eventData.location || '',
-      description: eventData.notes || '',
-      start: {
-        dateTime: eventData.startTime,
-        timeZone: 'America/New_York',
-      },
-      end: {
-        dateTime: eventData.endTime,
-        timeZone: 'America/New_York',
-      },
-    };
-    const res = await calendar.events.insert({
-      calendarId: 'primary',
-      resource: event,
-    });
-    return res.data;
-  }
-}
-
-module.exports = new GoogleCalendarService();
-
-
 //--- File: /home/luan_ngo/web/events/services/gmailService.js ---
 const { google } = require('googleapis');
+const path = require('path');
+const fs = require('fs');
 
 class GmailService {
     constructor(auth) {
-        
-        this.googleAuth = auth;
-    }
+        this.auth = auth;
+        this.cacheFilePath = path.join(__dirname, '..', 'data', 'emails.json');
 
-    async listMessages(userEmail, gmailEmail, showCount) {
+
+    }
+    saveEmailsToCache(emails) {
+        fs.writeFileSync(this.cacheFilePath, JSON.stringify(emails, null, 2), 'utf8');
+      }
+
+      loadEmailsFromCache() {
+        if (fs.existsSync(this.cacheFilePath)) {
+          const data = fs.readFileSync(this.cacheFilePath, 'utf8');
+          return JSON.parse(data);
+        }
+        return [];
+      }
+    async listMessages(userEmail, gmailEmail, showCount, labelIds = []) {
         try {
-            const auth = await this.googleAuth.getOAuth2Client();
-            const gmail = google.gmail({ version: 'v1', auth });
+            const authClient = await this.auth.getOAuth2Client();
+            const gmail = google.gmail({ version: 'v1', auth: authClient });
+
             const res = await gmail.users.messages.list({
                 userId: 'me',
                 maxResults: showCount,
-                q: gmailEmail ? `to:${gmailEmail}` : ''
+                q: gmailEmail ? `to:${gmailEmail}` : '',
+                labelIds: labelIds.length > 0 ? labelIds : undefined,
             });
             return res.data.messages || [];
         } catch (error) {
@@ -80,10 +39,9 @@ class GmailService {
             throw error;
         }
     }
-
     async getMessage(messageId) {
         try {
-            const auth = await this.googleAuth.getOAuth2Client();
+            const auth = await this.auth.getOAuth2Client();
             const gmail = google.gmail({ version: 'v1', auth });
             const res = await gmail.users.messages.get({
                 userId: 'me',
@@ -100,7 +58,7 @@ class GmailService {
     async parseEmailContent(message) {
         const payload = message.payload;
         let emailBody = '';
-        
+
         if (payload.parts) {
             for (const part of payload.parts) {
                 if (part.mimeType === 'text/plain') {
@@ -110,38 +68,28 @@ class GmailService {
         } else if (payload.body && payload.body.data) {
             emailBody = Buffer.from(payload.body.data, 'base64').toString('utf-8');
         }
-        
+
         return emailBody;
     }
-}
-
-
-module.exports = new GmailService();
-
-//--- File: /home/luan_ngo/web/events/services/eventService.js ---
-
-const fs = require('fs');
-const path = require('path');
-
-const eventsFilePath = path.join(__dirname, '..', 'data', 'events.json');
-
-class EventService {
-  loadEvents() {
-    if (fs.existsSync(eventsFilePath)) {
-      const data = fs.readFileSync(eventsFilePath, 'utf8');
-      return JSON.parse(data);
-    } else {
-      return [];
+    async getThreadMessages(threadId) {
+        try {
+            const authClient = await this.auth.getOAuth2Client();
+            const gmail = google.gmail({ version: 'v1', auth: authClient });
+            const res = await gmail.users.threads.get({
+                userId: 'me',
+                id: threadId,
+                format: 'full',
+            });
+            return res.data.messages || [];
+        } catch (error) {
+            console.error('Error fetching thread messages:', error);
+            throw error;
+        }
     }
-  }
-
-  saveEvents(events) {
-    fs.writeFileSync(eventsFilePath, JSON.stringify(events, null, 2));
-  }
 }
 
-module.exports = new EventService();
 
+module.exports = GmailService;
 
 //--- File: /home/luan_ngo/web/events/services/aiService.js ---
 
@@ -233,414 +181,167 @@ class AIService {
 module.exports = new AIService();
 
 
-//--- File: /home/luan_ngo/web/events/services/GoogleAuth.js ---
-const path = require('path');
-const fs = require('fs');
-const { google } = require('googleapis');
-const dotenv = require('dotenv');
-dotenv.config();
-
-class GoogleAuth {
-    constructor() {
-        this.clientId = process.env.GOOGLE_CLIENT_ID;
-        this.clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-        this.redirectUri = process.env.GOOGLE_REDIRECT_URI || 'https:
-        this.tokenPath = path.join(__dirname, '../data/token.json');
-        this.token = this.loadToken();
-    }
-
-    generateAuthUrl() {
-        const oAuth2Client = new google.auth.OAuth2(
-            this.clientId,
-            this.clientSecret,
-            this.redirectUri
-        );
-
-        return oAuth2Client.generateAuthUrl({
-            access_type: 'offline',
-            prompt: 'consent',
-            scope: [
-                'https:
-                'https:
-                'https:
-                'https:
-            ]
-        });
-    }
-
-    async getOAuth2Client() {
-        if (!this.clientId || !this.clientSecret) {
-            throw new Error('Missing Google OAuth credentials. Check your environment variables.');
-        }
-
-        const oAuth2Client = new google.auth.OAuth2(
-            this.clientId,
-            this.clientSecret,
-            this.redirectUri
-        );
-
-        if (!this.token) {
-            throw new Error('No authentication token found. Please authenticate first.');
-        }
-
-        if (this.shouldRefreshToken(this.token)) {
-            try {
-                const newToken = await this.refreshToken(oAuth2Client, this.token);
-                this.token = newToken;
-                await this.saveToken(newToken);
-            } catch (error) {
-                console.error('Error refreshing token:', error);
-                throw error;
-            }
-        }
-
-        oAuth2Client.setCredentials(this.token);
-        return oAuth2Client;
-    }
-
-    async handleCallback(code) {
-        try {
-            const oAuth2Client = new google.auth.OAuth2(
-                this.clientId,
-                this.clientSecret,
-                this.redirectUri
-            );
-
-            const { tokens } = await oAuth2Client.getToken(code);
-            
-            
-            oAuth2Client.setCredentials(tokens);
-            const gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
-            const profile = await gmail.users.getProfile({ userId: 'me' });
-            
-            
-            tokens.email = profile.data.emailAddress;
-            await this.saveToken(tokens);
-            this.token = tokens;
-
-            return { 
-                success: true, 
-                email: profile.data.emailAddress 
-            };
-        } catch (error) {
-            console.error('Error in handleCallback:', error);
-            return { 
-                success: false, 
-                error: error.message 
-            };
-        }
-    }
-
-    shouldRefreshToken(token) {
-        if (!token.expiry_date) return true;
-        return token.expiry_date - Date.now() <= 5 * 60 * 1000; 
-    }
-
-    async refreshToken(oAuth2Client, token) {
-        try {
-            oAuth2Client.setCredentials({
-                refresh_token: token.refresh_token
-            });
-
-            const { credentials } = await oAuth2Client.refreshAccessToken();
-            return { ...credentials, email: token.email };
-        } catch (error) {
-            console.error('Error refreshing token:', error);
-            throw error;
-        }
-    }
-
-    loadToken() {
-        try {
-            if (fs.existsSync(this.tokenPath)) {
-                return JSON.parse(fs.readFileSync(this.tokenPath, 'utf8'));
-            }
-        } catch (error) {
-            console.error('Error loading token:', error);
-        }
-        return null;
-    }
-
-    async saveToken(token) {
-        try {
-            const tokenDir = path.dirname(this.tokenPath);
-            if (!fs.existsSync(tokenDir)) {
-                fs.mkdirSync(tokenDir, { recursive: true });
-            }
-            await fs.promises.writeFile(
-                this.tokenPath, 
-                JSON.stringify(token, null, 2),
-                'utf8'
-            );
-        } catch (error) {
-            console.error('Error saving token:', error);
-            throw error;
-        }
-    }
-
-    async revokeAccess() {
-        try {
-            if (fs.existsSync(this.tokenPath)) {
-                await fs.promises.unlink(this.tokenPath);
-                this.token = null;
-                return true;
-            }
-            return false;
-        } catch (error) {
-            console.error('Error revoking access:', error);
-            throw error;
-        }
-    }
-}
-
-
-module.exports = GoogleAuth;
-
-//--- File: /home/luan_ngo/web/events/routes/oauth.js ---
-const express = require('express');
-const router = express.Router();
-const cors = require('cors');
-
-
-
-router.use(cors({
-    origin: process.env.FRONTEND_URL || 'https:
-    credentials: true
-}));
-
-
-router.get('/google', (req, res) => {
-    try {
-        
-        const authUrl = googleAuth.generateAuthUrl();
-        
-        res.json({ authUrl });
-    } catch (error) {
-        console.error('Error generating auth URL:', error);
-        
-        res.redirect(`${process.env.FRONTEND_URL || 'https:
-    }
-});
-
-
-router.get('/google/callback', async (req, res) => {
-    const code = req.query.code;
-    const frontendUrl = process.env.FRONTEND_URL || 'https:
-    
-    if (!code) {
-        return res.redirect(`${frontendUrl}?oauth=error&message=No_authorization_code`);
-    }
-
-    try {
-        const result = await googleAuth.handleCallback(code);
-        if (result.success) {
-            
-            req.session.userEmail = result.email;
-            
-            
-            res.redirect(`${frontendUrl}?oauth=success`);
-        } else {
-            throw new Error(result.error || 'Authentication failed');
-        }
-    } catch (error) {
-        console.error('Error handling OAuth callback:', error);
-        res.redirect(`${frontendUrl}?oauth=error&message=${encodeURIComponent(error.message)}`);
-    }
-});
-
-module.exports = router;
-
 //--- File: /home/luan_ngo/web/events/routes/gmail.js ---
 const express = require('express');
 const router = express.Router();
 const gmailService = require('../services/gmailService');
 
+module.exports = (googleAuth) => {
+    const gmail = new gmailService(googleAuth);
 
-router.get('/readGmail', async (req, res) => {
-    try {
-        const email = req.query.email || 'all';
-        const showCount = parseInt(req.query.showCount) || 25;
+    router.get('/readGmail', async (req, res) => {
+        try {
+            const emailQuery = req.query.email || 'all';
+            const showCount = parseInt(req.query.showCount) || 25;
+            const labelIds = ['INBOX', 'SENT'];
 
-        console.log(`Reading Gmail for ${email}, count: ${showCount}`);
-        const messages = await gmailService.listMessages(email);
+            console.log(`Reading Gmail for ${emailQuery}, count: ${showCount}`);
+
+            let cachedEmails = gmail.loadEmailsFromCache();
+            let cachedEmailMap = {};
+            cachedEmails.forEach(email => {
+                cachedEmailMap[email.id] = email;
+            });
+
+            const messages = await gmail.listMessages(emailQuery, null, showCount, labelIds);
+            let allEmails = [];
+            let emailsToCheckForReplies = [];
+
+            const asyncLib = require('async');
+            asyncLib.mapLimit(
+                messages,
+                10,
+                async (message) => {
+                    try {
+                        if (cachedEmailMap[message.id]) {
+                            const emailData = cachedEmailMap[message.id];
+                            allEmails.push(emailData);
+                            return emailData;
+                        }
+
+                        const fullMessage = await gmail.getMessage(message.id);
+                        const content = await gmail.parseEmailContent(fullMessage);
+
+                        const emailData = {
+                            id: message.id,
+                            threadId: message.threadId,
+                            from: fullMessage.payload.headers.find((h) => h.name === 'From')?.value || '',
+                            to: fullMessage.payload.headers.find((h) => h.name === 'To')?.value || '',
+                            subject: fullMessage.payload.headers.find((h) => h.name === 'Subject')?.value || '',
+                            timestamp: fullMessage.payload.headers.find((h) => h.name === 'Date')?.value || '',
+                            internalDate: fullMessage.internalDate,
+                            text: content,
+                            labels: fullMessage.labelIds || [],
+                        };
+                        console.log(`Fetching message ID ${message.id}`);
+
+                        cachedEmailMap[message.id] = emailData;
+                        allEmails.push(emailData);
+
+                        
+                        if (!emailData.labels.includes('SENT')) {
+                            emailsToCheckForReplies.push(emailData);
+                        } else {
+                            
+                            emailData.replied = null;
+                        }
+
+                        return emailData;
+                    } catch (err) {
+                        console.error(`Error processing message ID ${message.id}:`, err);
+                        return null;
+                    }
+                },
+                async (err, fullMessages) => {
+                    if (err) {
+                        console.error('Error processing messages:', err);
+                        return res.status(500).json({
+                            error: 'Error processing messages',
+                            details: err.message,
+                        });
+                    }
+
+                    const validMessages = fullMessages.filter((msg) => msg !== null);
+
+                    
+                    if (emailsToCheckForReplies.length > 0) {
+                        await checkForReplies(emailsToCheckForReplies, cachedEmailMap);
+                    }
+
+                    const updatedEmails = Object.values(cachedEmailMap);
+                    gmail.saveEmailsToCache(updatedEmails);
+
+                    res.json(updatedEmails);
+                }
+            );
+        } catch (error) {
+            console.error('Error reading Gmail:', error);
+            res.status(500).json({
+                error: 'Error reading Gmail',
+                details: error.message,
+            });
+        }
+    });
+
+    router.get('/messages/:id', async (req, res) => {
+        try {
+            const message = await gmail.getMessage(req.params.id);
+            const content = await gmail.parseEmailContent(message);
+            res.json({
+                id: message.id,
+                from: message.payload.headers.find(h => h.name === 'From')?.value || '',
+                to: message.payload.headers.find(h => h.name === 'To')?.value || '',
+                subject: message.payload.headers.find(h => h.name === 'Subject')?.value || '',
+                timestamp: message.payload.headers.find(h => h.name === 'Date')?.value || '',
+                text: content,
+                labels: message.labelIds || []
+            });
+        } catch (error) {
+            console.error('Error retrieving message:', error);
+            res.status(500).json({
+                error: 'Error retrieving message',
+                details: error.message
+            });
+        }
+    });
+
+    async function checkForReplies(emails, cachedEmailMap) {
         
-        
-        const fullMessages = await Promise.all(
-            messages.map(async (message) => {
-                const fullMessage = await gmailService.getMessage(message.id);
-                const content = await gmailService.parseEmailContent(fullMessage);
-                return {
-                    id: message.id,
-                    from: fullMessage.payload.headers.find(h => h.name === 'From')?.value || '',
-                    to: fullMessage.payload.headers.find(h => h.name === 'To')?.value || '',
-                    subject: fullMessage.payload.headers.find(h => h.name === 'Subject')?.value || '',
-                    timestamp: fullMessage.payload.headers.find(h => h.name === 'Date')?.value || '',
-                    text: content,
-                    labels: fullMessage.labelIds || []
-                };
-            })
-        );
-
-        res.json(fullMessages);
-    } catch (error) {
-        console.error('Error reading Gmail:', error);
-        res.status(500).json({ 
-            error: 'Error reading Gmail',
-            details: error.message
+        const threadGroups = new Map();
+        emails.forEach(email => {
+            if (!email.labels.includes('SENT')) { 
+                if (!threadGroups.has(email.threadId)) {
+                    threadGroups.set(email.threadId, []);
+                }
+                threadGroups.set(email.threadId, [...threadGroups.get(email.threadId), email]);
+            }
         });
+
+        for (const [threadId, threadEmails] of threadGroups) {
+            try {
+                const threadMessages = await gmail.getThreadMessages(threadId);
+                
+                
+                const sentMessages = threadMessages.filter(msg => msg.labelIds.includes('SENT'));
+                
+                
+                threadEmails.forEach(inboxEmail => {
+                    const replied = sentMessages.some(sentMsg => 
+                        parseInt(sentMsg.internalDate) > parseInt(inboxEmail.internalDate)
+                    );
+                    
+                    if (cachedEmailMap[inboxEmail.id]) {
+                        cachedEmailMap[inboxEmail.id].replied = replied;
+                    }
+                });
+            } catch (err) {
+                console.error(`Error checking replies for thread ${threadId}:`, err);
+            }
+        }
     }
-});
 
-
-router.get('/messages/:id', async (req, res) => {
-    try {
-        const message = await gmailService.getMessage(req.params.id);
-        const content = await gmailService.parseEmailContent(message);
-        res.json({
-            id: message.id,
-            from: message.payload.headers.find(h => h.name === 'From')?.value || '',
-            to: message.payload.headers.find(h => h.name === 'To')?.value || '',
-            subject: message.payload.headers.find(h => h.name === 'Subject')?.value || '',
-            timestamp: message.payload.headers.find(h => h.name === 'Date')?.value || '',
-            text: content,
-            labels: message.labelIds || []
-        });
-    } catch (error) {
-        console.error('Error retrieving message:', error);
-        res.status(500).json({ 
-            error: 'Error retrieving message',
-            details: error.message 
-        });
-    }
-});
-
-module.exports = router;
-
-//--- File: /home/luan_ngo/web/events/routes/events.js ---
-
-const express = require('express');
-const router = express.Router();
-const eventService = require('../services/eventService');
-const pdfService = require('../services/pdfService');
-const googleCalendarService = require('../services/googleCalendarService');
-
-
-router.get('/', (req, res) => {
-  const events = eventService.loadEvents();
-  res.json(events);
-});
-
-
-router.post('/', (req, res) => {
-  const events = eventService.loadEvents();
-  const newEvent = req.body;
-  newEvent.id = events.length > 0 ? events[events.length - 1].id + 1 : 1;
-  events.push(newEvent);
-  eventService.saveEvents(events);
-  res.json(newEvent);
-});
-
-
-router.put('/:id', (req, res) => {
-  const events = eventService.loadEvents();
-  const eventId = parseInt(req.params.id);
-  const index = events.findIndex((e) => e.id === eventId);
-  if (index !== -1) {
-    events[index] = req.body;
-    eventService.saveEvents(events);
-    res.json(events[index]);
-  } else {
-    res.status(404).send('Event not found');
-  }
-});
-
-
-router.delete('/:id', (req, res) => {
-  const events = eventService.loadEvents();
-  const eventId = parseInt(req.params.id);
-  const index = events.findIndex((e) => e.id === eventId);
-  if (index !== -1) {
-    events.splice(index, 1);
-    eventService.saveEvents(events);
-    res.sendStatus(200);
-  } else {
-    res.status(404).send('Event not found');
-  }
-});
-
-
-router.post('/:id/contract', async (req, res) => {
-  const events = eventService.loadEvents();
-  const eventId = parseInt(req.params.id);
-  const event = events.find((e) => e.id === eventId);
-  if (event) {
-    try {
-      const { fileName, filePath } = await pdfService.generateContract(event);
-      res.json({ fileName, filePath });
-    } catch (error) {
-      console.error('Error generating contract:', error);
-      res.status(500).send('Error generating contract');
-    }
-  } else {
-    res.status(404).send('Event not found');
-  }
-});
-router.get('/getEventsContacts', (req, res) => {
-  const events = eventService.loadEvents();
-  res.json(events);
-});
-
-
-router.get('/calendar/events', async (req, res) => {
-  try {
-    const events = await googleCalendarService.listEvents();
-    res.json(events);
-  } catch (error) {
-    console.error('Error listing calendar events:', error);
-    res.status(500).send('Error listing calendar events');
-  }
-});
-
-
-router.post('/calendar/events', async (req, res) => {
-  const eventData = req.body;
-  try {
-    const event = await googleCalendarService.addEvent(eventData);
-    res.json(event);
-  } catch (error) {
-    console.error('Error adding event to calendar:', error);
-    res.status(500).send('Error adding event to calendar');
-  }
-});
-
-module.exports = router;
-
-
-//--- File: /home/luan_ngo/web/events/routes/calendar.js ---
-
-
-const express = require('express');
-const router = express.Router();
-const googleCalendarService = require('../services/googleCalendarService');
-
-router.get('/getEventCalendar', async (req, res) => {
-  try {
-    
-    await googleCalendarService.authorize();
-
-    
-    const events = await googleCalendarService.listEvents();
-
-    
-    res.json(events);
-  } catch (error) {
-    console.error('Error fetching events from Google Calendar:', error);
-    res.status(500).send('Error fetching events from Google Calendar');
-  }
-});
-
-module.exports = router;
-
+    return router;
+};
 
 //--- File: /home/luan_ngo/web/events/routes/ai.js ---
 
@@ -710,6 +411,7 @@ export class EventManageApp {
             orderUp: new Howl({ src: ['./orderup.m4a'] })
         };
 
+
         
         await this.loadTemplates();
 
@@ -721,13 +423,6 @@ export class EventManageApp {
         this.createCalendar();
         this.readGmail("all", false);
 
-        
-        this.setupUI();
-
-        
-        $('[data-tip="tooltip"]').tooltip();
-
-        
         const urlParams = new URLSearchParams(window.location.search);
         if (urlParams.get('oauth') === 'success') {
             
@@ -736,7 +431,43 @@ export class EventManageApp {
                 this.setConnectedEmail(response.email);
             }
         }
+
+
     }
+    
+    adjustMessagesContainerHeight() {
+        const messagesCard = document.querySelector('#messages .card-body');
+        const messagesContainer = document.querySelector('.messages-container');
+
+        if (!messagesCard || !messagesContainer) return;
+
+        
+        const cardHeight = messagesCard.offsetHeight;
+
+        
+        const otherElements = messagesCard.querySelectorAll('.card-title ');
+        let otherElementsHeight = 0;
+        otherElements.forEach(element => {
+            
+            if (window.getComputedStyle(element).display !== 'none') {
+                otherElementsHeight += element.offsetHeight;
+            }
+        });
+
+        
+        const containerStyle = window.getComputedStyle(messagesContainer);
+        const verticalPadding = parseFloat(containerStyle.paddingTop) +
+            parseFloat(containerStyle.paddingBottom) +
+            parseFloat(containerStyle.marginTop) +
+            parseFloat(containerStyle.marginBottom);
+
+        
+        const newHeight = cardHeight - otherElementsHeight - verticalPadding;
+        messagesContainer.style.maxHeight = `${Math.max(newHeight, 100)}px`; 
+    }
+
+
+
     async initiateGoogleOAuth() {
         try {
             const response = await $.get('/oauth/google');
@@ -1013,6 +744,20 @@ export class EventManageApp {
             this.sendToAiFromResult(e);
         });
 
+        $(document).off('click', '.toggle-button').on('click', '.toggle-button', (e) => {
+            e.preventDefault();
+            const $button = $(e.currentTarget);
+            const $email = $button.closest('.sms').find('.email');
+            const $icon = $button.find('i');
+
+            $email.toggleClass('expanded');
+
+            if ($email.hasClass('expanded')) {
+                $icon.removeClass('bi-chevron-down').addClass('bi-chevron-up');
+            } else {
+                $icon.removeClass('bi-chevron-up').addClass('bi-chevron-down');
+            }
+        });
         
     }
 
@@ -1129,53 +874,218 @@ export class EventManageApp {
         $('html, body').animate({ scrollTop: $("#aiText").offset().top }, 500);
         $("#aiText").focus();
     }
-
-    
-
-
     async readGmail(email, retrieveEmail = true) {
-        $("#messages .content").html("");
+        
+        $("#messages").find(".content").empty();
+
+        this.adjustMessagesContainerHeight();
+
+        
+        $("#messages").find(".content").html(`
+            <div class="alert alert-info">
+                <i class="bi bi-hourglass-split"></i>
+                Loading emails...
+            </div>
+        `);
 
         if (retrieveEmail) {
             try {
                 await $.get("/api/retrieveGmail");
-                this.utils.alert("Email retrieval complete.");
+                console.log("Email retrieval complete");
             } catch (error) {
                 console.error("Failed to retrieve Gmail:", error);
+                $("#messages").find(".content").html(`
+                    <div class="alert alert-danger">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        Failed to retrieve emails: ${error.message}
+                    </div>
+                `);
+                return;
             }
         }
 
         try {
-            const data = await $.get("/gmail/readGmail", { email: email, showCount: 25 });
-            this.processEmails(data);
+            const response = await $.get("/gmail/readGmail", {
+                email: email,
+                showCount: 25
+            });
+
+            if (!Array.isArray(response)) {
+                console.error("Invalid response format:", response);
+                $("#messages").find(".content").html(`
+                    <div class="alert alert-danger">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        Unexpected response format from server
+                    </div>
+                `);
+                return;
+            }
+
+            if (response.length > 0) {
+                this.processEmails(response);
+                
+            } else {
+                $("#messages").find(".content").html(`
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i>
+                        No emails found
+                    </div>
+                `);
+            }
         } catch (error) {
             console.error("Failed to read Gmail:", error);
+            $("#messages").find(".content").html(`
+                <div class="alert alert-danger">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    Failed to load emails: ${error.message || 'Unknown error'}
+                </div>
+            `);
         }
+
+        
     }
 
     processEmails(data) {
+        if (!Array.isArray(data)) {
+            console.error("Invalid data format:", data);
+            return;
+        }
+
+        data = _.orderBy(data, ["timestamp"], ["desc"]);
+        const exclusionArray = ["calendar-notification", "accepted this invitation", "peerspace", "tagvenue"];
+        let html = '';
+
+        data.forEach((email) => {
+            if (!email || !email.subject || !email.text) {
+                console.warn("Skipping invalid email entry:", email);
+                return;
+            }
+
+            if (exclusionArray.some((exclusion) =>
+                email.subject.toLowerCase().includes(exclusion) ||
+                email.text.toLowerCase().includes(exclusion)
+            )) {
+                return;
+            }
+
+            const emailAddressMatch = email.from.match(/<([^>]+)>/);
+            const emailAddress = emailAddressMatch ? emailAddressMatch[1] : email.from;
+
+            if (emailAddress !== "INTERAC" && email.text) {
+                email.text = email.text.replace(/\n/g, "<br>");
+            }
+
+            const isUnread = email.labels && email.labels.includes("UNREAD");
+            const isImportant = email.labels && email.labels.includes("IMPORTANT");
+            const unreadIcon = isUnread
+                ? `<i class="bi bi-envelope-open-text text-warning" title="Unread"></i> `
+                : `<i class="bi bi-envelope text-secondary" title="Read"></i> `;
+            const importantIcon = isImportant
+                ? `<i class="bi bi-star-fill text-danger" title="Important"></i> `
+                : "";
+
+            html += `
+                <div class="sms" subject="${_.escape(email.subject)}" to="${_.escape(emailAddress)}" data-id="${_.escape(email.id)}">
+                    <div class="flex items-center justify-between">
+                        <button class="toggle-button">
+                            <i class="bi bi-chevron-down"></i>
+                        </button>
+                        <div class="flex gap-2">
+                            ${unreadIcon}
+                            ${importantIcon}
+                        </div>
+                    </div>
+                    
+                    <div class="email">
+                        <div class="email-header">
+                            <div><strong>From:</strong> ${_.escape(email.from)}</div>
+                            <div><strong>To:</strong> ${_.escape(email.to)}</div>
+                            <div><strong>Subject:</strong> ${_.escape(email.subject)}</div>
+                            <div><strong>Time:</strong> ${moment.tz(email.timestamp, 'America/New_York').format("MM/DD/YYYY HH:mm")}</div>
+                        </div>
+                        <div class="email-body">
+                            ${email.text}
+                        </div>
+                    </div>
+    
+                    <div class="action-buttons">
+                        <button class="btn btn-sm btn-primary summarizeEmailAI" title="Summarize">
+                            <i class="bi bi-list-task"></i> Summarize
+                        </button>
+                        <button class="btn btn-sm btn-primary draftEventSpecificEmail" title="Draft Event Specific Email">
+                            <i class="bi bi-pencil"></i> Draft
+                        </button>
+                        <button class="btn btn-sm btn-primary getEventDetails" data-id="${_.escape(email.id)}" title="Send Event Info to AI">
+                            <i class="bi bi-calendar-plus"></i> Event Info
+                        </button>
+                        <button class="btn btn-sm btn-primary generateConfirmationEmail" data-id="${_.escape(email.id)}" title="Generate Confirmation Email">
+                            <i class="bi bi-envelope"></i> Confirm
+                        </button>
+                        <button class="btn btn-sm btn-primary sendToAiTextArea" subject="${_.escape(email.subject)}" to="${_.escape(emailAddress)}" data-id="${_.escape(email.id)}" title="Send to AI textarea">
+                            <i class="bi bi-send"></i> Send to AI
+                        </button>
+                    </div>
+                </div>`;
+        });
+
+        if (html) {
+            $(".messages-container").html(html);
+            this.initializeEmailToggles();
+        } else {
+            $(".messages-container").html(`
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i>
+                    No matching emails found
+                </div>
+            `);
+        }
+    }
+
+    
+    processEmails(data) {
+        if (!Array.isArray(data)) {
+            console.error("Invalid data format:", data);
+            return;
+        }
+
         data = _.orderBy(data, ["timestamp"], ["desc"]);
         const exclusionArray = ["calendar-notification", "accepted this invitation", "peerspace", "tagvenue"];
         let html = '';
 
         data.forEach((ele) => {
-            if (exclusionArray.some((exclusion) => ele.subject.toLowerCase().includes(exclusion) || ele.text.toLowerCase().includes(exclusion))) {
+            
+            if (!ele || !ele.subject || !ele.text) {
+                console.warn("Skipping invalid email entry:", ele);
                 return;
             }
+
+            if (exclusionArray.some((exclusion) =>
+                ele.subject.toLowerCase().includes(exclusion) ||
+                ele.text.toLowerCase().includes(exclusion)
+            )) {
+                return;
+            }
+
             const emailAddressMatch = ele.from.match(/<([^>]+)>/);
             const emailAddress = emailAddressMatch ? emailAddressMatch[1] : ele.from;
+
+            
             if (emailAddress !== "INTERAC" && ele.text) {
                 ele.text = ele.text.replace(/\n/g, "<br>");
             }
 
-            const isUnread = ele.labels.includes("UNREAD");
-            const isImportant = ele.labels.includes("IMPORTANT");
-            const unreadIcon = isUnread ? `<i class="bi bi-envelope-open-text text-warning" title="Unread"></i> ` : `<i class="bi bi-envelope text-secondary" title="Read"></i> `;
-            const importantIcon = isImportant ? `<i class="bi bi-star-fill text-danger" title="Important"></i> ` : "";
+            const isUnread = ele.labels && ele.labels.includes("UNREAD");
+            const isImportant = ele.labels && ele.labels.includes("IMPORTANT");
+            const unreadIcon = isUnread
+                ? `<i class="bi bi-envelope-open-text text-warning" title="Unread"></i> `
+                : `<i class="bi bi-envelope text-secondary" title="Read"></i> `;
+            const importantIcon = isImportant
+                ? `<i class="bi bi-star-fill text-danger" title="Important"></i> `
+                : "";
 
             html += `
                 <div class="sms" subject="${_.escape(ele.subject)}" to="${_.escape(emailAddress)}" data-id="${_.escape(ele.id)}">
-                    <a href="#" class="btn btn-primary toggle-button"><i class="bi bi-three-dots"></i></a>
+                    <a href="#" class="toggle-button"><i class="bi bi-three-dots"></i></a>
                     <div class="email">
                         <strong>${unreadIcon}${importantIcon}From:</strong> ${_.escape(ele.from)} <br>
                         <strong>To:</strong> ${_.escape(ele.to)}<br>
@@ -1183,25 +1093,36 @@ export class EventManageApp {
                         <strong>Time:</strong> ${moment.tz(ele.timestamp, 'America/New_York').format("MM/DD/YYYY HH:mm")}<br>
                         ${ele.text}
                     </div>
-                    <a href="#" class="btn btn-primary summarizeEmailAI" title="Summarize">
-                        <i class="bi bi-list-task"></i>
-                    </a>
-                    <a href="#" class="btn btn-primary draftEventSpecificEmail" title="Draft Event Specific Email">
-                        <i class="bi bi-pencil"></i>
-                    </a>
-                    <a href="#" class="btn btn-primary getEventDetails" data-id="${_.escape(ele.id)}" title="Send Event Info to AI">
-                        <i class="bi bi-calendar-plus"></i>
-                    </a>
-                    <a href="#" class="btn btn-primary generateConfirmationEmail" data-id="${_.escape(ele.id)}" title="Generate Confirmation Email">
-                        <i class="bi bi-envelope"></i>
-                    </a>
-                    <a href="#" class="btn btn-primary sendToAiTextArea" subject="${_.escape(ele.subject)}" to="${_.escape(emailAddress)}" data-id="${_.escape(ele.id)}" title="Send to AI textarea">
-                        <i class="bi bi-send"></i>
-                    </a>
+                    <div class="flex gap-2 mt-2">
+                        <a href="#" class="btn btn-primary summarizeEmailAI" title="Summarize">
+                            <i class="bi bi-list-task"></i>
+                        </a>
+                        <a href="#" class="btn btn-primary draftEventSpecificEmail" title="Draft Event Specific Email">
+                            <i class="bi bi-pencil"></i>
+                        </a>
+                        <a href="#" class="btn btn-primary getEventDetails" data-id="${_.escape(ele.id)}" title="Send Event Info to AI">
+                            <i class="bi bi-calendar-plus"></i>
+                        </a>
+                        <a href="#" class="btn btn-primary generateConfirmationEmail" data-id="${_.escape(ele.id)}" title="Generate Confirmation Email">
+                            <i class="bi bi-envelope"></i>
+                        </a>
+                        <a href="#" class="btn btn-primary sendToAiTextArea" subject="${_.escape(ele.subject)}" to="${_.escape(emailAddress)}" data-id="${_.escape(ele.id)}" title="Send to AI textarea">
+                            <i class="bi bi-send"></i>
+                        </a>
+                    </div>
                 </div>`;
         });
 
-        $("#messages .content").append(html);
+        if (html) {
+            $("#messages .messages-container").html(html);
+        } else {
+            $("#messages .messages-container").html(`
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i>
+                    No matching emails found
+                </div>
+            `);
+        }
     }
 
     getAllContacts() {
@@ -1583,3 +1504,198 @@ class Calendar {
 
 
 
+
+//--- File: /home/luan_ngo/web/events/src/styles.css ---
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer components {
+
+  
+  .card {
+    @apply bg-base-200 text-base-content border border-base-300;
+  }
+
+  
+  .form-control {
+    @apply relative space-y-1;
+  }
+
+  .form-control .label {
+    @apply pb-1;
+  }
+
+  .form-control .label-text {
+    @apply opacity-70 font-medium;
+  }
+
+  .input,
+  .select,
+  .textarea {
+    @apply bg-base-100 border-base-300 transition-all duration-200;
+    @apply focus:ring-2 focus:ring-primary/20 focus:border-primary;
+    @apply disabled:bg-base-200 disabled:cursor-not-allowed;
+  }
+
+  .messages-container {
+    @apply flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-4;
+    
+    min-height: 100px;
+    
+  }
+
+  
+  .messages-container {
+    transition: height 0.2s ease-in-out;
+  }
+
+  
+  #messages {
+    @apply flex flex-col;
+    height: 100%;
+    
+  }
+
+  .sms {
+    @apply bg-white border border-gray-200 rounded-lg transition-all duration-200;
+    max-width: 100%;
+  }
+
+
+  .email {
+    @apply mt-3 transition-all duration-200 overflow-hidden;
+    max-height: 150px;
+    
+  }
+
+  .email.expanded {
+    max-height: none;
+  }
+
+  .email-header {
+    @apply mb-2 text-sm text-gray-600;
+  }
+
+  .email-body {
+    @apply text-gray-800 whitespace-pre-line;
+  }
+
+  .action-buttons {
+    @apply flex flex-wrap gap-2 mt-3;
+  }
+
+  .action-buttons .btn {
+    @apply text-sm px-3 py-1;
+  }
+
+  
+  .contactCont {
+    @apply p-2 hover:bg-base-300/50 rounded-lg transition-colors;
+  }
+
+  
+  .btn {
+    @apply transition-all duration-200;
+  }
+
+  .btn:active {
+    @apply scale-95;
+  }
+
+  
+  #aiResult {
+    @apply space-y-4 bg-base-100;
+  }
+
+  .aiChatReponse {
+    @apply bg-base-200 border border-base-300 rounded-lg p-4;
+  }
+
+  
+  .calendar {
+    @apply w-full border-collapse;
+  }
+
+  .calendar th {
+    @apply p-2 text-center border border-base-300 bg-base-300;
+  }
+
+  .calendar td {
+    @apply p-2 border border-base-300 align-top bg-base-100;
+    @apply transition-colors hover:bg-base-300/30;
+  }
+
+  .event-bar {
+    @apply text-xs p-1 mt-1 rounded cursor-pointer truncate;
+  }
+
+  .event-room-1 {
+    @apply bg-primary/30 hover:bg-primary/40;
+  }
+
+  .event-room-2 {
+    @apply bg-secondary/30 hover:bg-secondary/40;
+  }
+
+  
+  .modal-box {
+    @apply bg-base-200 border border-base-300;
+  }
+
+  
+  .btm-nav {
+    @apply bg-base-200 border-t border-base-300;
+  }
+
+  .btm-nav>*.active {
+    @apply border-primary;
+  }
+
+  
+  .custom-scrollbar::-webkit-scrollbar {
+    @apply w-2;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    @apply bg-base-100;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    @apply bg-base-300 rounded-full hover:bg-base-300/70;
+  }
+}
+
+@layer utilities {
+  .fade-in {
+    animation: fadeIn 0.3s ease-in-out;
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .slide-in {
+    animation: slideIn 0.3s ease-in-out;
+  }
+
+  @keyframes slideIn {
+    from {
+      transform: translateX(-10px);
+      opacity: 0;
+    }
+
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+}
