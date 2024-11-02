@@ -1,104 +1,178 @@
-// services/aiService.js
 const OpenAI = require('openai');
-const axios = require('axios');
-const { z } = require('zod');
 const fs = require('fs');
 const path = require('path');
 const backgroundService = require('./BackgroundService');
-
-
-// Path to save conversation history
-const conversationsPath = path.join(__dirname, '..', 'data', 'conversations.json');
+const { zodResponseFormat } = require('openai/helpers/zod');
+const { z } = require('zod');
 
 class AIService {
   constructor() {
-    // Initialize supported AI providers
-    this.providers = {
-      openai: {
-        name: 'OpenAI',
-        apiKey: process.env.OPENAI_API_KEY,
-        model: 'gpt-4o-mini-2024-07-18',
-      },
-      // Placeholder for other AI providers
-      // Example:
-      // otherai: {
-      //   name: 'OtherAI',
-      //   apiKey: process.env.OTHERAI_API_KEY,
-      //   endpoint: 'https://api.otherai.com/v1/chat',
-      // },
+    this.provider = {
+      name: 'OpenAI',
+      apiKey: process.env.OPENAI_API_KEY,
+      model: 'gpt-4o-mini-2024-07-18',
     };
 
-    // Set default provider
-    this.currentProvider = 'openai';
+    this.dataDir = path.join(__dirname, '..', 'data');
+    this.conversationsPath = path.join(this.dataDir, 'conversations.json');
+
+    // Create data directory if it doesn't exist
+    if (!fs.existsSync(this.dataDir)) {
+      fs.mkdirSync(this.dataDir, { recursive: true });
+    }
+
+    // Keep a simple message history for the current session
+    this.messageHistory = [];
+    this.currentConversationId = null;
+
+    // Load existing conversations
+    this.loadConversations();
   }
 
-  setProvider(providerName) {
-    if (this.providers[providerName]) {
-      this.currentProvider = providerName;
-    } else {
-      throw new Error(`AI provider ${providerName} is not supported.`);
+  loadConversations() {
+    try {
+      if (fs.existsSync(this.conversationsPath)) {
+        const conversations = JSON.parse(fs.readFileSync(this.conversationsPath, 'utf8'));
+        // Load the last conversation's messages into memory if it exists
+        if (conversations.length > 0) {
+          const lastConversation = conversations[conversations.length - 1];
+          this.messageHistory = lastConversation.messages;
+          this.currentConversationId = lastConversation.id;
+        }
+      }
+    } catch (error) {
+      console.error('Error loading conversations:', error);
+      this.messageHistory = [];
     }
   }
 
-  loadConversationHistory() {
-    if (fs.existsSync(conversationsPath)) {
-      const data = fs.readFileSync(conversationsPath, 'utf8');
-      return JSON.parse(data);
-    } else {
-      return [];
-    }
-  }
+  saveConversations() {
+    try {
 
-  saveConversationHistory(history) {
-    fs.writeFileSync(conversationsPath, JSON.stringify(history, null, 2));
+
+      fs.writeFileSync(this.conversationsPath, JSON.stringify(this.messageHistory, null, 2));
+    } catch (error) {
+      console.error('Error saving conversations:', error);
+    }
   }
 
   async generateResponse(messages, options = {}) {
     try {
-      // Only include background if specifically requested
-      if (options.includeBackground) {
-        // Get background info
-        const { backgroundInfo } = backgroundService.getBackground();
+      const {
+        includeBackground = false,
+        maxTokens = undefined,
+        resetHistory = false,
+        includeHistory = true,
+        schema = null,
+        schemaName = null,
+      } = options;
 
+      // Start a new conversation if requested or none exists
+      if (resetHistory || !this.currentConversationId) {
+        this.messageHistory = [];
+        this.currentConversationId = Date.now().toString();
+      }
+
+      // Build message array
+      let contextualizedMessages = [];
+
+      // Add conversation history if needed
+      if (includeHistory && !resetHistory && this.messageHistory.length > 0) {
+        contextualizedMessages.push(...this.messageHistory);
+        contextualizedMessages.push({
+          role: 'system',
+          content: 'Previous conversation history provided above.'
+        });
+      }
+
+      // Add new messages
+      contextualizedMessages.push(...messages);
+
+      // Add background information if needed
+      if (includeBackground) {
+        const { backgroundInfo } = backgroundService.getBackground();
         if (backgroundInfo) {
-          // Find or create system message
-          const systemMessageIndex = messages.findIndex(m => m.role === 'system');
           const systemMessage = {
             role: 'system',
-            content: `Use this venue information as context for your response:\n\n${backgroundInfo}\n\n${systemMessageIndex >= 0 ? messages[systemMessageIndex].content : ''}`
+            content: `Use this venue information as context for your response:\n\n${backgroundInfo}\n\n${messages.find(m => m.role === 'system')?.content || ''}`
           };
 
-          if (systemMessageIndex >= 0) {
-            // Update existing system message
-            messages[systemMessageIndex] = systemMessage;
+          const systemIndex = contextualizedMessages.findIndex(m => m.role === 'system');
+          if (systemIndex >= 0) {
+            contextualizedMessages[systemIndex] = systemMessage;
           } else {
-            // Add system message at the start
-            messages.unshift(systemMessage);
+            contextualizedMessages.unshift(systemMessage);
           }
         }
       }
 
-      const provider = this.providers[this.currentProvider];
-      if (this.currentProvider === 'openai') {
-        const openai = new OpenAI({
-          apiKey: provider.apiKey,
-        });
+      const openai = new OpenAI({ apiKey: this.provider.apiKey });
+      let response;
+      let parsedData;
 
-        const response = await openai.chat.completions.create({
-          model: provider.model,
-          messages: messages,
+      if (schema) {
+        const result = await openai.beta.chat.completions.parse({
+          model: this.provider.model,
+          messages: contextualizedMessages,
+          response_format: zodResponseFormat(schema, schemaName),
+          ...(maxTokens && { max_tokens: maxTokens })
         });
-
-        return response.choices[0].message.content;
-      } else if (this.currentProvider === 'otherai') {
-        // ... existing otherai code ...
+        parsedData = result.choices[0].message.parsed;
+        response = parsedData
       } else {
-        throw new Error(`AI provider ${this.currentProvider} is not implemented.`);
+        const result = await openai.chat.completions.create({
+          model: this.provider.model,
+          messages: contextualizedMessages,
+          ...(maxTokens && { max_tokens: maxTokens })
+        });
+        response = result.choices[0].message.content;
       }
+
+      // Add timestamp to messages
+      const timestamp = new Date().toISOString();
+      const messagesWithTimestamp = messages.map(msg => ({
+        ...msg,
+        timestamp
+      }));
+      const responseWithTimestamp = {
+        role: 'assistant',
+        content: response,
+        timestamp
+      };
+
+      this.messageHistory.push(...messagesWithTimestamp);
+      this.messageHistory.push(responseWithTimestamp);
+
+      // Keep history manageable
+      if (this.messageHistory.length > 50) {
+        this.messageHistory = this.messageHistory.slice(-50);
+      }
+
+      // Save to file
+      this.saveConversations();
+
+      return {
+        response,
+        parsedData: schema ? parsedData : undefined,
+        historyIncluded: includeHistory && !resetHistory,
+        historyReset: resetHistory,
+        messageCount: this.messageHistory.length
+      };
+
     } catch (error) {
       console.error('Error generating AI response:', error);
       throw error;
     }
+  }
+
+  clearHistory() {
+    this.messageHistory = [];
+    this.currentConversationId = Date.now().toString();
+    this.saveConversations();
+  }
+
+  getMessageHistory() {
+    return this.messageHistory;
   }
 }
 

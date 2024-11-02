@@ -1,10 +1,28 @@
 [
   {
     "role": "system",
-    "content": "You analyze event inquiries and categorize them appropriately."
+    "content": "You extract event details from inquiry emails.",
+    "timestamp": "2024-11-02T17:27:24.018Z"
   },
   {
     "role": "user",
-    "content": "Analyze this inquiry and categorize it:\n\n\n                        \n                            From: Taco Taco <info@eattaco.ca>\n                            To: Kreative Kulture <kreativekultureto@gmail.com>\n                            Subject: Re: Thursday Event\n                            Time: 11/29/2023 20:08\n                        \n                        \n                            Great! I think the set up time will be a bit of a challenge because there\nis a conflict. I'm going to loop in the owner, Luan.\n\nOn Wed, Nov 29, 2023, 8:03 p.m. Kreative Kulture <\nkreativekultureto@gmail.com> wrote:\n\n> Hi right now we're expecting about 20 people with tickets. Hopefully that\n> number grows and there's also lots more at the door. I will have someone\n> taking money for entry at the door as well.\n>\n> I have a VIP table of 4 sold (front and centre.\n>\n> Doors are 8pm we will start arriving at 6:30.\n>\n> Kage Wolfe\n> Kulture Artistic Director\n>\n> On Tue, Nov 28, 2023, 16:55  wrote:\n>\n>> Hey Kage,\n>>\n>>\n>>\n>> We’re starting to plan for your event. How many people do you expect?\n>>\n>>\n>>\n>> Also, what time do the doors open and what time will you arrive to set up?\n>>\n>>\n>>\n>> *TacoTaco Events Team*\n>>\n>> 319 Augusta Ave\n>>\n>> eattaco.ca/events\n>>\n>> info@eattaco.ca\n>>\n>>\n>>\n>\n\n                        \n                    \n"
+    "content": "\n                      \n                                Extract event details from this email and provide JSON in this format:\n                                {\n                                    \"name\": \"contact name\",\n                                    \"email\": \"contact email\",\n                                    \"phone\": \"contact phone (optional)\",\n                                    \"eventType\": \"type of event\",\n                                    \"startTime\": \"YYYY-MM-DD HH:mm\",\n                                    \"endTime\": \"YYYY-MM-DD HH:mm\",\n                                    \"room\": \"requested venue space\",\n                                    \"attendance\": \"expected guests\",\n                                    \"services\": [\"array of requested services\"],\n                                    \"notes\": \"additional details (optional)\"\n                                }\n\n                                Email content:\n                                Go through the following messages and fill in the JSON below. Try to look for the name, phone, and email. For email, exclude my email which is info@eattaco.ca. Dates should be in the format: YYYY-MM-DD HH:mm. Phone numbers should be in the format: 14162771856. IMPORTANT: respond only with the JSON, nothing else.\n\nThis is the JSON format that I want:\n\n{\n    \"phone\": \"\",\n    \"id\": \"\",\n    \"status\": \"contractSent\",\n    \"services\": \"bar;lights;audio;music;kareoke\",\n    \"room\": \"Lounge\",\n    \"name\": \"\",\n    \"email\": \"\",\n    \"startTime\": \"\",\n    \"endTime\": \"\",\n    \"rentalRate\": \"\",\n    \"minSpend\": \"\",\n    \"partyType\": \"\",\n    \"attendance\": \"\",\n    \"source\": \"\",\n    \"notes\": \"\",\n    \"summary\": \"\" \n}\n\nThis is the email:\n\n                        \n                            From: Kreative Kulture <kreativekultureto@gmail.com>\n                            To: \"Luan (TACO TACO)\" <info@eattaco.ca>\n                            Subject: Kreative Kulture Booking Inquiry\n                            Time: 10/30/2024 18:17\n                        \n                        \n                            Hi Luan,\n\nIs TacoTaco available December 8th 7-11?\n\nKage Wolfe\nKulture Artistic Director\n\n                        \n                     Email: kreativekultureto@gmail.com\n                    ",
+    "timestamp": "2024-11-02T17:27:24.018Z"
+  },
+  {
+    "role": "assistant",
+    "content": {
+      "name": "Kage Wolfe",
+      "email": "kreativekultureto@gmail.com",
+      "phone": "",
+      "eventType": "Booking Inquiry",
+      "startTime": "2024-12-08 19:00",
+      "endTime": "2024-12-08 23:00",
+      "room": "TacoTaco",
+      "attendance": "",
+      "services": [],
+      "notes": ""
+    },
+    "timestamp": "2024-11-02T17:27:24.018Z"
   }
 ]

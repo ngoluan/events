@@ -1,5 +1,6 @@
 class EmailProcessor {
     constructor() {
+        this.currentConversationId = null;
         this.registerEvents();
     }
 
@@ -18,15 +19,6 @@ class EmailProcessor {
             await this.handleDraftEventEmail(emailContent);
         });
 
-        // Handle get event information
-        $(document).on('click', '.getEventDetails', async (e) => {
-            e.preventDefault();
-            const $emailContainer = $(e.target).closest('.sms');
-            const emailContent = $emailContainer.find('.email').text();
-            const senderEmail = $emailContainer.attr('to');
-            await this.handleGetEventInformation(emailContent, senderEmail);
-        });
-
         // Handle send to textarea
         $(document).on('click', '.sendToAiTextArea', async (e) => {
             e.preventDefault();
@@ -34,6 +26,17 @@ class EmailProcessor {
             const emailContent = $emailContainer.find('.email').text();
             this.sendToAiTextArea(emailContent);
         });
+
+        // Handle new conversation button
+        $(document).on('click', '#newConversation', () => {
+            this.startNewConversation();
+        });
+    }
+
+    startNewConversation() {
+        this.currentConversationId = null;
+        $('#aiText').html('');
+        $('#aiResult').html('');
     }
 
     async handleSummarizeEmail(emailContent) {
@@ -44,10 +47,20 @@ class EmailProcessor {
                 .replace(/^Sent:.*$/gm, '')
                 .substring(0, 11000);
 
-            const response = await $.post('/api/summarizeAI', { text: cleanedText });
+            const response = await $.post('/api/summarizeAI', { 
+                text: cleanedText,
+                conversationId: this.currentConversationId
+            });
+
+            // Store the conversation ID for future interactions
+            this.currentConversationId = response.conversationId;
 
             // Write the summary to the AI result area
-            this.writeToAIResult(response.replace(/\n/g, '<br>'));
+            this.writeToAIResult({
+                content: response.summary,
+                messageCount: response.messageCount,
+                isNewConversation: !this.currentConversationId
+            });
 
         } catch (error) {
             console.error('Error summarizing email:', error);
@@ -63,22 +76,29 @@ class EmailProcessor {
             const response = await $.post('/api/getAIEmail', {
                 aiText: combinedText,
                 emailText: emailContent,
-                includeBackground: true  // Explicitly request background info
+                conversationId: this.currentConversationId,
+                includeBackground: true
             });
 
-            const result = JSON.parse(response);
+            // Store the conversation ID
+            this.currentConversationId = response.conversationId;
 
             // Update the AI text area with the draft
+            const existingContent = $('#aiText').html();
+            const newContent = response.response.replace(/\n/g, '<br>');
+            
             $('#aiText').html(
-                result.response.replace(/\n/g, '<br>') +
-                '<br><br> ---------------- <br><br>' +
-                $('#aiText').html()
+                newContent +
+                (existingContent ? '<br><br> ---------------- <br><br>' + existingContent : '')
             );
 
             // If no email is set, use the one from the response
-            if ($('#sendMailEmail').val() === '') {
-                $('#sendMailEmail').val(result.fromEmail);
+            if ($('#sendMailEmail').val() === '' && response.fromEmail) {
+                $('#sendMailEmail').val(response.fromEmail);
             }
+
+            // Show conversation status
+            this.updateConversationStatus(response.messageCount);
 
         } catch (error) {
             console.error('Error drafting event email:', error);
@@ -88,18 +108,25 @@ class EmailProcessor {
 
     async handleGetEventInformation(emailContent, senderEmail) {
         try {
-            const response = await $.post('/api/sendAIText', {
-                aiText: `${emailContent} Email: ${senderEmail}`
+            const response = await $.post('/api/sendAIEventInformation', {
+                aiText: `${emailContent} Email: ${senderEmail}`,
+                conversationId: this.currentConversationId
             });
 
-            // Extract event details from the response
-            const regex = /{[^{}]*}/;
-            const match = response.match(regex);
+            // Store conversation ID
+            this.currentConversationId = response.conversationId;
 
-            if (match) {
-                const eventDetails = JSON.parse(match[0]);
+            // Event details are now directly available in the response
+            if (response && Object.keys(response).length > 0) {
                 // Trigger event to update the events list
-                $(document).trigger('eventDetailsReceived', [eventDetails]);
+                $(document).trigger('eventDetailsReceived', [response]);
+                
+                // Show the extracted information in the AI result area
+                this.writeToAIResult({
+                    content: `Event Details Extracted:<br>${JSON.stringify(response, null, 2)}`,
+                    messageCount: response.messageCount,
+                    isNewConversation: false
+                });
             } else {
                 throw new Error('No event details found in response');
             }
@@ -111,12 +138,17 @@ class EmailProcessor {
     }
 
     sendToAiTextArea(emailContent) {
-        // Clear existing content
-        $('#aiText').html('');
+        // Clear existing content if it's a new conversation
+        if (!this.currentConversationId) {
+            $('#aiText').html('');
+        }
 
         // Format and append the email content
         const formattedContent = emailContent.replace(/\n/g, '<br>');
-        $('#aiText').html(`<br><br>${formattedContent}`);
+        $('#aiText').html(
+            (this.currentConversationId ? $('#aiText').html() + '<br><br>--------------------<br><br>' : '') +
+            formattedContent
+        );
 
         // Scroll to the AI text area
         $('html, body').animate({
@@ -127,15 +159,19 @@ class EmailProcessor {
         $('#aiText').focus();
     }
 
-    writeToAIResult(data) {
+    writeToAIResult({content, messageCount, isNewConversation}) {
         // Remove any specific instructions from the response
-        data = data.replace(/:\[Specific Instructions:.*?\]/g, '');
+        content = content.replace(/:\[Specific Instructions:.*?\]/g, '');
+
+        const conversationStatus = messageCount ? 
+            `<div class="text-muted small">Conversation messages: ${messageCount}</div>` : '';
 
         const responseHTML = `
             <div class="p-2 aiChatReponse">
                 <div class="aiChatReponseContent">
-                    ${data}
+                    ${content}
                 </div>
+                ${conversationStatus}
                 <div class="mt-2">
                     <a href="#" class="btn btn-primary sendToAiFromResult" title="Send to AI from Result">
                         <i class="bi bi-send"></i> Send to AI
@@ -143,10 +179,26 @@ class EmailProcessor {
                     <button class="btn btn-secondary copyToClipboard ml-2" title="Copy to Clipboard">
                         <i class="bi bi-clipboard"></i> Copy
                     </button>
+                    ${this.currentConversationId ? `
+                        <button class="btn btn-outline-secondary newConversation ml-2" title="Start New Conversation">
+                            <i class="bi bi-plus-circle"></i> New Conversation
+                        </button>
+                    ` : ''}
                 </div>
             </div>
         `;
 
-        $('#aiResult').html(responseHTML);
+        if (isNewConversation) {
+            $('#aiResult').html(responseHTML);
+        } else {
+            $('#aiResult').prepend(responseHTML);
+        }
+    }
+
+    updateConversationStatus(messageCount) {
+        if (messageCount) {
+            const statusHtml = `<div class="text-muted small mt-2">Conversation messages: ${messageCount}</div>`;
+            $('.aiChatReponse').first().find('.aiChatReponseContent').after(statusHtml);
+        }
     }
 }

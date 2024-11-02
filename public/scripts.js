@@ -193,7 +193,6 @@ export class EventManageApp {
             return response;
         } catch (error) {
             console.error(`Failed to send AI request to ${endpoint}:`, error);
-            this.utils.alert(`Failed to process AI request.`);
             throw error;
         }
     }
@@ -204,25 +203,16 @@ export class EventManageApp {
 
     async getEventDetailsFromEmail(text, email) {
         text += ` Email: ${email}`;
-        this.utils.alert("Sending to AI");
         text = this.templates.eventPrompt + text;
 
         try {
-            const data = await this.sendAIRequest("/api/sendAIText", { aiText: text });
-            const regex = /{[^{}]*}/;
-            const match = data.match(regex);
-
-            if (match) {
-                const jsonData = JSON.parse(match[0]);
-                const lastId = this.contacts.length > 0 ? this.contacts[this.contacts.length - 1].id : 0;
-                jsonData.id = lastId + 1;
-                this.contacts.push(jsonData);
-                jsonData.name = jsonData.name || "";
-                return jsonData.id;
-            } else {
-                console.log("No JSON-like text found.");
-                throw new Error("No JSON-like text found.");
-            }
+            const data = await this.sendAIRequest("/api/sendAIEventInformation", { aiText: text });
+            const jsonData = data
+            const lastId = this.contacts.length > 0 ? this.contacts[this.contacts.length - 1].id : 0;
+            jsonData.id = lastId + 1;
+            this.contacts.push(jsonData);
+            jsonData.name = jsonData.name || "";
+            return jsonData.id;
         } catch (error) {
             console.error("Failed to get event details from email:", error);
             throw error;

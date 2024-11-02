@@ -112,44 +112,121 @@ module.exports = GoogleCalendarService;
 const { google } = require('googleapis');
 const path = require('path');
 const fs = require('fs');
+const moment = require('moment');
 
 class GmailService {
     constructor(auth) {
         this.auth = auth;
         this.cacheFilePath = path.join(__dirname, '..', 'data', 'emails.json');
+        this.lastRetrievalPath = path.join(__dirname, '..', 'data', 'lastRetrieval.json');
+        this.emailCache = new Map();
+        this.lastRetrievalDate = this.loadLastRetrievalDate();
 
-
+        
+        const dataDir = path.join(__dirname, '..', 'data');
+        if (!fs.existsSync(dataDir)) {
+            fs.mkdirSync(dataDir, { recursive: true });
+        }
     }
-    saveEmailsToCache(emails) {
-        fs.writeFileSync(this.cacheFilePath, JSON.stringify(emails, null, 2), 'utf8');
-      }
 
-      loadEmailsFromCache() {
-        if (fs.existsSync(this.cacheFilePath)) {
-          const data = fs.readFileSync(this.cacheFilePath, 'utf8');
-          return JSON.parse(data);
+    loadLastRetrievalDate() {
+        try {
+            if (fs.existsSync(this.lastRetrievalPath)) {
+                const data = JSON.parse(fs.readFileSync(this.lastRetrievalPath, 'utf8'));
+                return data.lastRetrieval;
+            }
+        } catch (error) {
+            console.error('Error loading last retrieval date:', error);
+        }
+        
+        return moment().subtract(7, 'days').format('YYYY/MM/DD');
+    }
+
+    saveLastRetrievalDate() {
+        try {
+            const data = {
+                lastRetrieval: moment().format('YYYY/MM/DD')
+            };
+            fs.writeFileSync(this.lastRetrievalPath, JSON.stringify(data, null, 2), 'utf8');
+        } catch (error) {
+            console.error('Error saving last retrieval date:', error);
+        }
+    }
+
+    saveEmailsToCache(emails) {
+        try {
+            
+            const sortedEmails = emails.sort((a, b) => {
+                return new Date(b.internalDate) - new Date(a.internalDate);
+            });
+            fs.writeFileSync(this.cacheFilePath, JSON.stringify(sortedEmails, null, 2), 'utf8');
+
+            
+            sortedEmails.forEach(email => {
+                this.emailCache.set(email.id, email);
+            });
+        } catch (error) {
+            console.error('Error saving emails to cache:', error);
+        }
+    }
+
+    loadEmailsFromCache() {
+        try {
+            if (fs.existsSync(this.cacheFilePath)) {
+                const emails = JSON.parse(fs.readFileSync(this.cacheFilePath, 'utf8'));
+                
+                emails.forEach(email => {
+                    this.emailCache.set(email.id, email);
+                });
+                return emails;
+            }
+        } catch (error) {
+            console.error('Error loading emails from cache:', error);
         }
         return [];
-      }
-    async listMessages(userEmail, gmailEmail, showCount, labelIds = []) {
+    }
+
+    async listMessages(options = {}) {
         try {
             const authClient = await this.auth.getOAuth2Client();
             const gmail = google.gmail({ version: 'v1', auth: authClient });
 
+            let query = '';
+            if (options.email) {
+                
+                query = `{to:${options.email} from:${options.email}}`;
+            } else {
+                
+                query = `(in:inbox)`; 
+
+            }
+
             const res = await gmail.users.messages.list({
                 userId: 'me',
-                maxResults: showCount,
-                q: gmailEmail ? `to:${gmailEmail}` : '',
-                labelIds: labelIds.length > 0 ? labelIds : undefined,
+                maxResults: options.maxResults || 100,
+                q: query
             });
+
+            
+            
+            if (!options.email) {
+                this.saveLastRetrievalDate();
+            }
+
             return res.data.messages || [];
         } catch (error) {
             console.error('Error listing messages:', error);
             throw error;
         }
     }
+
     async getMessage(messageId) {
         try {
+            
+            if (this.emailCache.has(messageId)) {
+                return this.emailCache.get(messageId);
+            }
+
             const auth = await this.auth.getOAuth2Client();
             const gmail = google.gmail({ version: 'v1', auth });
             const res = await gmail.users.messages.get({
@@ -180,6 +257,151 @@ class GmailService {
 
         return emailBody;
     }
+    async processMessageBatch(messages) {
+        if (!messages || !messages.length) return [];
+
+        const asyncLib = require('async');
+        let processedEmails = [];
+
+        await asyncLib.eachLimit(messages, 10, async (message) => {
+            try {
+                
+                if (this.emailCache.has(message.id)) {
+                    processedEmails.push(this.emailCache.get(message.id));
+                    return;
+                }
+
+                const fullMessage = await this.getMessage(message.id);
+                const content = await this.parseEmailContent(fullMessage);
+
+                const emailData = {
+                    id: message.id,
+                    threadId: message.threadId,
+                    from: fullMessage.payload.headers.find(h => h.name === 'From')?.value || '',
+                    to: fullMessage.payload.headers.find(h => h.name === 'To')?.value || '',
+                    subject: fullMessage.payload.headers.find(h => h.name === 'Subject')?.value || '',
+                    timestamp: fullMessage.payload.headers.find(h => h.name === 'Date')?.value || '',
+                    internalDate: fullMessage.internalDate,
+                    text: content,
+                    labels: fullMessage.labelIds || []
+                };
+
+                
+                this.emailCache.set(message.id, emailData);
+                processedEmails.push(emailData);
+
+            } catch (err) {
+                console.error(`Error processing message ID ${message.id}:`, err);
+            }
+        });
+
+        return processedEmails.sort((a, b) => {
+            return new Date(b.internalDate) - new Date(a.internalDate);
+        });
+    }
+
+    async getAllEmails(maxResults = 100, onlyImportant = false) {
+        try {
+            
+            let cachedEmails = this.loadEmailsFromCache();
+
+            
+            const lastRetrievalDate = moment(this.loadLastRetrievalDate(),"YYYY/MM/DD");
+            const now = moment();
+            const needsUpdate = !cachedEmails.length || lastRetrievalDate.isBefore(now, 'day');
+
+            if (needsUpdate) {
+                
+                const messages = await this.listMessages({
+                    maxResults,
+                    onlyImportant
+                });
+
+                const newEmails = await this.processMessageBatch(messages);
+
+                
+                const allEmails = this.mergeEmails(cachedEmails, newEmails);
+
+                
+                this.saveEmailsToCache(allEmails);
+
+                return allEmails;
+            }
+
+            return cachedEmails;
+        } catch (error) {
+            console.error('Error getting all emails:', error);
+            
+            return this.loadEmailsFromCache();
+        }
+    }
+
+
+    async getEmailsForContact(email) {
+        try {
+            
+            const cachedEmails = this.loadEmailsFromCache();
+            const contactEmails = cachedEmails.filter(e => {
+                const fromMatch = e.from.includes(email);
+                const toMatch = e.to.includes(email);
+                return fromMatch || toMatch;
+            });
+
+            
+            const lastRetrievalDate = moment(this.loadLastRetrievalDate());
+            const now = moment();
+            const needsUpdate = !contactEmails.length || lastRetrievalDate.isBefore(now, 'day');
+
+            if (needsUpdate) {
+                const messages = await this.listMessages({
+                    email: email,
+                    maxResults: 50
+                });
+
+                const newEmails = await this.processMessageBatch(messages);
+
+                
+                const allContactEmails = this.mergeEmails(contactEmails, newEmails);
+
+                
+                this.updateCacheWithEmails(newEmails);
+
+                return allContactEmails;
+            }
+
+            return contactEmails;
+        } catch (error) {
+            console.error('Error getting emails for contact:', error);
+            
+            const cachedEmails = this.loadEmailsFromCache();
+            return cachedEmails.filter(e => {
+                const fromMatch = e.from.includes(email);
+                const toMatch = e.to.includes(email);
+                return fromMatch || toMatch;
+            });
+        }
+    }
+    mergeEmails(cachedEmails, newEmails) {
+        
+        const emailMap = new Map();
+        cachedEmails.forEach(email => emailMap.set(email.id, email));
+
+        
+        newEmails.forEach(email => emailMap.set(email.id, email));
+
+        
+        const mergedEmails = Array.from(emailMap.values());
+        return mergedEmails.sort((a, b) => {
+            return new Date(b.internalDate) - new Date(a.internalDate);
+        });
+    }
+
+    updateCacheWithEmails(newEmails) {
+        const cachedEmails = this.loadEmailsFromCache();
+        const updatedEmails = this.mergeEmails(cachedEmails, newEmails);
+        this.saveEmailsToCache(updatedEmails);
+    }
+
     async getThreadMessages(threadId) {
         try {
             const authClient = await this.auth.getOAuth2Client();
@@ -195,8 +417,35 @@ class GmailService {
             throw error;
         }
     }
-}
 
+    async forceFullRefresh() {
+        try {
+            
+            this.lastRetrievalDate = moment().subtract(1, 'year').format('YYYY/MM/DD');
+            const messages = await this.listMessages({
+                maxResults: 500 
+            });
+            const emails = await this.processMessageBatch(messages);
+            this.saveEmailsToCache(emails);
+            this.saveLastRetrievalDate(); 
+            return emails;
+        } catch (error) {
+            console.error('Error during full refresh:', error);
+            throw error;
+        }
+    }
+
+    clearCache() {
+        try {
+            this.emailCache.clear();
+            if (fs.existsSync(this.cacheFilePath)) {
+                fs.unlinkSync(this.cacheFilePath);
+            }
+        } catch (error) {
+            console.error('Error clearing cache:', error);
+        }
+    }
+}
 
 module.exports = GmailService;
 
@@ -615,91 +864,35 @@ class EmailProcessorServer {
             throw error;
         }
     }
-    async checkAvailabilityAI(requestedDate, analysis, venueInfo) {
-        try {
-            
-            const events = await this.googleCalendarService.listEvents();
+    async checkAvailabilityAI(date, emailText, emailAvailabilityResponsePrompt) {
+        let calendar = await utils.checkAvailability(date);
+        
+        calendar = JSON.parse(calendar).map((item) => {
+            return `${item.name} from ${item.startDate} to ${item.endDate}`;
+        }).join("\n");
 
-            
-            const analysisObj = typeof analysis === 'string' ? JSON.parse(analysis) : analysis;
+        console.log(date, calendar);
 
-            
-            const requestDate = moment.tz(requestedDate, 'America/New_York');
-            const requestTime = analysisObj.eventDetails?.time || '20:00'; 
+        this.manual = fs.readFileSync(this.manualPath, "utf-8");
+        this.manual = JSON.parse(this.manual);
+        let text = ` A client is inquiring about availability for an event. Determine whether the requested space is available on the requested date and time. If the client hasn’t provided a specific time for the event, assume the event starts at 8pm. 
+        Respond with a concise answer using the information provided in the inquiry. 
 
-            
-            const requestedDateTime = moment.tz(`${requestedDate} ${requestTime}`, 'YYYY-MM-DD HH:mm', 'America/New_York');
-            const requestedEndTime = moment(requestedDateTime).add(4, 'hours'); 
+        Here is the JSON calendar with existing bookings:\n${JSON.stringify(calendar)}. 
+        
+        Here's the inquiry: ${emailText}`;
 
-            
-            const conflictingEvents = events.filter(event => {
-                const eventStart = moment.tz(event.start.dateTime || event.start.date, 'America/New_York');
-                const eventEnd = moment.tz(event.end.dateTime || event.end.date, 'America/New_York');
+        let availResponse = await ai.processChatCompletion(text, false, null, "groq", "llama-3.1-70b-versatile");
 
-                return (
-                    (requestedDateTime.isBetween(eventStart, eventEnd, null, '[]')) ||
-                    (requestedEndTime.isBetween(eventStart, eventEnd, null, '[]')) ||
-                    (eventStart.isBetween(requestedDateTime, requestedEndTime, null, '[]')) ||
-                    (eventEnd.isBetween(requestedDateTime, requestedEndTime, null, '[]'))
-                );
-            });
+        text = ` ${emailAvailabilityResponsePrompt}
+        
+        This is the inquiry: ${emailText}. 
+        
+        Use the following availability information: ${availResponse}. 
+        
+        Here's the background info: ${this.manual.eventBackgroundInfo}`;
 
-            
-            const conflictsDescription = conflictingEvents.map(event => ({
-                summary: event.summary,
-                start: moment.tz(event.start.dateTime || event.start.date, 'America/New_York').format('YYYY-MM-DD HH:mm'),
-                end: moment.tz(event.end.dateTime || event.end.date, 'America/New_York').format('YYYY-MM-DD HH:mm'),
-                space: event.location || 'Venue'
-            }));
-
-            
-            const availabilityMessages = [
-                {
-                    role: 'system',
-                    content: 'You are a venue coordinator checking availability and providing helpful responses.'
-                },
-                {
-                    role: 'user',
-                    content: `Analyze this availability request and provide a response:
-                    
-                    Requested Date: ${requestedDateTime.format('YYYY-MM-DD HH:mm')}
-                    Expected Duration: 4 hours
-                    
-                    Current Bookings:
-                    ${JSON.stringify(conflictsDescription, null, 2)}
-                    
-                    Client's Request Details:
-                    ${JSON.stringify(analysisObj, null, 2)}
-                    
-                    Venue Information:
-                    ${venueInfo}
-                    
-                    Guidelines:
-                    - If there are no conflicts, be enthusiastic about availability
-                    - If there are conflicts, suggest nearby dates/times that are free
-                    - Include relevant venue information for their event type
-                    - Be professional but warm
-                    - Keep the response concise but informative
-                    `
-                }
-            ];
-
-            const response = await this.processTextResponse(
-                availabilityMessages[1].content,
-                availabilityMessages[0].content
-            );
-
-            return {
-                isAvailable: conflictingEvents.length === 0,
-                requestedTime: requestedDateTime.format('YYYY-MM-DD HH:mm'),
-                conflicts: conflictingEvents.length > 0 ? conflictsDescription : [],
-                response: response
-            };
-
-        } catch (error) {
-            console.error('Error checking availability:', error);
-            throw new Error(`Failed to check availability: ${error.message}`);
-        }
+        return await ai.processChatCompletion(text, false, this.systemPrompt, "groq", "llama-3.1-70b-versatile");
     }
     structureUnformattedResponse(response) {
         const lines = response.split('\n').filter(line => line.trim());
@@ -827,218 +1020,66 @@ class EmailProcessorServer {
             }
         });
 
-        
-        const inquiryAnalysisSchema = z.object({
-            inquiryType: z.enum(['AVAILABILITY', 'BOOKING', 'CONFIRMATION', 'OTHER']),
-            clientInfo: z.object({
-                name: z.string().optional(),
-                email: z.string().optional(),
-                preferredContact: z.string().optional()
-            }),
-            eventDetails: z.object({
-                type: z.string().optional(),
-                date: z.string().optional(),
-                time: z.string().optional(),
-                guestCount: z.number().optional(),
-                venue: z.string().optional(),
-                isWeekend: z.boolean().optional()
-            }),
-            summary: z.string(),
-            urgency: z.enum(['HIGH', 'MEDIUM', 'LOW']),
-            requirements: z.array(z.string()).optional(),
-            followUpNeeded: z.boolean()
-        });
 
         
         this.router.post('/api/getAIEmail', async (req, res) => {
+            let text = data.aiText;
+            let emailText = data.emailText;
+    
+            this.manual = fs.readFileSync(this.manualPath, "utf-8");
+            this.manual = JSON.parse(this.manual);
+    
+            const inquirySchema = z.object({
+                inquiryType: z.enum(['availability', 'food and drink packages', 'confirmEvent', 'other']),
+                date: z.string().optional(), 
+                time: z.string().optional(), 
+                isWeekend: z.boolean().optional(),
+                fromEmail: z.string().optional(),
+                summary: z.string(), 
+            });
+    
             try {
+                text += `. If no year is specified, assume it's ${moment().year()}. `;
                 
-                const requestSchema = z.object({
-                    emailText: z.string(),
-                    specificInstructions: z.string().optional()
-                });
-
-                const validatedRequest = requestSchema.parse(req.body);
-                const { emailText, specificInstructions } = validatedRequest;
-
-                
-                const analyzeEmailFunction = {
-                    name: 'analyzeEmailInquiry',
-                    description: 'Analyze an event inquiry email and categorize the type of request',
-                    parameters: {
-                        type: 'object',
-                        properties: {
-                            inquiryType: {
-                                type: 'string',
-                                enum: ['AVAILABILITY', 'BOOKING', 'CONFIRMATION', 'OTHER'],
-                                description: 'The type of inquiry'
-                            },
-                            clientInfo: {
-                                type: 'object',
-                                properties: {
-                                    name: { type: 'string' },
-                                    email: { type: 'string' },
-                                    preferredContact: { type: 'string' }
-                                }
-                            },
-                            eventDetails: {
-                                type: 'object',
-                                properties: {
-                                    type: { type: 'string' },
-                                    date: { type: 'string' },
-                                    time: { type: 'string' },
-                                    guestCount: { type: 'number' },
-                                    venue: { type: 'string' },
-                                    isWeekend: { type: 'boolean' }
-                                }
-                            },
-                            summary: { type: 'string' },
-                            urgency: {
-                                type: 'string',
-                                enum: ['HIGH', 'MEDIUM', 'LOW']
-                            },
-                            requirements: {
-                                type: 'array',
-                                items: { type: 'string' }
-                            },
-                            followUpNeeded: { type: 'boolean' }
-                        },
-                        required: ['inquiryType', 'summary', 'urgency', 'followUpNeeded']
-                    }
-                };
-
-                
-                const analysisMessages = [
-                    {
-                        role: 'system',
-                        content: 'You analyze event inquiries and categorize them appropriately.'
-                    },
-                    {
-                        role: 'user',
-                        content: `Analyze this inquiry and categorize it:\n\n${emailText}\n${specificInstructions ? `\nConsiderations: ${specificInstructions}` : ''}`
-                    }
-                ];
-
-                const analysis = await aiService.generateResponse(
-                    analysisMessages,
-                    { function_call: { name: 'analyzeEmailInquiry' }, functions: [analyzeEmailFunction] }
+                let result = await ai.processChatCompletionJson(
+                    text,
+                    true,
+                    this.systemPrompt,
+                    inquirySchema,
+                    'inquirySchema'
                 );
-
-                const validatedAnalysis = inquiryAnalysisSchema.parse(JSON.parse(analysis));
-
+    
                 
-                let responseContent;
-                switch (validatedAnalysis.inquiryType) {
-                    case 'AVAILABILITY': {
-                        const availabilityResult = await this.checkAvailabilityAI(
-                            validatedAnalysis.eventDetails.date,
-                            validatedAnalysis,
-                            this.templates.backgroundInfo
-                        );
-
-                        
-                        responseContent = availabilityResult.response;
-
-                        
-                        validatedAnalysis.availabilityDetails = {
-                            isAvailable: availabilityResult.isAvailable,
-                            requestedTime: availabilityResult.requestedTime,
-                            conflicts: availabilityResult.conflicts
-                        };
-
+                
+    
+                
+                let responseText = '';
+    
+                switch (result.inquiryType) {
+                    case "other":
+                        responseText = this.manual.eventBackgroundInfo + emailText;
                         break;
-                    }
-
-                    case 'CONFIRMATION': {
-                        responseContent = await aiService.generateResponse(
-                            [
-                                {
-                                    role: 'system',
-                                    content: 'You are a venue coordinator writing brief, welcoming confirmation emails.'
-                                },
-                                {
-                                    role: 'user',
-                                    content: `Write a brief confirmation email for this inquiry: 
-                                        ${JSON.stringify(validatedAnalysis)}
-                                        
-                                        Guidelines:
-                                        - Thank them for confirming
-                                        - Mention you'll send a calendar invite
-                                        - Keep it to 2-3 sentences
-                                        - Be warm but professional
-                                        - No need for JSON format, just write the email text
-                                        `
-                                }
-                            ]
-                        );
+                    case "confirmEvent":
+                        responseText = `Here's the email: ${emailText}. Respond by thanking them, confirming their event, and saying that we will be sending a calendar invite shortly. Personalize the email but be concise. Just need up to 3 sentences.`;
                         break;
-                    }
-
-                    default: {
-                        responseContent = await aiService.generateResponse(
-                            [
-                                {
-                                    role: 'system',
-                                    content: 'You are a venue coordinator writing professional response emails.'
-                                },
-                                {
-                                    role: 'user',
-                                    content: `Write a response email based on this analysis:
-                                        ${JSON.stringify(validatedAnalysis)}
-                                        
-                                        Use this venue information:
-                                        ${this.templates.backgroundInfo}
-                                        
-                                        Guidelines:
-                                        - Write in a professional but friendly tone
-                                        - Include relevant venue details
-                                        - Address their specific questions/needs
-                                        - Include clear next steps
-                                        - No need for JSON format, just write the email text
-                                        `
-                                }
-                            ]
-                        );
-                    }
+                    case "availability":
+                        responseText = await this.checkAvailabilityAI(result.date, JSON.stringify(result), data.emailAvailabilityResponsePrompt, this.manual.eventBackgroundInfo);
+                        break;
                 }
-
-                
-                let formattedResponse;
-                if (validatedAnalysis.inquiryType === 'AVAILABILITY') {
-                    
-                    const responseSchema = z.object({
-                        subject: z.string(),
-                        greeting: z.string(),
-                        mainContent: z.string(),
-                        nextSteps: z.array(z.string()),
-                        closing: z.string(),
-                        signature: z.string()
-                    });
-                    const validatedResponse = responseSchema.parse(JSON.parse(responseContent));
-                    formattedResponse = this.formatEmailResponse(validatedResponse);
+    
+                if (result.inquiryType !== "availability") {
+                    responseText += ` Use this background information:\n\n${this.manual.eventBackgroundInfo}`;
+                    let assistantResponse = await ai.processChatCompletion(responseText, false, this.systemPrompt);
+                    result.response = assistantResponse;
                 } else {
-                    
-                    formattedResponse = responseContent;
+                    result.response = responseText;
                 }
-
-                res.json({
-                    analysis: validatedAnalysis,
-                    response: formattedResponse
-                });
-
+    
+                
+                res.send(JSON.stringify(result));
             } catch (error) {
-                console.error('Error in getAIEmail:', error);
-                if (error instanceof z.ZodError) {
-                    res.status(400).json({
-                        error: 'Validation error',
-                        details: error.issues
-                    });
-                } else {
-                    res.status(500).json({
-                        error: error.message,
-                        details: error.stack
-                    });
-                }
+                console.error(error);
+                res.status(500).send({ error: error.toString(), text: text });
             }
         });
 
@@ -1221,91 +1262,27 @@ const gmailService = require('../services/gmailService');
 module.exports = (googleAuth) => {
     const gmail = new gmailService(googleAuth);
 
+
+    
     router.get('/readGmail', async (req, res) => {
         try {
-            const emailQuery = req.query.email || 'all';
-            const showCount = parseInt(req.query.showCount) || 25;
-            const labelIds = ['INBOX', 'SENT'];
+            const type = req.query.type || 'all';
+            const email = req.query.email;
+            const forceRefresh = req.query.forceRefresh === 'true';
 
-            console.log(`Reading Gmail for ${emailQuery}, count: ${showCount}`);
+            let emails;
+            if (forceRefresh) {
+                emails = await gmail.forceFullRefresh();
+            } else if (type === 'contact' && email) {
+                emails = await gmail.getEmailsForContact(email);
+            } else {
+                emails = await gmail.getAllEmails();
+            }
 
-            let cachedEmails = gmail.loadEmailsFromCache();
-            let cachedEmailMap = {};
-            cachedEmails.forEach(email => {
-                cachedEmailMap[email.id] = email;
-            });
+            
+            emails = emails.filter(email => email.labels.includes('INBOX'));
 
-            const messages = await gmail.listMessages(emailQuery, null, showCount, labelIds);
-            let allEmails = [];
-            let emailsToCheckForReplies = [];
-
-            const asyncLib = require('async');
-            asyncLib.mapLimit(
-                messages,
-                10,
-                async (message) => {
-                    try {
-                        if (cachedEmailMap[message.id]) {
-                            const emailData = cachedEmailMap[message.id];
-                            allEmails.push(emailData);
-                            return emailData;
-                        }
-
-                        const fullMessage = await gmail.getMessage(message.id);
-                        const content = await gmail.parseEmailContent(fullMessage);
-
-                        const emailData = {
-                            id: message.id,
-                            threadId: message.threadId,
-                            from: fullMessage.payload.headers.find((h) => h.name === 'From')?.value || '',
-                            to: fullMessage.payload.headers.find((h) => h.name === 'To')?.value || '',
-                            subject: fullMessage.payload.headers.find((h) => h.name === 'Subject')?.value || '',
-                            timestamp: fullMessage.payload.headers.find((h) => h.name === 'Date')?.value || '',
-                            internalDate: fullMessage.internalDate,
-                            text: content,
-                            labels: fullMessage.labelIds || [],
-                        };
-                        console.log(`Fetching message ID ${message.id}`);
-
-                        cachedEmailMap[message.id] = emailData;
-                        allEmails.push(emailData);
-
-                        
-                        if (!emailData.labels.includes('SENT')) {
-                            emailsToCheckForReplies.push(emailData);
-                        } else {
-                            
-                            emailData.replied = null;
-                        }
-
-                        return emailData;
-                    } catch (err) {
-                        console.error(`Error processing message ID ${message.id}:`, err);
-                        return null;
-                    }
-                },
-                async (err, fullMessages) => {
-                    if (err) {
-                        console.error('Error processing messages:', err);
-                        return res.status(500).json({
-                            error: 'Error processing messages',
-                            details: err.message,
-                        });
-                    }
-
-                    const validMessages = fullMessages.filter((msg) => msg !== null);
-
-                    
-                    if (emailsToCheckForReplies.length > 0) {
-                        await checkForReplies(emailsToCheckForReplies, cachedEmailMap);
-                    }
-
-                    const updatedEmails = Object.values(cachedEmailMap);
-                    gmail.saveEmailsToCache(updatedEmails);
-
-                    res.json(updatedEmails);
-                }
-            );
+            res.json(emails);
         } catch (error) {
             console.error('Error reading Gmail:', error);
             res.status(500).json({
@@ -1352,16 +1329,16 @@ module.exports = (googleAuth) => {
         for (const [threadId, threadEmails] of threadGroups) {
             try {
                 const threadMessages = await gmail.getThreadMessages(threadId);
-                
+
                 
                 const sentMessages = threadMessages.filter(msg => msg.labelIds.includes('SENT'));
-                
+
                 
                 threadEmails.forEach(inboxEmail => {
-                    const replied = sentMessages.some(sentMsg => 
+                    const replied = sentMessages.some(sentMsg =>
                         parseInt(sentMsg.internalDate) > parseInt(inboxEmail.internalDate)
                     );
-                    
+
                     if (cachedEmailMap[inboxEmail.id]) {
                         cachedEmailMap[inboxEmail.id].replied = replied;
                     }
@@ -1569,9 +1546,9 @@ router.get('/api/settings/background', (req, res) => {
         res.json(data);
     } catch (error) {
         console.error('Error retrieving background info:', error);
-        res.status(500).json({ 
+        res.status(500).json({
             error: 'Failed to retrieve background information',
-            details: error.message 
+            details: error.message
         });
     }
 });
@@ -1587,7 +1564,7 @@ router.post('/api/settings/background', (req, res) => {
         }
 
         const success = backgroundService.saveBackground(req.body.backgroundInfo);
-        
+
         if (success) {
             res.json({ success: true });
         } else {
@@ -1595,9 +1572,9 @@ router.post('/api/settings/background', (req, res) => {
         }
     } catch (error) {
         console.error('Error saving background info:', error);
-        res.status(500).json({ 
+        res.status(500).json({
             error: 'Failed to save background information',
-            details: error.message 
+            details: error.message
         });
     }
 });
@@ -5441,6 +5418,7 @@ export class EventManageApp {
             showReplied: localStorage.getItem('showRepliedEmails') !== 'false'
         };
         this.backgroundInfo = {};
+        this.emailsLoaded = false;
 
     }
 
@@ -5461,7 +5439,8 @@ export class EventManageApp {
         this.getAllContacts();
         this.createCalendar();
         this.initializeEmailFilters();
-        this.readGmail("all", false);
+        
+        await this.loadInitialEmails();
 
 
         const urlParams = new URLSearchParams(window.location.search);
@@ -5481,6 +5460,18 @@ export class EventManageApp {
         });
 
         this.initializeBackgroundInfo();
+    }
+    async loadInitialEmails() {
+        if (this.emailsLoaded) return;
+
+        try {
+            const emails = await this.readGmail();
+            this.emailsLoaded = true;
+            return emails;
+        } catch (error) {
+            console.error("Failed to load initial emails:", error);
+            throw error;
+        }
     }
     initializeEmailFilters() {
         const filterHtml = `
@@ -5904,13 +5895,9 @@ export class EventManageApp {
         $('html, body').animate({ scrollTop: $("#aiText").offset().top }, 500);
         $("#aiText").focus();
     }
-    async readGmail(email, retrieveEmail = true) {
-        
-        $("#messages").find(".content").empty();
-
+    async readGmail(email = null) {
         this.adjustMessagesContainerHeight();
-
-        
+        $("#messages").find(".content").empty();
         $("#messages").find(".content").html(`
             <div class="alert alert-info">
                 <i class="bi bi-hourglass-split"></i>
@@ -5918,50 +5905,29 @@ export class EventManageApp {
             </div>
         `);
 
-        if (retrieveEmail) {
-            try {
-                await $.get("/api/retrieveGmail");
-                console.log("Email retrieval complete");
-            } catch (error) {
-                console.error("Failed to retrieve Gmail:", error);
-                $("#messages").find(".content").html(`
-                    <div class="alert alert-danger">
-                        <i class="bi bi-exclamation-triangle"></i>
-                        Failed to retrieve emails: ${error.message}
-                    </div>
-                `);
-                return;
-            }
-        }
-
         try {
-            const response = await $.get("/gmail/readGmail", {
-                email: email,
-                showCount: 25
-            });
-
-            if (!Array.isArray(response)) {
-                console.error("Invalid response format:", response);
-                $("#messages").find(".content").html(`
-                    <div class="alert alert-danger">
-                        <i class="bi bi-exclamation-triangle"></i>
-                        Unexpected response format from server
-                    </div>
-                `);
-                return;
-            }
-
-            if (response.length > 0) {
-                this.processEmails(response);
+            let response;
+            if (email) {
                 
+                response = await $.get("/gmail/readGmail", {
+                    email: email,
+                    type: 'contact'
+                });
             } else {
-                $("#messages").find(".content").html(`
-                    <div class="alert alert-info">
-                        <i class="bi bi-info-circle"></i>
-                        No emails found
-                    </div>
-                `);
+                
+                response = await $.get("/gmail/readGmail", {
+                    type: 'all',
+                    forceRefresh: false
+                });
             }
+
+            if (Array.isArray(response)) {
+                this.processEmails(response);
+            } else {
+                throw new Error("Invalid response format");
+            }
+
+            return response;
         } catch (error) {
             console.error("Failed to read Gmail:", error);
             $("#messages").find(".content").html(`
@@ -5970,10 +5936,10 @@ export class EventManageApp {
                     Failed to load emails: ${error.message || 'Unknown error'}
                 </div>
             `);
+            throw error;
         }
-
-        
     }
+
     refreshEmails() {
         const messagesContainer = $("#messages .messages-container");
         const loadingHtml = `
@@ -6058,7 +6024,7 @@ export class EventManageApp {
             html += `
                 <div class="sms" subject="${_.escape(email.subject)}" to="${_.escape(emailAddress)}" data-id="${_.escape(email.id)}">
                     <div class="flex items-center justify-between mb-2">
-                        <button class="icon-btn toggle-button" title="Toggle Content">
+                        <button class="icon-btn toggle-button tooltip" data-tip="Toggle Content">
                             <i class="bi bi-chevron-down"></i>
                         </button>
                         <div class="flex gap-2">
@@ -6079,20 +6045,20 @@ export class EventManageApp {
                         </div>
                     </div>
     
-                    <div class="action-buttons">
-                        <button class="icon-btn summarizeEmailAI" title="Summarize Email">
+                    <div class="action-buttons flex gap-2 mt-2">
+                        <button class="icon-btn summarizeEmailAI tooltip tooltip-top" data-tip="Summarize Email">
                             <i class="bi bi-list-task"></i>
                         </button>
-                        <button class="icon-btn draftEventSpecificEmail" title="Draft Event Email">
+                        <button class="icon-btn draftEventSpecificEmail tooltip tooltip-top" data-tip="Draft Event Email">
                             <i class="bi bi-pencil"></i>
                         </button>
-                        <button class="icon-btn getEventDetails" data-id="${_.escape(email.id)}" title="Get Event Information">
+                        <button class="icon-btn getEventDetails tooltip tooltip-top" data-id="${_.escape(email.id)}" data-tip="Get Event Information">
                             <i class="bi bi-calendar-plus"></i>
                         </button>
-                        <button class="icon-btn generateConfirmationEmail" data-id="${_.escape(email.id)}" title="Generate Confirmation">
+                        <button class="icon-btn generateConfirmationEmail tooltip tooltip-top" data-id="${_.escape(email.id)}" data-tip="Generate Confirmation">
                             <i class="bi bi-envelope"></i>
                         </button>
-                        <button class="icon-btn sendToAiTextArea" subject="${_.escape(email.subject)}" to="${_.escape(emailAddress)}" data-id="${_.escape(email.id)}" title="Send to AI">
+                        <button class="icon-btn sendToAiTextArea tooltip tooltip-top" subject="${_.escape(email.subject)}" to="${_.escape(emailAddress)}" data-id="${_.escape(email.id)}" data-tip="Send to AI">
                             <i class="bi bi-send"></i>
                         </button>
                     </div>
@@ -6102,7 +6068,6 @@ export class EventManageApp {
         if (html) {
             $(".messages-container").html(html);
             this.initializeEmailToggles();
-            this.initializeTooltips();
         } else {
             $(".messages-container").html(`
                 <div class="alert alert-info">
@@ -6182,21 +6147,22 @@ export class EventManageApp {
         $("#infoPartyType").val(contact.partyType || "");
         $("#infoAttendance").val(contact.attendance || "");
 
-        this.readGmail(contact.email, false);
+        if (contact.email) {
+            this.readGmail(contact.email);
+        }
         $("#depositPw").html(this.calcDepositPassword(contact));
     }
 
     calcDepositPassword(contact) {
         return moment.tz(contact.startTime, 'America/New_York').format("MMMMDD");
     }
-
     async initializeBackgroundInfo() {
-        
         try {
             const response = await fetch('/api/settings/background');
             if (response.ok) {
-                this.backgroundInfo = await response.json();
-                this.populateBackgroundFields();
+                const data = await response.json();
+                this.backgroundInfo = data.backgroundInfo;  
+                $('#backgroundInfo').val(this.backgroundInfo);  
             }
         } catch (error) {
             console.error('Failed to load background info:', error);
@@ -6217,18 +6183,9 @@ export class EventManageApp {
         $('#venuePricing').val(this.backgroundInfo.pricing || '');
         $('#venueNotes').val(this.backgroundInfo.specialNotes || '');
     }
-
     async saveBackgroundInfo() {
-        const backgroundInfo = {
-            venueName: $('#venueName').val(),
-            address: $('#venueAddress').val(),
-            capacity: $('#venueCapacity').val(),
-            facilities: $('#venueFacilities').val(),
-            services: $('#venueServices').val(),
-            policies: $('#venuePolicies').val(),
-            pricing: $('#venuePricing').val(),
-            specialNotes: $('#venueNotes').val()
-        };
+        
+        const backgroundInfo = $('#backgroundInfo').val();
 
         try {
             const response = await fetch('/api/settings/background', {
@@ -6236,7 +6193,7 @@ export class EventManageApp {
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify(backgroundInfo)
+                body: JSON.stringify({ backgroundInfo })  
             });
 
             if (response.ok) {
@@ -6854,6 +6811,7 @@ export class EventManageApp {
                 </select>
             </div>
 
+            
             
             <div class="mb-6">
                 <h3 class="font-bold mb-2">AI Background Information</h3>
