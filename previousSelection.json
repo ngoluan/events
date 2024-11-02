@@ -1,22 +1,10 @@
 [
-  "services/pdfService.js",
-  "services/googleCalendarService.js",
-  "services/gmailService.js",
   "services/eventService.js",
   "services/aiService.js",
-  "services/GoogleAuth.js",
   "services/EmailProcessorServer.js",
-  "services/BackgroundService.js",
-  "routes/oauth.js",
-  "routes/gmail.js",
   "routes/events.js",
-  "routes/calendar.js",
   "routes/ai.js",
-  "routes/BackgroundRoutes.js",
-  "public/styles.css",
   "public/scripts.js",
   "public/index.html",
-  "public/calendar.js",
-  "public/EmailProcessor.js",
   "src/styles.css"
 ]

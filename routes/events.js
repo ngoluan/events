@@ -1,96 +1,118 @@
-// routes/events.js
+//--- File: /home/luan_ngo/web/events/routes/events.js ---
+
 const express = require('express');
 const router = express.Router();
 const eventService = require('../services/eventService');
-const pdfService = require('../services/pdfService');
-const googleCalendarService = require('../services/googleCalendarService');
 
-// Get all events
-router.get('/', (req, res) => {
-  const events = eventService.loadEvents();
-  res.json(events);
-});
-
-// Add a new event
-router.post('/', (req, res) => {
-  const events = eventService.loadEvents();
-  const newEvent = req.body;
-  newEvent.id = events.length > 0 ? events[events.length - 1].id + 1 : 1;
-  events.push(newEvent);
-  eventService.saveEvents(events);
-  res.json(newEvent);
-});
-
-// Update an event
-router.put('/:id', (req, res) => {
-  const events = eventService.loadEvents();
-  const eventId = parseInt(req.params.id);
-  const index = events.findIndex((e) => e.id === eventId);
-  if (index !== -1) {
-    events[index] = req.body;
-    eventService.saveEvents(events);
-    res.json(events[index]);
-  } else {
-    res.status(404).send('Event not found');
-  }
-});
-
-// Delete an event
-router.delete('/:id', (req, res) => {
-  const events = eventService.loadEvents();
-  const eventId = parseInt(req.params.id);
-  const index = events.findIndex((e) => e.id === eventId);
-  if (index !== -1) {
-    events.splice(index, 1);
-    eventService.saveEvents(events);
-    res.sendStatus(200);
-  } else {
-    res.status(404).send('Event not found');
-  }
-});
-
-// Generate a contract for an event
-router.post('/:id/contract', async (req, res) => {
-  const events = eventService.loadEvents();
-  const eventId = parseInt(req.params.id);
-  const event = events.find((e) => e.id === eventId);
-  if (event) {
-    try {
-      const { fileName, filePath } = await pdfService.generateContract(event);
-      res.json({ fileName, filePath });
-    } catch (error) {
-      console.error('Error generating contract:', error);
-      res.status(500).send('Error generating contract');
-    }
-  } else {
-    res.status(404).send('Event not found');
-  }
-});
-router.get('/getEventsContacts', (req, res) => {
-  const events = eventService.loadEvents();
-  res.json(events);
-});
-
-// List Google Calendar events
-router.get('/calendar/events', async (req, res) => {
+// GET /api/events - Get all events
+router.get('/api/events', (req, res) => {
   try {
-    const events = await googleCalendarService.listEvents();
+    const events = eventService.loadEvents();
     res.json(events);
   } catch (error) {
-    console.error('Error listing calendar events:', error);
-    res.status(500).send('Error listing calendar events');
+    console.error('Error getting events:', error);
+    res.status(500).json({ error: 'Failed to get events' });
   }
 });
 
-// Add event to Google Calendar
-router.post('/calendar/events', async (req, res) => {
-  const eventData = req.body;
+// GET /api/events/:id - Get a specific event by ID
+router.get('/api/events/:id', (req, res) => {
   try {
-    const event = await googleCalendarService.addEvent(eventData);
-    res.json(event);
+    const event = eventService.getEvent(req.params.id);
+    if (event) {
+      res.json(event);
+    } else {
+      res.status(404).json({ error: 'Event not found' });
+    }
   } catch (error) {
-    console.error('Error adding event to calendar:', error);
-    res.status(500).send('Error adding event to calendar');
+    console.error('Error getting event:', error);
+    res.status(500).json({ error: 'Failed to get event' });
+  }
+});
+
+// POST /api/events/sync - Sync events with remote source
+router.post('/api/events/sync', async (req, res) => {
+  try {
+    const success = await eventService.syncWithRemote();
+    if (success) {
+      res.json({ message: 'Sync completed successfully' });
+    } else {
+      res.status(500).json({ error: 'Sync failed' });
+    }
+  } catch (error) {
+    console.error('Error during sync:', error);
+    res.status(500).json({ error: 'Sync failed' });
+  }
+});
+
+// PUT /api/events/:id - Update an existing event
+router.put('/api/events/:id',async  (req, res) => {
+  try {
+    // Validate required fields
+    const requiredFields = ['name', 'email', 'startTime', 'endTime'];
+    for (const field of requiredFields) {
+      if (!req.body[field]) {
+        return res.status(400).json({ error: `Missing required field: ${field}` });
+      }
+    }
+
+    let updatedEvent = eventService.updateEvent(req.params.id, req.body);
+
+    if (updatedEvent) {
+      await eventService.updateRemoteEvent(updatedEvent,req.body);
+      res.json(updatedEvent);
+    } else {
+      // If the event doesn't exist, create a new one
+      const newEventData = { ...req.body, id: parseInt(req.params.id) };
+      const newEvent = eventService.createEvent(newEventData);
+
+      if (newEvent) {
+        res.status(201).json(newEvent);
+      } else {
+        res.status(500).json({ error: 'Failed to create event' });
+      }
+    }
+  } catch (error) {
+    console.error('Error updating or creating event:', error);
+    res.status(500).json({ error: 'Failed to update or create event' });
+  }
+});
+
+// POST /api/events - Create a new event
+router.post('/api/events', (req, res) => {
+  try {
+    // Validate required fields
+    const requiredFields = ['name', 'email', 'startTime', 'endTime'];
+    for (const field of requiredFields) {
+      if (!req.body[field]) {
+        return res.status(400).json({ error: `Missing required field: ${field}` });
+      }
+    }
+
+    const newEvent = eventService.createEvent(req.body);
+    if (newEvent) {
+      res.status(201).json(newEvent);
+    } else {
+      res.status(500).json({ error: 'Failed to create event' });
+    }
+  } catch (error) {
+    console.error('Error creating event:', error);
+    res.status(500).json({ error: 'Failed to create event' });
+  }
+});
+
+// DELETE /api/events/:id - Delete an event
+router.delete('/api/events/:id', (req, res) => {
+  try {
+    const success = eventService.deleteEvent(req.params.id);
+    if (success) {
+      res.status(204).send();
+    } else {
+      res.status(404).json({ error: 'Event not found' });
+    }
+  } catch (error) {
+    console.error('Error deleting event:', error);
+    res.status(500).json({ error: 'Failed to delete event' });
   }
 });
 

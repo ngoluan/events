@@ -36,8 +36,9 @@
     padding: 1rem;
   }
 
-  #messages {
+  #messages, #actionss {
     @apply flex flex-col h-full;
+    height: 75vh;
   }
 
   #messages .card-body {
@@ -60,7 +61,7 @@
 
   .email {
     @apply transition-all duration-200 overflow-hidden;
-    max-height: 150px;
+    max-height: 50vh;
   }
 
   .email.expanded {

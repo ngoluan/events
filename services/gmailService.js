@@ -108,10 +108,9 @@ class GmailService {
             throw error;
         }
     }
-
     async getMessage(messageId) {
         try {
-            // Check cache first
+            // First check cache
             if (this.emailCache.has(messageId)) {
                 return this.emailCache.get(messageId);
             }
@@ -123,6 +122,24 @@ class GmailService {
                 id: messageId,
                 format: 'full'
             });
+
+            // Add retry logic for parsing content
+            const content = await this.parseEmailContent(res.data);
+            if (!content) {
+                console.warn(`No content parsed for message ${messageId}, retrying with raw format...`);
+                const rawRes = await gmail.users.messages.get({
+                    userId: 'me',
+                    id: messageId,
+                    format: 'raw'
+                });
+                if (rawRes.data.raw) {
+                    const rawContent = Buffer.from(rawRes.data.raw, 'base64').toString('utf-8');
+                    res.data.parsedContent = this.convertHtmlToText(rawContent);
+                }
+            } else {
+                res.data.parsedContent = content;
+            }
+
             return res.data;
         } catch (error) {
             console.error('Error getting message:', error);
@@ -131,20 +148,82 @@ class GmailService {
     }
 
     async parseEmailContent(message) {
-        const payload = message.payload;
-        let emailBody = '';
+        try {
+            const payload = message.payload;
+            let emailBody = '';
 
-        if (payload.parts) {
-            for (const part of payload.parts) {
-                if (part.mimeType === 'text/plain') {
-                    emailBody += Buffer.from(part.body.data, 'base64').toString('utf-8');
+            // Function to decode base64 content
+            const decodeBase64 = (data) => {
+                try {
+                    return Buffer.from(data, 'base64').toString('utf-8');
+                } catch (error) {
+                    console.error('Error decoding base64:', error);
+                    return '';
+                }
+            };
+
+            // Function to extract text from parts recursively
+            const extractTextFromParts = (parts) => {
+                let text = '';
+                if (!parts) return text;
+
+                for (const part of parts) {
+                    if (part.mimeType === 'text/plain' && part.body?.data) {
+                        text += decodeBase64(part.body.data);
+                    } else if (part.mimeType === 'text/html' && part.body?.data && !text) {
+                        // Only use HTML if we haven't found plain text
+                        const htmlContent = decodeBase64(part.body.data);
+                        text += this.convertHtmlToText(htmlContent);
+                    } else if (part.parts) {
+                        text += extractTextFromParts(part.parts);
+                    }
+                }
+                return text;
+            };
+
+            // Handle different message structures
+            if (payload.parts) {
+                emailBody = extractTextFromParts(payload.parts);
+            } else if (payload.body && payload.body.data) {
+                if (payload.mimeType === 'text/plain') {
+                    emailBody = decodeBase64(payload.body.data);
+                } else if (payload.mimeType === 'text/html') {
+                    const htmlContent = decodeBase64(payload.body.data);
+                    emailBody = this.convertHtmlToText(htmlContent);
                 }
             }
-        } else if (payload.body && payload.body.data) {
-            emailBody = Buffer.from(payload.body.data, 'base64').toString('utf-8');
-        }
 
-        return emailBody;
+            // If still no content, try to find any text content in headers
+            if (!emailBody.trim() && payload.headers) {
+                const contentHeader = payload.headers.find(h =>
+                    h.name.toLowerCase() === 'content-description' ||
+                    h.name.toLowerCase() === 'content-text'
+                );
+                if (contentHeader) {
+                    emailBody = contentHeader.value;
+                }
+            }
+
+            return emailBody.trim();
+        } catch (error) {
+            console.error('Error parsing email content:', error);
+            return 'Error parsing email content';
+        }
+    }
+    convertHtmlToText(html) {
+        try {
+            // Basic HTML to text conversion
+            return html
+                .replace(/<style[^>]*>.*<\/style>/gs, '') // Remove style tags and their content
+                .replace(/<script[^>]*>.*<\/script>/gs, '') // Remove script tags and their content
+                .replace(/<[^>]+>/g, ' ') // Remove HTML tags
+                .replace(/&nbsp;/g, ' ') // Replace non-breaking spaces
+                .replace(/\s+/g, ' ') // Normalize whitespace
+                .trim(); // Trim leading/trailing whitespace
+        } catch (error) {
+            console.error('Error converting HTML to text:', error);
+            return '';
+        }
     }
     async processMessageBatch(messages) {
         if (!messages || !messages.length) return [];
@@ -161,7 +240,7 @@ class GmailService {
                 }
 
                 const fullMessage = await this.getMessage(message.id);
-                const content = await this.parseEmailContent(fullMessage);
+                const content = fullMessage.parsedContent || '';
 
                 const emailData = {
                     id: message.id,
@@ -175,7 +254,11 @@ class GmailService {
                     labels: fullMessage.labelIds || []
                 };
 
-                // Add to cache
+                // If still no content, log warning
+                if (!content.trim()) {
+                    console.warn(`Warning: No content parsed for message ${message.id}`);
+                }
+
                 this.emailCache.set(message.id, emailData);
                 processedEmails.push(emailData);
 
@@ -195,7 +278,7 @@ class GmailService {
             let cachedEmails = this.loadEmailsFromCache();
 
             // Check if we need to fetch new emails
-            const lastRetrievalDate = moment(this.loadLastRetrievalDate(),"YYYY/MM/DD");
+            const lastRetrievalDate = moment(this.loadLastRetrievalDate(), "YYYY/MM/DD");
             const now = moment();
             const needsUpdate = !cachedEmails.length || lastRetrievalDate.isBefore(now, 'day');
 
@@ -237,26 +320,20 @@ class GmailService {
             });
 
             // If we have cached emails for this contact and they're recent enough, use them
-            const lastRetrievalDate = moment(this.loadLastRetrievalDate());
-            const now = moment();
-            const needsUpdate = !contactEmails.length || lastRetrievalDate.isBefore(now, 'day');
+            const messages = await this.listMessages({
+                email: email,
+                maxResults: 50
+            });
 
-            if (needsUpdate) {
-                const messages = await this.listMessages({
-                    email: email,
-                    maxResults: 50
-                });
+            const newEmails = await this.processMessageBatch(messages);
 
-                const newEmails = await this.processMessageBatch(messages);
+            // Merge new contact emails with cached ones
+            const allContactEmails = this.mergeEmails(contactEmails, newEmails);
 
-                // Merge new contact emails with cached ones
-                const allContactEmails = this.mergeEmails(contactEmails, newEmails);
+            // Update cache with new emails
+            this.updateCacheWithEmails(newEmails);
 
-                // Update cache with new emails
-                this.updateCacheWithEmails(newEmails);
-
-                return allContactEmails;
-            }
+            return allContactEmails;
 
             return contactEmails;
         } catch (error) {

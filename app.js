@@ -35,7 +35,7 @@ const aiRoutes = require('./routes/ai');
 // Use the routers
 app.use('/auth', oauthRoutes);
 app.use('/gmail', gmailRoutes);
-app.use('/events', eventsRoutes);
+app.use('/', eventsRoutes);
 app.use('/calendar', calendarRoutes);
 app.use('/ai', aiRoutes);
 app.use('/', emailProcessor.getRouter());

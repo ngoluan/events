@@ -18,6 +18,9 @@ export class EventManageApp {
         this.backgroundInfo = {};
         this.emailsLoaded = false;
 
+        this.initializeToastContainer();
+
+
     }
 
     async init() {
@@ -25,6 +28,8 @@ export class EventManageApp {
         this.sounds = {
             orderUp: new Howl({ src: ['./orderup.m4a'] })
         };
+        this.syncEvents();
+
 
 
         // Load AI templates
@@ -59,6 +64,75 @@ export class EventManageApp {
 
         this.initializeBackgroundInfo();
     }
+
+    initializeToastContainer() {
+        // Create a container for toasts if it doesn't exist
+        if (!document.getElementById('toast-container')) {
+            const toastContainer = document.createElement('div');
+            toastContainer.id = 'toast-container';
+            toastContainer.className = 'fixed bottom-4 right-4 z-50 flex flex-col gap-2';
+            document.body.appendChild(toastContainer);
+        }
+    }
+
+    showToast(message, type = 'info') {
+        const toast = document.createElement('div');
+
+        // Set base classes using Tailwind/DaisyUI
+        toast.className = `alert shadow-lg max-w-sm opacity-0 transform translate-x-full transition-all duration-300`;
+
+        // Add type-specific classes
+        switch (type) {
+            case 'success':
+                toast.className += ' alert-success';
+                break;
+            case 'error':
+                toast.className += ' alert-error';
+                break;
+            case 'warning':
+                toast.className += ' alert-warning';
+                break;
+            default:
+                toast.className += ' alert-info';
+        }
+
+        toast.innerHTML = `
+            <div class="flex items-center justify-between w-full">
+                <span class="text-sm">${message}</span>
+                <button class="btn btn-ghost btn-xs" aria-label="Close">
+                    <i class="bi bi-x text-lg"></i>
+                </button>
+            </div>
+        `;
+
+        // Add to container
+        const container = document.getElementById('toast-container');
+        container.appendChild(toast);
+
+        // Trigger animation
+        requestAnimationFrame(() => {
+            toast.className = toast.className.replace('opacity-0 translate-x-full', 'opacity-100 translate-x-0');
+        });
+
+        // Setup close button
+        const closeButton = toast.querySelector('button');
+        closeButton.onclick = () => {
+            removeToast(toast);
+        };
+
+        // Auto remove after 3 seconds
+        setTimeout(() => {
+            removeToast(toast);
+        }, 3000);
+
+        function removeToast(toast) {
+            toast.className = toast.className.replace('opacity-100 translate-x-0', 'opacity-0 translate-x-full');
+            setTimeout(() => {
+                toast?.remove();
+            }, 300); // Match the CSS transition duration
+        }
+    }
+
     async loadInitialEmails() {
         if (this.emailsLoaded) return;
 
@@ -615,6 +689,23 @@ export class EventManageApp {
                         <button class="icon-btn toggle-button tooltip" data-tip="Toggle Content">
                             <i class="bi bi-chevron-down"></i>
                         </button>
+                          <div class="action-buttons flex gap-2 mt-2">
+                        <button class="icon-btn summarizeEmailAI tooltip tooltip-top" data-tip="Summarize Email">
+                            <i class="bi bi-list-task"></i>
+                        </button>
+                        <button class="icon-btn draftEventSpecificEmail tooltip tooltip-top" data-tip="Draft Event Email">
+                            <i class="bi bi-pencil"></i>
+                        </button>
+                        <button class="icon-btn getEventDetails tooltip tooltip-top" data-id="${_.escape(email.id)}" data-tip="Get Event Information">
+                            <i class="bi bi-calendar-plus"></i>
+                        </button>
+                        <button class="icon-btn generateConfirmationEmail tooltip tooltip-top" data-id="${_.escape(email.id)}" data-tip="Generate Confirmation">
+                            <i class="bi bi-envelope"></i>
+                        </button>
+                        <button class="icon-btn sendToAiTextArea tooltip tooltip-top" subject="${_.escape(email.subject)}" to="${_.escape(emailAddress)}" data-id="${_.escape(email.id)}" data-tip="Send to AI">
+                            <i class="bi bi-send"></i>
+                        </button>
+                    </div>
                         <div class="flex gap-2">
                             ${unreadIcon}
                             ${importantIcon}
@@ -633,23 +724,7 @@ export class EventManageApp {
                         </div>
                     </div>
     
-                    <div class="action-buttons flex gap-2 mt-2">
-                        <button class="icon-btn summarizeEmailAI tooltip tooltip-top" data-tip="Summarize Email">
-                            <i class="bi bi-list-task"></i>
-                        </button>
-                        <button class="icon-btn draftEventSpecificEmail tooltip tooltip-top" data-tip="Draft Event Email">
-                            <i class="bi bi-pencil"></i>
-                        </button>
-                        <button class="icon-btn getEventDetails tooltip tooltip-top" data-id="${_.escape(email.id)}" data-tip="Get Event Information">
-                            <i class="bi bi-calendar-plus"></i>
-                        </button>
-                        <button class="icon-btn generateConfirmationEmail tooltip tooltip-top" data-id="${_.escape(email.id)}" data-tip="Generate Confirmation">
-                            <i class="bi bi-envelope"></i>
-                        </button>
-                        <button class="icon-btn sendToAiTextArea tooltip tooltip-top" subject="${_.escape(email.subject)}" to="${_.escape(emailAddress)}" data-id="${_.escape(email.id)}" data-tip="Send to AI">
-                            <i class="bi bi-send"></i>
-                        </button>
-                    </div>
+                  
                 </div>`;
         });
 
@@ -681,33 +756,41 @@ export class EventManageApp {
     // Also update the processEmails method to handle missing data gracefully
 
 
+    // Modify getAllContacts to use the new API endpoint
     getAllContacts() {
-        $.get("/events/getEventsContacts", (contacts) => {
-            this.contacts = contacts;
-            const $contactsContent = $("#contacts .content");
-            $contactsContent.empty();
-            let html = '';
+        fetch("/api/events")
+            .then(response => response.json())
+            .then(contacts => {
+                this.contacts = contacts;
+                const $contactsContent = $("#contacts");
+                $contactsContent.empty();
+                let html = '';
 
-            contacts.slice().reverse().forEach(contact => {
-                const date = moment.tz(contact.startTime, 'America/New_York').format("MM/DD/YYYY");
-                let colour = "blue";
-                if (contact.status) {
-                    if (contact.status.includes("depositPaid")) colour = "black";
-                    if (contact.status.includes("reserved")) colour = "green";
-                }
-                if (moment.tz(contact.startTime, 'America/New_York').isBefore(moment().subtract(2, "days"))) {
-                    colour = "lightgrey";
-                }
-                if (!contact.name) return;
-                html += `
-                    <div class="contactCont" data-id="${_.escape(contact.id)}" data-date="${_.escape(date)}">
-                        <a href="#" class="contactBtn" style="color:${_.escape(colour)};" data-id="${_.escape(contact.id)}">${_.escape(contact.name)} (${_.escape(date)})</a>
-                    </div>`;
+                contacts.slice().reverse().forEach(contact => {
+                    if (!contact || !contact.startTime) return;
+
+                    const date = moment.tz(contact.startTime, 'America/New_York').format("MM/DD/YYYY");
+                    let colour = "blue";
+                    if (contact.status) {
+                        if (contact.status.includes("depositPaid")) colour = "black";
+                        if (contact.status.includes("reserved")) colour = "green";
+                    }
+                    if (moment.tz(contact.startTime, 'America/New_York').isBefore(moment().subtract(2, "days"))) {
+                        colour = "lightgrey";
+                    }
+                    if (!contact.name) return;
+                    html += `
+            <div class="contactCont" data-id="${_.escape(contact.id)}" data-date="${_.escape(date)}">
+              <a href="#" class="contactBtn" style="color:${_.escape(colour)};" data-id="${_.escape(contact.id)}">${_.escape(contact.name)} (${_.escape(date)})</a>
+            </div>`;
+                });
+
+                $contactsContent.append(html);
+            })
+            .catch(error => {
+                console.error("Error getting contacts:", error);
+                this.showToast('Failed to load contacts', 'error');
             });
-
-            $contactsContent.append(html);
-            console.log("Contacts loaded successfully.");
-        });
     }
 
     loadContact(id) {
@@ -844,10 +927,10 @@ export class EventManageApp {
     saveContactInfo() {
         let contact = _.find(this.contacts, ["id", this.currentId]);
         if (!contact) {
-            contact = { id: this.contacts.length + 1 };
-            this.contacts.push(contact);
+            // If contact doesn't exist, create a new one
+            contact = {};
         }
-        contact.id = parseInt(contact.id);
+        contact.id = parseInt(contact.id) || null;
         contact.name = $("#infoName").val();
         contact.email = $("#infoEmail").val();
         contact.phone = $("#actionsPhone").val();
@@ -861,10 +944,68 @@ export class EventManageApp {
         contact.partyType = $("#infoPartyType").val();
         contact.attendance = $("#infoAttendance").val();
         contact.notes = $("#infoNotes").val();
-
-        $.post("/api/updateEventContact", contact);
-        this.utils.alert("Contact saved");
+    
+        // Determine if we are updating or creating
+        if (contact.id) {
+            // Update existing contact
+            $.ajax({
+                url: `/api/events/${contact.id}`,
+                type: 'PUT',
+                data: JSON.stringify(contact),
+                contentType: 'application/json',
+                success: (response) => {
+                    this.showToast("Contact updated", "success");
+                },
+                error: (xhr, status, error) => {
+                    console.error("Failed to update contact:", error);
+                    this.showToast("Failed to update contact", "error");
+                }
+            });
+        } else {
+            // Create new contact
+            $.ajax({
+                url: `/api/events`,
+                type: 'POST',
+                data: JSON.stringify(contact),
+                contentType: 'application/json',
+                success: (response) => {
+                    // Assuming the server returns the new contact with an ID
+                    contact.id = response.id;
+                    this.showToast("Contact created", "success");
+                },
+                error: (xhr, status, error) => {
+                    console.error("Failed to create contact:", error);
+                    this.showToast("Failed to create contact", "error");
+                }
+            });
+        }
     }
+    
+
+    async syncEvents() {
+        try {
+            const response = await fetch('/api/events/sync', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error('Sync failed');
+            }
+
+            // Show toast notification
+            this.showToast('Events synchronized successfully', 'success');
+
+            // Refresh the contacts list
+            this.getAllContacts();
+        } catch (error) {
+            console.error('Error syncing events:', error);
+            this.showToast('Failed to sync events', 'error');
+        }
+    }
+
 
     /*** Contract Methods ***/
 
