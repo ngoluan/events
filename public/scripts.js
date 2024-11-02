@@ -7,6 +7,7 @@ export class EventManageApp {
         this.mainCalendar = null;
         this.contacts = [];
         this.currentId = -1;
+        this.emailProcessor = new EmailProcessor();
 
         // AI-related properties
         this.templates = {};
@@ -14,6 +15,9 @@ export class EventManageApp {
         this.emailFilters = {
             showReplied: localStorage.getItem('showRepliedEmails') !== 'false'
         };
+        this.backgroundInfo = {};
+        this.emailsLoaded = false;
+
     }
 
     async init() {
@@ -33,7 +37,8 @@ export class EventManageApp {
         this.getAllContacts();
         this.createCalendar();
         this.initializeEmailFilters();
-        this.readGmail("all", false);
+        //this.readGmail("all", false);
+        await this.loadInitialEmails();
 
 
         const urlParams = new URLSearchParams(window.location.search);
@@ -45,7 +50,26 @@ export class EventManageApp {
             }
         }
 
+        $(document).on('eventDetailsReceived', async (e, eventDetails) => {
+            const lastId = this.contacts.length > 0 ? this.contacts[this.contacts.length - 1].id : 0;
+            eventDetails.id = lastId + 1;
+            this.contacts.push(eventDetails);
+            this.loadContact(eventDetails.id);
+        });
 
+        this.initializeBackgroundInfo();
+    }
+    async loadInitialEmails() {
+        if (this.emailsLoaded) return;
+
+        try {
+            const emails = await this.readGmail();
+            this.emailsLoaded = true;
+            return emails;
+        } catch (error) {
+            console.error("Failed to load initial emails:", error);
+            throw error;
+        }
     }
     initializeEmailFilters() {
         const filterHtml = `
@@ -158,9 +182,13 @@ export class EventManageApp {
             console.error('Error loading templates:', error);
         }
     }
-
     async sendAIRequest(endpoint, data) {
         try {
+            // Only include background info if specifically requested in data
+            if (data.includeBackground && this.backgroundInfo) {
+                data.backgroundInfo = this.backgroundInfo;
+            }
+
             const response = await $.post(endpoint, data);
             return response;
         } catch (error) {
@@ -169,7 +197,6 @@ export class EventManageApp {
             throw error;
         }
     }
-
     async generateConfirmationEmail(text, email) {
         const aiPrompt = `Write an email to confirm that the event is tomorrow and some of the key details. Also, ask if they have an updated attendance count and ask about catering choices. Be semi-formal.\n\nEvent details: ${text}\nEmail: ${email}.`;
         return await this.sendAIRequest("/api/sendAIText", { aiText: aiPrompt });
@@ -208,22 +235,6 @@ export class EventManageApp {
         this.writeToAIResult(data.replace(/\n/g, "<br>"));
     }
 
-    async draftEventSpecificEmail(text) {
-        const dataSend = {
-            aiText: this.templates.emailResponsePrompt + text,
-            emailAvailabilityResponsePrompt: this.templates.emailAvailabilityResponsePrompt,
-            emailText: text,
-            backgroundInfo: this.templates.backgroundInfo
-        };
-
-        try {
-            const response = await this.sendAIRequest("/api/getAIEmail", dataSend);
-            return JSON.parse(response);
-        } catch (error) {
-            console.error("Error with AI request:", error);
-            return { error: "An error occurred while processing the AI request." };
-        }
-    }
 
     writeToAIResult(data) {
         data = data.replace(/\n/g, "<br>");
@@ -446,31 +457,6 @@ export class EventManageApp {
         }
     }
 
-    async handleEventSpecificEmail(text = null) {
-        this.utils.alert("Sending to AI");
-
-        if (text === null) {
-            const { match, aiText } = this.extractEmail();
-            text = match ? match[1].trim() : aiText.replace(/<br>/g, "\n");
-        }
-
-        let instructions = prompt("Enter any specific instructions:");
-        const combinedText = `${text}\n\n[Specific Instructions: ${instructions}]`;
-
-        try {
-            let data = await this.draftEventSpecificEmail(combinedText);
-            data.response = data.response.replace(/\n/g, "<br>");
-            data.response = data.response.replace(/\[Specific Instructions:.*?\]/g, "");
-
-            $("#aiText").html(data.response + "<br><br> ---------------- <br><br>" + $("#aiText").html());
-
-            if ($("#sendMailEmail").val() === "") {
-                $("#sendMailEmail").val(data.fromEmail);
-            }
-        } catch (error) {
-            console.error("Error handling AI response:", error);
-        }
-    }
 
     async sendEmail() {
         const aiText = $("#aiText").html();
@@ -507,13 +493,9 @@ export class EventManageApp {
         $('html, body').animate({ scrollTop: $("#aiText").offset().top }, 500);
         $("#aiText").focus();
     }
-    async readGmail(email, retrieveEmail = true) {
-        // Clear existing messages
-        $("#messages").find(".content").empty();
-
+    async readGmail(email = null) {
         this.adjustMessagesContainerHeight();
-
-        // Show loading indicator
+        $("#messages").find(".content").empty();
         $("#messages").find(".content").html(`
             <div class="alert alert-info">
                 <i class="bi bi-hourglass-split"></i>
@@ -521,50 +503,29 @@ export class EventManageApp {
             </div>
         `);
 
-        if (retrieveEmail) {
-            try {
-                await $.get("/api/retrieveGmail");
-                console.log("Email retrieval complete");
-            } catch (error) {
-                console.error("Failed to retrieve Gmail:", error);
-                $("#messages").find(".content").html(`
-                    <div class="alert alert-danger">
-                        <i class="bi bi-exclamation-triangle"></i>
-                        Failed to retrieve emails: ${error.message}
-                    </div>
-                `);
-                return;
-            }
-        }
-
         try {
-            const response = await $.get("/gmail/readGmail", {
-                email: email,
-                showCount: 25
-            });
-
-            if (!Array.isArray(response)) {
-                console.error("Invalid response format:", response);
-                $("#messages").find(".content").html(`
-                    <div class="alert alert-danger">
-                        <i class="bi bi-exclamation-triangle"></i>
-                        Unexpected response format from server
-                    </div>
-                `);
-                return;
-            }
-
-            if (response.length > 0) {
-                this.processEmails(response);
-                // Adjust height after processing emails
+            let response;
+            if (email) {
+                // Loading emails for specific contact
+                response = await $.get("/gmail/readGmail", {
+                    email: email,
+                    type: 'contact'
+                });
             } else {
-                $("#messages").find(".content").html(`
-                    <div class="alert alert-info">
-                        <i class="bi bi-info-circle"></i>
-                        No emails found
-                    </div>
-                `);
+                // Loading all emails
+                response = await $.get("/gmail/readGmail", {
+                    type: 'all',
+                    forceRefresh: false
+                });
             }
+
+            if (Array.isArray(response)) {
+                this.processEmails(response);
+            } else {
+                throw new Error("Invalid response format");
+            }
+
+            return response;
         } catch (error) {
             console.error("Failed to read Gmail:", error);
             $("#messages").find(".content").html(`
@@ -573,10 +534,10 @@ export class EventManageApp {
                     Failed to load emails: ${error.message || 'Unknown error'}
                 </div>
             `);
+            throw error;
         }
-
-        // Final height adjustment
     }
+
     refreshEmails() {
         const messagesContainer = $("#messages .messages-container");
         const loadingHtml = `
@@ -609,9 +570,9 @@ export class EventManageApp {
             const $button = $(e.currentTarget);
             const $email = $button.closest('.sms').find('.email');
             const $icon = $button.find('i');
-            
+
             $email.toggleClass('expanded');
-            
+
             if ($email.hasClass('expanded')) {
                 $icon.removeClass('bi-chevron-down').addClass('bi-chevron-up');
             } else {
@@ -624,31 +585,31 @@ export class EventManageApp {
             console.error("Invalid data format:", data);
             return;
         }
-    
+
         data = _.orderBy(data, ["timestamp"], ["desc"]);
         const exclusionArray = ["calendar-notification", "accepted this invitation", "peerspace", "tagvenue"];
         let html = '';
-    
+
         data.forEach((email) => {
             if (!email || !email.subject || !email.text) {
                 console.warn("Skipping invalid email entry:", email);
                 return;
             }
-    
+
             if (exclusionArray.some((exclusion) =>
                 email.subject.toLowerCase().includes(exclusion) ||
                 email.text.toLowerCase().includes(exclusion)
             )) {
                 return;
             }
-    
+
             const emailAddressMatch = email.from.match(/<([^>]+)>/);
             const emailAddress = emailAddressMatch ? emailAddressMatch[1] : email.from;
-    
+
             if (emailAddress !== "INTERAC" && email.text) {
                 email.text = email.text.replace(/\n/g, "<br>");
             }
-    
+
             const isUnread = email.labels && email.labels.includes("UNREAD");
             const isImportant = email.labels && email.labels.includes("IMPORTANT");
             const unreadIcon = isUnread
@@ -657,11 +618,11 @@ export class EventManageApp {
             const importantIcon = isImportant
                 ? `<i class="bi bi-star-fill text-danger" title="Important"></i> `
                 : "";
-    
+
             html += `
                 <div class="sms" subject="${_.escape(email.subject)}" to="${_.escape(emailAddress)}" data-id="${_.escape(email.id)}">
                     <div class="flex items-center justify-between mb-2">
-                        <button class="icon-btn toggle-button" title="Toggle Content">
+                        <button class="icon-btn toggle-button tooltip" data-tip="Toggle Content">
                             <i class="bi bi-chevron-down"></i>
                         </button>
                         <div class="flex gap-2">
@@ -682,30 +643,29 @@ export class EventManageApp {
                         </div>
                     </div>
     
-                    <div class="action-buttons">
-                        <button class="icon-btn summarizeEmailAI" title="Summarize Email">
+                    <div class="action-buttons flex gap-2 mt-2">
+                        <button class="icon-btn summarizeEmailAI tooltip tooltip-top" data-tip="Summarize Email">
                             <i class="bi bi-list-task"></i>
                         </button>
-                        <button class="icon-btn draftEventSpecificEmail" title="Draft Event Email">
+                        <button class="icon-btn draftEventSpecificEmail tooltip tooltip-top" data-tip="Draft Event Email">
                             <i class="bi bi-pencil"></i>
                         </button>
-                        <button class="icon-btn getEventDetails" data-id="${_.escape(email.id)}" title="Get Event Information">
+                        <button class="icon-btn getEventDetails tooltip tooltip-top" data-id="${_.escape(email.id)}" data-tip="Get Event Information">
                             <i class="bi bi-calendar-plus"></i>
                         </button>
-                        <button class="icon-btn generateConfirmationEmail" data-id="${_.escape(email.id)}" title="Generate Confirmation">
+                        <button class="icon-btn generateConfirmationEmail tooltip tooltip-top" data-id="${_.escape(email.id)}" data-tip="Generate Confirmation">
                             <i class="bi bi-envelope"></i>
                         </button>
-                        <button class="icon-btn sendToAiTextArea" subject="${_.escape(email.subject)}" to="${_.escape(emailAddress)}" data-id="${_.escape(email.id)}" title="Send to AI">
+                        <button class="icon-btn sendToAiTextArea tooltip tooltip-top" subject="${_.escape(email.subject)}" to="${_.escape(emailAddress)}" data-id="${_.escape(email.id)}" data-tip="Send to AI">
                             <i class="bi bi-send"></i>
                         </button>
                     </div>
                 </div>`;
         });
-    
+
         if (html) {
             $(".messages-container").html(html);
             this.initializeEmailToggles();
-            this.initializeTooltips();
         } else {
             $(".messages-container").html(`
                 <div class="alert alert-info">
@@ -715,12 +675,12 @@ export class EventManageApp {
             `);
         }
     }
-    
+
     // Add this new method to initialize tooltips
     initializeTooltips() {
         // Remove any existing tooltip initialization
         $('.icon-btn[data-tooltip]').tooltip('dispose');
-        
+
         // Initialize Bootstrap tooltips
         $('.icon-btn').tooltip({
             placement: 'top',
@@ -729,7 +689,7 @@ export class EventManageApp {
     }
 
     // Also update the processEmails method to handle missing data gracefully
-    
+
 
     getAllContacts() {
         $.get("/events/getEventsContacts", (contacts) => {
@@ -785,15 +745,82 @@ export class EventManageApp {
         $("#infoPartyType").val(contact.partyType || "");
         $("#infoAttendance").val(contact.attendance || "");
 
-        this.readGmail(contact.email, false);
+        if (contact.email) {
+            this.readGmail(contact.email);
+        }
         $("#depositPw").html(this.calcDepositPassword(contact));
     }
 
     calcDepositPassword(contact) {
         return moment.tz(contact.startTime, 'America/New_York').format("MMMMDD");
     }
+    async initializeBackgroundInfo() {
+        try {
+            const response = await fetch('/api/settings/background');
+            if (response.ok) {
+                const data = await response.json();
+                this.backgroundInfo = data.backgroundInfo;  // Get the string directly
+                $('#backgroundInfo').val(this.backgroundInfo);  // Set the textarea value
+            }
+        } catch (error) {
+            console.error('Failed to load background info:', error);
+        }
 
-    /*** Calendar Methods ***/
+        // Set up event listener for save button
+        $('#saveBackgroundInfo').on('click', () => this.saveBackgroundInfo());
+    }
+
+    populateBackgroundFields() {
+        // Populate form fields with loaded data
+        $('#venueName').val(this.backgroundInfo.venueName || '');
+        $('#venueAddress').val(this.backgroundInfo.address || '');
+        $('#venueCapacity').val(this.backgroundInfo.capacity || '');
+        $('#venueFacilities').val(this.backgroundInfo.facilities || '');
+        $('#venueServices').val(this.backgroundInfo.services || '');
+        $('#venuePolicies').val(this.backgroundInfo.policies || '');
+        $('#venuePricing').val(this.backgroundInfo.pricing || '');
+        $('#venueNotes').val(this.backgroundInfo.specialNotes || '');
+    }
+    async saveBackgroundInfo() {
+        // Get the text directly from the textarea
+        const backgroundInfo = $('#backgroundInfo').val();
+
+        try {
+            const response = await fetch('/api/settings/background', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ backgroundInfo })  // Send as { backgroundInfo: "text content" }
+            });
+
+            if (response.ok) {
+                this.backgroundInfo = backgroundInfo;
+                this.showSaveStatus('success');
+            } else {
+                this.showSaveStatus('error');
+            }
+        } catch (error) {
+            console.error('Failed to save background info:', error);
+            this.showSaveStatus('error');
+        }
+    }
+
+    showSaveStatus(status) {
+        const $saveStatus = $('#saveStatus');
+        $saveStatus.removeClass('hidden alert-success alert-error');
+
+        if (status === 'success') {
+            $saveStatus.addClass('alert-success').text('Settings saved successfully!');
+        } else {
+            $saveStatus.addClass('alert-error').text('Failed to save settings. Please try again.');
+        }
+
+        // Hide the status message after 3 seconds
+        setTimeout(() => {
+            $saveStatus.addClass('hidden');
+        }, 3000);
+    }
 
     async createCalendar() {
         this.mainCalendar = new Calendar('calendar');
@@ -895,9 +922,6 @@ export class EventManageApp {
             }
         });
     }
-
-    /*** Summarize Emails ***/
-
     async summarizeLastEmails() {
         try {
             const data = await $.get("/api/readGmail", { email: "all", showCount: 50 });
@@ -907,7 +931,11 @@ export class EventManageApp {
                 text += `From: ${email.from}<br>Subject: ${email.subject}<br>Timestamp: ${email.timestamp}<br>To: ${email.to}<br>Text: ${emailText}<br><br>`;
             });
             $("#aiText").html(text);
-            const summary = await this.sendAIRequest("/api/sendAIText", { aiText: $("#aiText").text() });
+            // No background info needed for simple summarization
+            const summary = await this.sendAIRequest("/api/sendAIText", {
+                aiText: $("#aiText").text(),
+                includeBackground: false  // Explicitly exclude background info
+            });
             this.writeToAIResult(summary);
             this.sounds.orderUp.play();
         } catch (error) {

@@ -4,6 +4,8 @@ const axios = require('axios');
 const { z } = require('zod');
 const fs = require('fs');
 const path = require('path');
+const backgroundService = require('./BackgroundService');
+
 
 // Path to save conversation history
 const conversationsPath = path.join(__dirname, '..', 'data', 'conversations.json');
@@ -15,7 +17,7 @@ class AIService {
       openai: {
         name: 'OpenAI',
         apiKey: process.env.OPENAI_API_KEY,
-        model: 'gpt-3.5-turbo',
+        model: 'gpt-4o-mini-2024-07-18',
       },
       // Placeholder for other AI providers
       // Example:
@@ -51,8 +53,31 @@ class AIService {
     fs.writeFileSync(conversationsPath, JSON.stringify(history, null, 2));
   }
 
-  async generateResponse(messages) {
+  async generateResponse(messages, options = {}) {
     try {
+      // Only include background if specifically requested
+      if (options.includeBackground) {
+        // Get background info
+        const { backgroundInfo } = backgroundService.getBackground();
+
+        if (backgroundInfo) {
+          // Find or create system message
+          const systemMessageIndex = messages.findIndex(m => m.role === 'system');
+          const systemMessage = {
+            role: 'system',
+            content: `Use this venue information as context for your response:\n\n${backgroundInfo}\n\n${systemMessageIndex >= 0 ? messages[systemMessageIndex].content : ''}`
+          };
+
+          if (systemMessageIndex >= 0) {
+            // Update existing system message
+            messages[systemMessageIndex] = systemMessage;
+          } else {
+            // Add system message at the start
+            messages.unshift(systemMessage);
+          }
+        }
+      }
+
       const provider = this.providers[this.currentProvider];
       if (this.currentProvider === 'openai') {
         const openai = new OpenAI({
@@ -65,15 +90,8 @@ class AIService {
         });
 
         return response.choices[0].message.content;
-
       } else if (this.currentProvider === 'otherai') {
-        // Hypothetical implementation for another AI provider
-        const response = await axios.post(provider.endpoint, {
-          apiKey: provider.apiKey,
-          messages: messages,
-        });
-        return response.data.response;
-
+        // ... existing otherai code ...
       } else {
         throw new Error(`AI provider ${this.currentProvider} is not implemented.`);
       }

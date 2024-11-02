@@ -5,9 +5,12 @@ const path = require('path');
 const bodyParser = require('body-parser');
 const session = require('express-session');
 const GoogleAuth = require('./services/GoogleAuth');
+const EmailProcessorServer = require('./services/EmailProcessorServer');
+const backgroundRoutes = require('./routes/BackgroundRoutes');
 
 // Initialize GoogleAuth
 const googleAuth = new GoogleAuth();
+const emailProcessor = new EmailProcessorServer(googleAuth);
 
 // Initialize app
 const app = express();
@@ -35,6 +38,9 @@ app.use('/gmail', gmailRoutes);
 app.use('/events', eventsRoutes);
 app.use('/calendar', calendarRoutes);
 app.use('/ai', aiRoutes);
+app.use('/', emailProcessor.getRouter());
+app.use('/', backgroundRoutes);  // Add this line
+
 
 // Root route
 app.get('/', (req, res) => {

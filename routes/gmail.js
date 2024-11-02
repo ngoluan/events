@@ -5,91 +5,27 @@ const gmailService = require('../services/gmailService');
 module.exports = (googleAuth) => {
     const gmail = new gmailService(googleAuth);
 
+
+    // In your Express routes (gmail.js)
     router.get('/readGmail', async (req, res) => {
         try {
-            const emailQuery = req.query.email || 'all';
-            const showCount = parseInt(req.query.showCount) || 25;
-            const labelIds = ['INBOX', 'SENT'];
+            const type = req.query.type || 'all';
+            const email = req.query.email;
+            const forceRefresh = req.query.forceRefresh === 'true';
 
-            console.log(`Reading Gmail for ${emailQuery}, count: ${showCount}`);
+            let emails;
+            if (forceRefresh) {
+                emails = await gmail.forceFullRefresh();
+            } else if (type === 'contact' && email) {
+                emails = await gmail.getEmailsForContact(email);
+            } else {
+                emails = await gmail.getAllEmails();
+            }
 
-            let cachedEmails = gmail.loadEmailsFromCache();
-            let cachedEmailMap = {};
-            cachedEmails.forEach(email => {
-                cachedEmailMap[email.id] = email;
-            });
+            // filter for labels inbox
+            emails = emails.filter(email => email.labels.includes('INBOX'));
 
-            const messages = await gmail.listMessages(emailQuery, null, showCount, labelIds);
-            let allEmails = [];
-            let emailsToCheckForReplies = [];
-
-            const asyncLib = require('async');
-            asyncLib.mapLimit(
-                messages,
-                10,
-                async (message) => {
-                    try {
-                        if (cachedEmailMap[message.id]) {
-                            const emailData = cachedEmailMap[message.id];
-                            allEmails.push(emailData);
-                            return emailData;
-                        }
-
-                        const fullMessage = await gmail.getMessage(message.id);
-                        const content = await gmail.parseEmailContent(fullMessage);
-
-                        const emailData = {
-                            id: message.id,
-                            threadId: message.threadId,
-                            from: fullMessage.payload.headers.find((h) => h.name === 'From')?.value || '',
-                            to: fullMessage.payload.headers.find((h) => h.name === 'To')?.value || '',
-                            subject: fullMessage.payload.headers.find((h) => h.name === 'Subject')?.value || '',
-                            timestamp: fullMessage.payload.headers.find((h) => h.name === 'Date')?.value || '',
-                            internalDate: fullMessage.internalDate,
-                            text: content,
-                            labels: fullMessage.labelIds || [],
-                        };
-                        console.log(`Fetching message ID ${message.id}`);
-
-                        cachedEmailMap[message.id] = emailData;
-                        allEmails.push(emailData);
-
-                        // Only add to emailsToCheckForReplies if it's not a sent email
-                        if (!emailData.labels.includes('SENT')) {
-                            emailsToCheckForReplies.push(emailData);
-                        } else {
-                            // For sent emails, explicitly set replied to null or false
-                            emailData.replied = null;
-                        }
-
-                        return emailData;
-                    } catch (err) {
-                        console.error(`Error processing message ID ${message.id}:`, err);
-                        return null;
-                    }
-                },
-                async (err, fullMessages) => {
-                    if (err) {
-                        console.error('Error processing messages:', err);
-                        return res.status(500).json({
-                            error: 'Error processing messages',
-                            details: err.message,
-                        });
-                    }
-
-                    const validMessages = fullMessages.filter((msg) => msg !== null);
-
-                    // Only check for replies if there are emails to check
-                    if (emailsToCheckForReplies.length > 0) {
-                        await checkForReplies(emailsToCheckForReplies, cachedEmailMap);
-                    }
-
-                    const updatedEmails = Object.values(cachedEmailMap);
-                    gmail.saveEmailsToCache(updatedEmails);
-
-                    res.json(updatedEmails);
-                }
-            );
+            res.json(emails);
         } catch (error) {
             console.error('Error reading Gmail:', error);
             res.status(500).json({
@@ -136,16 +72,16 @@ module.exports = (googleAuth) => {
         for (const [threadId, threadEmails] of threadGroups) {
             try {
                 const threadMessages = await gmail.getThreadMessages(threadId);
-                
+
                 // Only get sent messages for comparison
                 const sentMessages = threadMessages.filter(msg => msg.labelIds.includes('SENT'));
-                
+
                 // For each inbox message in the thread
                 threadEmails.forEach(inboxEmail => {
-                    const replied = sentMessages.some(sentMsg => 
+                    const replied = sentMessages.some(sentMsg =>
                         parseInt(sentMsg.internalDate) > parseInt(inboxEmail.internalDate)
                     );
-                    
+
                     if (cachedEmailMap[inboxEmail.id]) {
                         cachedEmailMap[inboxEmail.id].replied = replied;
                     }

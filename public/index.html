@@ -434,11 +434,12 @@
         </button>
     </nav>
 
-    <!-- Settings Modal -->
+    <!-- Update the existing modal content -->
     <dialog id="user_settings_modal" class="modal">
         <div class="modal-box">
             <h2 class="text-xl font-semibold mb-4">User Settings</h2>
 
+            <!-- Google Account Section -->
             <div class="mb-6">
                 <h3 class="font-bold mb-2">Google Account Access</h3>
                 <p class="text-sm text-base-content/70 mb-2">
@@ -451,6 +452,7 @@
                 <div id="connectedEmail" class="text-sm text-success"></div>
             </div>
 
+            <!-- Theme Section -->
             <div class="mb-6">
                 <h3 class="font-bold mb-2">Theme</h3>
                 <select class="select select-bordered w-full" id="themeSelect">
@@ -459,6 +461,27 @@
                 </select>
             </div>
 
+            <!-- New Background Information Section -->
+            <!-- In the settings modal -->
+            <div class="mb-6">
+                <h3 class="font-bold mb-2">AI Background Information</h3>
+                <p class="text-sm text-base-content/70 mb-2">
+                    This information will be used to provide context to the AI about your venue, services, and policies.
+                </p>
+                <div class="form-control">
+                    <textarea id="backgroundInfo" class="textarea textarea-bordered min-h-[200px]"
+                        placeholder="Enter venue details, services, policies, and any other relevant information the AI should know about..."></textarea>
+                </div>
+                <div id="saveStatus" class="alert mt-2 hidden">
+                    <i class="bi bi-info-circle"></i>
+                    <span id="saveStatusText"></span>
+                </div>
+                <button id="saveBackgroundInfo" class="btn btn-primary gap-2 mt-4">
+                    <i class="bi bi-save"></i>
+                    Save Background Info
+                </button>
+            </div>
+            <!-- Account Section -->
             <div class="mb-6">
                 <h3 class="font-bold mb-2">Account</h3>
                 <button id="logoutButton" class="btn btn-outline btn-error btn-block gap-2">
@@ -486,6 +509,7 @@
         integrity="sha512-s932Fui209TZcBY5LqdHKbANLKNneRzBib2GE3HkZUQtoWY3LBUN2kaaZDK7+8z8WnFY23TPUNsDmIAY1AplPg=="
         crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="https://cdn.jsdelivr.net/npm/howler@2.2.3/dist/howler.min.js"></script>
+    <script src="/EmailProcessor.js"></script>
     <script src="/calendar.js"></script>
     <script type="module">
         import { EventManageApp } from '/scripts.js';
