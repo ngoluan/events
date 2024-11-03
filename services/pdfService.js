@@ -1,54 +1,54 @@
 // services/pdfService.js
-const PDFDocument = require('pdfkit');
+const { PDFDocument } = require('pdf-lib')
+
 const fs = require('fs');
 const path = require('path');
 
 class PDFService {
-  generateContract(eventData) {
-    return new Promise((resolve, reject) => {
-      try {
-        const doc = new PDFDocument();
+  createEventContract(data, res) {
+    function removeUnsupportedCharacters(text) {
+        return text.replace(/[^\x00-\x7F]/g, ""); // This removes all non-ASCII characters
+    }
 
-        const fileName = `contract_${eventData.id}.pdf`;
-        const filePath = path.join(__dirname, '..', 'contracts', fileName);
+    // Usage
+    async function createPdf(input, output, data, res) {
 
-        // Ensure the contracts directory exists
-        const contractsDir = path.join(__dirname, '..', 'contracts');
-        if (!fs.existsSync(contractsDir)) {
-          fs.mkdirSync(contractsDir);
-        }
+        fs.readFile(input, async function (err, file) {
+            const pdfDoc = await PDFDocument.load(file)
+            const form = pdfDoc.getForm()
+            //log all form fields
+            console.log(form.getFields())
+            Object.keys(data).forEach((element) => {
+                form.getFields().forEach(field => {
+                    console.log(field.getName());
+                });
+                let checks = ["dj", "band", "bar", "audio", "music", "kareoke", "lights", "catering", "drink"]
+                if (element == "clientSign") return true;
+                let field = null
+                if (checks.indexOf(element) > -1) {
+                    field = form.getCheckBox(element)
+                    if (data[element].indexOf("true") > -1) {
+                        field.check()
+                    }
+                }
+                else {
+                    field = form.getTextField(element)
+                    const cleanText = removeUnsupportedCharacters(data[element]);
+                    field.setText(cleanText)
+                }
 
-        const stream = fs.createWriteStream(filePath);
-        doc.pipe(stream);
-
-        // Add content to the PDF
-        doc.fontSize(20).text('Event Contract', { align: 'center' });
-        doc.moveDown();
-
-        doc.fontSize(12).text(`Event ID: ${eventData.id}`);
-        doc.text(`Name: ${eventData.name}`);
-        doc.text(`Email: ${eventData.email}`);
-        doc.text(`Phone: ${eventData.phone}`);
-        doc.text(`Start Time: ${eventData.startTime}`);
-        doc.text(`End Time: ${eventData.endTime}`);
-        doc.text(`Services: ${eventData.services.join(', ')}`);
-        doc.text(`Notes: ${eventData.notes}`);
-        // Add more event details as needed
-
-        doc.end();
-
-        stream.on('finish', () => {
-          resolve({ fileName, filePath });
+            })
+            const pdfBytes = await pdfDoc.save()
+            fs.writeFile(output, pdfBytes, () => {
+                res.send(true)
+            })
         });
 
-        stream.on('error', (err) => {
-          reject(err);
-        });
-      } catch (error) {
-        reject(error);
-      }
-    });
-  }
+
+
+    }
+    createPdf("./public/files/Event Contract.pdf", `./public/files/EventContract_${data.reservationDate.replace(/\-/g, "")}_${data.contactName.replace(/ /g, "")}.pdf`, data,res)
+}
 }
 
 module.exports = new PDFService();

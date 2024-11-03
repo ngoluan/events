@@ -172,29 +172,15 @@ export class EventManageApp {
 
         if (!messagesCard || !messagesContainer) return;
 
-        // Get the card's total height
-        const cardHeight = messagesCard.offsetHeight;
+        // Get the top position of the messagesContainer relative to the messagesCard
+        const containerTop = messagesContainer.offsetTop;
 
-        // Calculate other elements' heights within the card
-        const otherElements = messagesCard.querySelectorAll('.card-title ');
-        let otherElementsHeight = 0;
-        otherElements.forEach(element => {
-            // Only count visible elements
-            if (window.getComputedStyle(element).display !== 'none') {
-                otherElementsHeight += element.offsetHeight;
-            }
-        });
-
-        // Calculate padding/margin if any
-        const containerStyle = window.getComputedStyle(messagesContainer);
-        const verticalPadding = parseFloat(containerStyle.paddingTop) +
-            parseFloat(containerStyle.paddingBottom) +
-            parseFloat(containerStyle.marginTop) +
-            parseFloat(containerStyle.marginBottom);
+        // Get the total height of the card's content area
+        const cardContentHeight = messagesCard.clientHeight;
 
         // Set the container height
-        const newHeight = cardHeight - otherElementsHeight - verticalPadding;
-        messagesContainer.style.maxHeight = `${Math.max(newHeight, 100)}px`; // Minimum height of 100px
+        const newHeight = cardContentHeight - containerTop;
+        messagesContainer.style.maxHeight = `${Math.max(newHeight, 100)}px`;
     }
 
 
@@ -346,6 +332,11 @@ export class EventManageApp {
     /*** Event Registration ***/
 
     registerEvents() {
+        $(document).on("click", "#actionsEmailContract", (e) => {
+            e.preventDefault();
+            this.actionsEmailContract();
+        });
+
         // AI-related events
         $(document).on("click", ".copyToClipboard", (e) => {
             e.preventDefault();
@@ -466,6 +457,13 @@ export class EventManageApp {
                 $icon.removeClass('bi-chevron-up').addClass('bi-chevron-down');
             }
         });
+        $('#searchInput').on('input', (e) => {
+            const searchTerm = e.target.value.toLowerCase();
+            $('#contacts .contactCont').each((index, contactElement) => {
+                const contactName = $(contactElement).find('.contactBtn').text().toLowerCase();
+                $(contactElement).toggle(contactName.includes(searchTerm));
+            });
+        });
         // Other event handlers can be added here
     }
 
@@ -521,21 +519,21 @@ export class EventManageApp {
         }
     }
 
-
     async sendEmail() {
         const aiText = $("#aiText").html();
         const to = $("#sendMailEmail").val();
-        const subject = $("#sendEmail").attr("subject");
+        const subject = $("#sendMailSubject").val(); // Updated line
         if (!confirm("Are you sure you want to send this email?")) return;
         try {
             const data = await $.post("/api/sendEmail", { html: aiText, to: to, subject: subject });
             console.log(data);
-            this.utils.alert("Email sent successfully.");
+            this.showToast("Email sent successfully.", "success");
         } catch (error) {
             console.error("Failed to send email:", error);
-            this.utils.alert("Failed to send email.");
+            this.showToast("Failed to send email.", "error");
         }
     }
+
 
     calculateRate() {
         const timezone = 'America/New_York';
@@ -944,7 +942,7 @@ export class EventManageApp {
         contact.partyType = $("#infoPartyType").val();
         contact.attendance = $("#infoAttendance").val();
         contact.notes = $("#infoNotes").val();
-    
+
         // Determine if we are updating or creating
         if (contact.id) {
             // Update existing contact
@@ -980,7 +978,7 @@ export class EventManageApp {
             });
         }
     }
-    
+
 
     async syncEvents() {
         try {
@@ -1007,7 +1005,69 @@ export class EventManageApp {
     }
 
 
-    /*** Contract Methods ***/
+    async actionsEmailContract() {
+        if (this.currentId === -1) {
+            alert("Error: No contact selected.");
+            return;
+        }
+        const contact = _.find(this.contacts, ["id", this.currentId]);
+        if (!contact) {
+            alert("Error: Contact not found.");
+            return;
+        }
+
+        const date = moment(contact.startTime, "YYYY-MM-DD HH:mm").format("MM/DD/YYYY");
+        const formattedPassword = moment(contact.startTime, "YYYY-MM-DD HH:mm").format("MMMMDD");
+
+        const subject = `Event Contract ${date}`;
+        const body = `Hi ${contact.name},
+    
+        Please see attached for the event contract. The contract has been pre-filled but if you can't see the details, please view the contract on a computer rather than a phone. Let me know if you have any questions otherwise you can simply respond to this email saying that you accept it, and attach a picture of your ID (we only need a picture of your face and your name). To fully reserve the date, please transfer the deposit to info@eattaco.ca, with the password '${formattedPassword}'.
+        
+        TacoTaco Events Team
+        TacoTaco 
+        www.eattaco.ca`;
+
+        const mailtoLink = `mailto:${encodeURIComponent(contact.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+
+        window.location.href = mailtoLink;
+    }
+    async createBooking() {
+        if (this.currentId === -1) {
+            alert("Error: No contact selected.");
+            return;
+        }
+        const contact = _.find(this.contacts, ["id", this.currentId]);
+        this.openGoogleCalendar(contact);
+        //this.copyEmailToClipboard(contact);
+        contact.status.push("reserved");
+        contact.status = contact.status.join(";");
+        contact.services = contact.services.join(";");
+        contact.room = contact.room.join(";");
+    }
+
+    openGoogleCalendar(contact) {
+        // Define the timezone
+        const timezone = 'America/New_York';
+
+        // Parse the start and end times in EST/EDT
+        const startMoment = moment.tz(contact.startTime, "YYYY-MM-DD HH:mm", timezone);
+        const endMoment = moment.tz(contact.endTime, "YYYY-MM-DD HH:mm", timezone);
+
+        // Convert the times to UTC
+        const startDateUTC = startMoment.clone().utc().format("YYYYMMDDTHHmmss") + "Z";
+        const endDateUTC = endMoment.clone().utc().format("YYYYMMDDTHHmmss") + "Z";
+
+        // Define the event title and details
+        const title = `${contact.name} (${contact.room.join(", ")})`;
+        const details = `${contact.notes} - Email: ${contact.email}`;
+
+        // Construct the Google Calendar URL
+        const googleCalendarUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(title)}&dates=${startDateUTC}/${endDateUTC}&details=${encodeURIComponent(details)}`;
+
+        // Open the Google Calendar URL in a new tab
+        window.open(googleCalendarUrl, '_blank');
+    }
 
     createContract() {
         if (this.currentId === -1) {
@@ -1020,6 +1080,9 @@ export class EventManageApp {
             return;
         }
 
+        // Ensure contact.room is an array
+        contact.room = Array.isArray(contact.room) ? contact.room : [contact.room];
+
         const date = moment(contact.startTime, "YYYY-MM-DD HH:mm").format("MM/DD/YYYY");
         const data = {
             issueDate: moment.tz().tz('America/New_York').format("MM/DD/YYYY"),
@@ -1028,7 +1091,7 @@ export class EventManageApp {
             phoneNumber: contact.phone,
             reservationDate: date,
             reservationTime: `${moment.tz(contact.startTime, 'America/New_York').format("HH:mm")}-${moment.tz(contact.endTime, 'America/New_York').format("HH:mm")}`,
-            room: contact.room.join(","),
+            room: contact.room.join(", "),
             expectedAttenance: contact.attendance,
             typeOfParty: contact.partyType,
             totalFees: contact.rentalRate,
@@ -1047,12 +1110,14 @@ export class EventManageApp {
             clientDate: "",
             tacoDate: moment.tz().tz('America/New_York').format("MM/DD/YYYY")
         };
+
         $.post("/api/createEventContract", data, (res) => {
             if (res === true) {
-                window.open(`/files/EventContract_${data.reservationDate.replace(/\//g, "")}_${data.contactName.replace(/ /g, "")}.pdf`, "_blank");
+                window.open(`/files/EventContract_${data.reservationDate.replace(/\//g, '')}_${data.contactName.replace(/ /g, "")}.pdf`);
             }
         });
     }
+
     async summarizeLastEmails() {
         try {
             const data = await $.get("/api/readGmail", { email: "all", showCount: 50 });

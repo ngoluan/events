@@ -3,6 +3,13 @@
 const express = require('express');
 const router = express.Router();
 const eventService = require('../services/eventService');
+const pdfService = require('../services/pdfService');
+
+router.post('/api/createEventContract', async (req, res) => {
+  const data = req.body
+  const contractData = await pdfService.createEventContract(data,res);
+});
+
 
 // GET /api/events - Get all events
 router.get('/api/events', (req, res) => {

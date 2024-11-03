@@ -1,10 +1,6 @@
 [
-  "services/eventService.js",
-  "services/aiService.js",
-  "services/EmailProcessorServer.js",
-  "routes/events.js",
-  "routes/ai.js",
   "public/scripts.js",
   "public/index.html",
+  "public/EmailProcessor.js",
   "src/styles.css"
 ]

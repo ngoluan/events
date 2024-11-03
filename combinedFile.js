@@ -1,1039 +1,4 @@
 
-//--- File: /home/luan_ngo/web/events/services/eventService.js ---
-
-const fs = require('fs');
-const path = require('path');
-const axios = require('axios');
-class EventService {
-  constructor() {
-    this.eventsFilePath = path.join(__dirname, '..', 'data', 'events.json');
-    this.remoteApiUrl = 'https:
-
-    this.initializeEventsFile();
-  }
-
-  initializeEventsFile() {
-    const dataDir = path.dirname(this.eventsFilePath);
-    if (!fs.existsSync(dataDir)) {
-      fs.mkdirSync(dataDir, { recursive: true });
-    }
-    
-    if (!fs.existsSync(this.eventsFilePath)) {
-      this.saveEvents({ contacts: [] });
-    } else {
-      try {
-        const content = fs.readFileSync(this.eventsFilePath, 'utf8');
-        JSON.parse(content);
-      } catch (error) {
-        console.error('Error reading events file, reinitializing:', error);
-        this.saveEvents({ contacts: [] });
-      }
-    }
-  }
-
-  async syncWithRemote() {
-    try {
-      
-      const response = await axios.get(this.remoteApiUrl);
-      const remoteEvents = response.data;
-
-      
-      let localEvents = this.loadEvents();
-
-      
-      const localEventsMap = new Map(localEvents.map(event => [event.id, event]));
-
-      
-      remoteEvents.forEach(remoteEvent => {
-        const existingEvent = localEventsMap.get(remoteEvent.id);
-        
-        if (existingEvent) {
-          
-          
-          localEventsMap.set(remoteEvent.id, { ...existingEvent, ...remoteEvent });
-        } else {
-          
-          localEventsMap.set(remoteEvent.id, remoteEvent);
-        }
-      });
-
-      
-      const mergedEvents = Array.from(localEventsMap.values());
-      this.saveEvents(mergedEvents);
-
-      console.log(`Synced ${mergedEvents.length} events successfully`);
-      return true;
-    } catch (error) {
-      console.error('Error syncing with remote:', error);
-      return false;
-    }
-  }
-
-  loadEvents() {
-    try {
-      const data = fs.readFileSync(this.eventsFilePath, 'utf8');
-      const events = JSON.parse(data);
-      return events.contacts || [];
-    } catch (error) {
-      console.error('Error loading events:', error);
-      return [];
-    }
-  }
-
-  saveEvents(events) {
-    try {
-      
-      const dataToSave = Array.isArray(events) ? { contacts: events } : events;
-      fs.writeFileSync(this.eventsFilePath, JSON.stringify(dataToSave, null, 2), 'utf8');
-      return true;
-    } catch (error) {
-      console.error('Error saving events:', error);
-      return false;
-    }
-  }
-
-  getEvent(id) {
-    try {
-      const events = this.loadEvents();
-      return events.find(event => event.id === parseInt(id)) || null;
-    } catch (error) {
-      console.error('Error getting event:', error);
-      return null;
-    }
-  }
-
-  createEvent(eventData) {
-    try {
-      const events = this.loadEvents();
-      const newId = events.length > 0 ? Math.max(...events.map(e => e.id)) + 1 : 0;
-
-      const newEvent = {
-        id: newId,
-        phone: eventData.phone || '',
-        name: eventData.name,
-        email: eventData.email,
-        notes: eventData.notes || '',
-        startTime: eventData.startTime,
-        endTime: eventData.endTime,
-        status: Array.isArray(eventData.status) ? eventData.status.join(';') : (eventData.status || ''),
-        services: Array.isArray(eventData.services) ? eventData.services.join(';') : (eventData.services || ''),
-        room: Array.isArray(eventData.room) ? eventData.room.join(';') : (eventData.room || ''),
-        rentalRate: eventData.rentalRate || '',
-        partyType: eventData.partyType || '',
-        attendance: eventData.attendance || ''
-      };
-
-      events.push(newEvent);
-      this.saveEvents(events);
-      return newEvent;
-    } catch (error) {
-      console.error('Error creating event:', error);
-      return null;
-    }
-  }
-
-  updateEvent(id, eventData) {
-    try {
-      const events = this.loadEvents();
-      const index = events.findIndex(event => event.id === parseInt(id));
-      
-      if (index === -1) return null;
-
-      
-      events[index] = {
-        ...events[index],
-        ...eventData,
-        id: parseInt(id), 
-        status: Array.isArray(eventData.status) ? eventData.status.join(';') : eventData.status,
-        services: Array.isArray(eventData.services) ? eventData.services.join(';') : eventData.services,
-        room: Array.isArray(eventData.room) ? eventData.room.join(';') : eventData.room
-      };
-
-      this.saveEvents(events);
-      return events[index];
-    } catch (error) {
-      console.error('Error updating event:', error);
-      return null;
-    }
-  }
-
-  deleteEvent(id) {
-    try {
-      const events = this.loadEvents();
-      const filteredEvents = events.filter(event => event.id !== parseInt(id));
-      return this.saveEvents(filteredEvents);
-    } catch (error) {
-      console.error('Error deleting event:', error);
-      return false;
-    }
-  }
-}
-
-module.exports = new EventService();
-
-//--- File: /home/luan_ngo/web/events/services/aiService.js ---
-const OpenAI = require('openai');
-const fs = require('fs');
-const path = require('path');
-const backgroundService = require('./BackgroundService');
-const { zodResponseFormat } = require('openai/helpers/zod');
-const { z } = require('zod');
-
-class AIService {
-  constructor() {
-    this.provider = {
-      name: 'OpenAI',
-      apiKey: process.env.OPENAI_API_KEY,
-      model: 'gpt-4o-mini-2024-07-18',
-    };
-
-    this.dataDir = path.join(__dirname, '..', 'data');
-    this.conversationsPath = path.join(this.dataDir, 'conversations.json');
-
-    
-    if (!fs.existsSync(this.dataDir)) {
-      fs.mkdirSync(this.dataDir, { recursive: true });
-    }
-
-    
-    this.messageHistory = [];
-    this.currentConversationId = null;
-
-    
-    this.loadConversations();
-  }
-
-  loadConversations() {
-    try {
-      if (fs.existsSync(this.conversationsPath)) {
-        const conversations = JSON.parse(fs.readFileSync(this.conversationsPath, 'utf8'));
-        
-        if (conversations.length > 0) {
-          const lastConversation = conversations[conversations.length - 1];
-          this.messageHistory = lastConversation.messages;
-          this.currentConversationId = lastConversation.id;
-        }
-      }
-    } catch (error) {
-      console.error('Error loading conversations:', error);
-      this.messageHistory = [];
-    }
-  }
-
-  saveConversations() {
-    try {
-
-
-      fs.writeFileSync(this.conversationsPath, JSON.stringify(this.messageHistory, null, 2));
-    } catch (error) {
-      console.error('Error saving conversations:', error);
-    }
-  }
-
-  async generateResponse(messages, options = {}) {
-    try {
-      const {
-        includeBackground = false,
-        maxTokens = undefined,
-        resetHistory = false,
-        includeHistory = true,
-        schema = null,
-        schemaName = null,
-      } = options;
-
-      
-      if (resetHistory || !this.currentConversationId) {
-        this.messageHistory = [];
-        this.currentConversationId = Date.now().toString();
-      }
-
-      
-      let contextualizedMessages = [];
-
-      
-      if (includeHistory && !resetHistory && this.messageHistory.length > 0) {
-        contextualizedMessages.push(...this.messageHistory);
-        contextualizedMessages.push({
-          role: 'system',
-          content: 'Previous conversation history provided above.'
-        });
-      }
-
-      
-      contextualizedMessages.push(...messages);
-
-      
-      if (includeBackground) {
-        const { backgroundInfo } = backgroundService.getBackground();
-        if (backgroundInfo) {
-          const systemMessage = {
-            role: 'system',
-            content: `Use this venue information as context for your response:\n\n${backgroundInfo}\n\n${messages.find(m => m.role === 'system')?.content || ''}`
-          };
-
-          const systemIndex = contextualizedMessages.findIndex(m => m.role === 'system');
-          if (systemIndex >= 0) {
-            contextualizedMessages[systemIndex] = systemMessage;
-          } else {
-            contextualizedMessages.unshift(systemMessage);
-          }
-        }
-      }
-
-      const openai = new OpenAI({ apiKey: this.provider.apiKey });
-      let response;
-      let parsedData;
-
-      if (schema) {
-        const result = await openai.beta.chat.completions.parse({
-          model: this.provider.model,
-          messages: contextualizedMessages,
-          response_format: zodResponseFormat(schema, schemaName),
-          ...(maxTokens && { max_tokens: maxTokens })
-        });
-        parsedData = result.choices[0].message.parsed;
-        response = parsedData
-      } else {
-        const result = await openai.chat.completions.create({
-          model: this.provider.model,
-          messages: contextualizedMessages,
-          ...(maxTokens && { max_tokens: maxTokens })
-        });
-        response = result.choices[0].message.content;
-      }
-
-      
-      const timestamp = new Date().toISOString();
-      const messagesWithTimestamp = messages.map(msg => ({
-        ...msg,
-        timestamp
-      }));
-      const responseWithTimestamp = {
-        role: 'assistant',
-        content: response,
-        timestamp
-      };
-
-      this.messageHistory.push(...messagesWithTimestamp);
-      this.messageHistory.push(responseWithTimestamp);
-
-      
-      if (this.messageHistory.length > 50) {
-        this.messageHistory = this.messageHistory.slice(-50);
-      }
-
-      
-      this.saveConversations();
-
-      return {
-        response,
-        parsedData: schema ? parsedData : undefined,
-        historyIncluded: includeHistory && !resetHistory,
-        historyReset: resetHistory,
-        messageCount: this.messageHistory.length
-      };
-
-    } catch (error) {
-      console.error('Error generating AI response:', error);
-      throw error;
-    }
-  }
-
-  clearHistory() {
-    this.messageHistory = [];
-    this.currentConversationId = Date.now().toString();
-    this.saveConversations();
-  }
-
-  getMessageHistory() {
-    return this.messageHistory;
-  }
-}
-
-module.exports = new AIService();
-
-//--- File: /home/luan_ngo/web/events/services/EmailProcessorServer.js ---
-const express = require('express');
-const router = express.Router();
-const path = require('path');
-const fs = require('fs');
-const moment = require('moment-timezone');
-const { z } = require('zod');
-const aiService = require('./aiService');
-const GoogleCalendarService = require('./googleCalendarService');
-const backgroundService = require('./BackgroundService');
-const { reset } = require('nodemon');
-
-class EmailProcessorServer {
-    constructor(googleAuth) {
-        this.router = express.Router();
-        this.router.use(express.json());
-        this.router.use(express.urlencoded({ extended: true }));
-        this.googleCalendarService = new GoogleCalendarService(googleAuth);
-
-        try {
-            const templatesPath = path.join(__dirname, '..', 'data', 'eventPrompts.json');
-            this.templates = JSON.parse(fs.readFileSync(templatesPath, 'utf8'));
-        } catch (error) {
-            console.error('Error loading templates:', error);
-            this.templates = {};
-        }
-
-        this.setupRoutes();
-    }
-    getRouter() {
-        return this.router;
-    }
-
-    async checkAvailabilityAI(date, emailText) {
-        try {
-            const calendarEvents = await this.googleCalendarService.listEvents();
-
-            const targetDate = moment(date).startOf('day');
-            const relevantEvents = calendarEvents.filter(event => {
-                const eventDate = moment(event.start.dateTime || event.start.date).startOf('day');
-                return eventDate.isSame(targetDate);
-            });
-
-            const formattedEvents = relevantEvents.map(event => ({
-                name: event.summary,
-                startDate: moment(event.start.dateTime || event.start.date).format('HH:mm'),
-                endDate: moment(event.end.dateTime || event.end.date).format('HH:mm'),
-                room: event.location || 'Unspecified'
-            }));
-
-            const { backgroundInfo } = await backgroundService.getBackground();
-
-            const prompt = `
-                Please analyze the availability for an event request based on the following:
-
-                Current bookings for ${targetDate.format('YYYY-MM-DD')}:
-                ${JSON.stringify(formattedEvents, null, 2)}
-
-                Client Inquiry:
-                ${emailText}
-            `;
-
-            const { response } = await aiService.generateResponse([
-                {
-                    role: 'system',
-                    content: 'You are a venue booking assistant. Provide clear, professional responses about venue availability.'
-                },
-                {
-                    role: 'user',
-                    content: prompt
-                }
-            ], {
-                includeBackground: true,
-                resetHistory: true 
-            });
-
-            return response;
-
-        } catch (error) {
-            console.error('Error checking availability:', error);
-            throw error;
-        }
-    }
-
-    structureUnformattedResponse(response) {
-        const lines = response.split('\n').filter(line => line.trim());
-        const keyPoints = [];
-        const actionItems = [];
-        let summary = '';
-
-        lines.forEach((line, index) => {
-            if (index === 0) {
-                summary = line;
-            } else if (line.toLowerCase().includes('action') || line.includes('•')) {
-                actionItems.push(line.replace('•', '').trim());
-            } else if (line.startsWith('-') || line.startsWith('*')) {
-                keyPoints.push(line.replace(/^[-*]/, '').trim());
-            }
-        });
-
-        return {
-            summary,
-            keyPoints,
-            actionItems,
-            timeline: {
-                requestDate: this.extractDate(response, 'request'),
-                eventDate: this.extractDate(response, 'event'),
-                deadlines: []
-            }
-        };
-    }
-
-    extractDate(text, type) {
-        const datePattern = /(\d{1,2}[-/]\d{1,2}[-/]\d{2,4}|\d{4}-\d{2}-\d{2})/g;
-        const dates = text.match(datePattern);
-        if (dates && dates.length > 0) {
-            return dates[0];
-        }
-        return '';
-    }
-
-    fixCommonDataIssues(data, zodError) {
-        const fixedData = { ...data };
-
-        zodError.errors.forEach(error => {
-            const { path, code, message } = error;
-
-            
-            if (code === 'invalid_type' && message.includes('array')) {
-                let value = data;
-                for (let i = 0; i < path.length - 1; i++) {
-                    value = value[path[i]];
-                }
-                const fieldValue = value[path[path.length - 1]];
-
-                if (typeof fieldValue === 'string') {
-                    value[path[path.length - 1]] = [fieldValue];
-                } else if (typeof fieldValue === 'object') {
-                    value[path[path.length - 1]] = Object.values(fieldValue);
-                } else {
-                    value[path[path.length - 1]] = [];
-                }
-            }
-
-            
-            if (code === 'invalid_type' && message.includes('date')) {
-                const fieldName = path[path.length - 1];
-                if (typeof data[fieldName] === 'number') {
-                    fixedData[fieldName] = new Date(data[fieldName]).toISOString();
-                }
-            }
-        });
-
-        return fixedData;
-    }
-    async processAIResponse(prompt, schema, systemPrompt = '') {
-        try {
-            const messages = [
-                {
-                    role: 'system',
-                    content: systemPrompt || 'You are a venue coordinator assistant. Provide responses in JSON format.'
-                },
-                { role: 'user', content: prompt }
-            ];
-
-            const { response } = await aiService.generateResponse(messages, {
-                includeBackground: false,
-                resetHistory: true 
-            });
-
-            let jsonData;
-            try {
-                const jsonMatch = response.match(/{[\s\S]*}/);
-                if (jsonMatch) {
-                    jsonData = JSON.parse(jsonMatch[0]);
-                } else {
-                    jsonData = this.structureUnformattedResponse(response);
-                }
-            } catch (parseError) {
-                console.error('Error parsing JSON from AI response:', parseError);
-                jsonData = this.structureUnformattedResponse(response);
-            }
-
-            return schema.parse(jsonData);
-        } catch (error) {
-            console.error(`Error in AI processing:`, error);
-            throw error;
-        }
-    }
-
-    async processTextResponse(prompt, systemPrompt = '', conversationId = null) {
-        try {
-            const messages = [
-                {
-                    role: 'system',
-                    content: systemPrompt || 'You are a venue coordinator assistant.'
-                },
-                { role: 'user', content: prompt }
-            ];
-
-            const { response } = await aiService.generateResponse(messages, {
-                conversationId,
-                includeHistory: true,
-                includeBackground: true
-            });
-
-            return response;
-        } catch (error) {
-            console.error(`Error in AI processing:`, error);
-            throw error;
-        }
-    }
-    setupRoutes() {
-        this.router.post('/api/summarizeAI', async (req, res) => {
-            try {
-                if (!req.body?.text) {
-                    return res.status(400).json({
-                        error: 'Invalid request body. Expected { text: string }',
-                        receivedBody: req.body
-                    });
-                }
-
-                const { text } = req.body;
-
-                const prompt = `
-                    Summarize this email chain between the client and venue coordinator.
-                    Focus on: organizer, event type, timing, rooms, guest count, 
-                    catering, AV needs, drink packages, layout, and special requests.
-
-                    Email content:
-                    ${text}
-                `;
-
-                const { response } = await aiService.generateResponse([
-                    {
-                        role: 'system',
-                        content: 'You are a venue coordinator who summarizes email conversations clearly and concisely.'
-                    },
-                    { role: 'user', content: prompt }
-                ], {
-                    includeHistory: false,
-                    resetHistory: true,
-                    includeBackground: true
-                });
-
-                res.json({ summary: response });
-
-            } catch (error) {
-                console.error('Error in summarizeAI:', error);
-                res.status(500).json({
-                    error: error.message,
-                    details: error.stack
-                });
-            }
-        });
-
-        this.router.post('/api/getAIEmail', async (req, res) => {
-            try {
-                let { aiText, emailText } = req.body;
-
-                const inquirySchema = z.object({
-                    inquiryType: z.enum(['availability', 'food and drink packages', 'confirmEvent', 'other']),
-                    date: z.string().optional(),
-                    time: z.string().optional(),
-                    isWeekend: z.boolean().optional(),
-                    fromEmail: z.string().optional(),
-                    summary: z.string(),
-                });
-
-                aiText += `. If no year is specified, assume it's ${moment().year()}. `;
-
-                const messages = [
-                    {
-                        role: 'system',
-                        content: 'You are a venue coordinator assistant analyzing email inquiries.'
-                    },
-                    {
-                        role: 'user',
-                        content: `${aiText}\n\nEmail content: ${emailText}`
-                    }
-                ];
-
-                const { response } = await aiService.generateResponse(messages, {
-                    includeBackground: false,
-                    includeHistory: false,
-                    resetHistory: true,
-                    schema: inquirySchema,
-                    schemaName: 'inquirySchema'
-                });
-
-
-                let followUpResponse;
-                switch (response.inquiryType) {
-                    case "availability":
-                        followUpResponse = await this.checkAvailabilityAI(response.date, emailText);
-                        break;
-                    case "confirmEvent":
-                        followUpResponse = await aiService.generateResponse([
-                            {
-                                role: 'user',
-                                content: `Generate a confirmation email response for: ${emailText}`
-                            }
-                        ], {
-                            includeBackground: true
-                        });
-                        break;
-                    default:
-                        followUpResponse = await aiService.generateResponse([
-                            {
-                                role: 'user',
-                                content: emailText
-                            }
-                        ], {
-                            includeBackground: true
-                        });
-                }
-
-                res.json({
-                    ...response,
-                    response: followUpResponse,
-                });
-
-            } catch (error) {
-                console.error('Error in getAIEmail:', error);
-                res.status(500).json({
-                    error: error.message,
-                    details: error.stack
-                });
-            }
-        });
-        this.router.post('/api/sendAIEventInformation', async (req, res) => {
-
-
-            try {
-                if (!req.body?.aiText) {
-                    return res.status(400).json({
-                        error: 'Invalid request body. Expected { aiText: string }',
-                        receivedBody: req.body
-                    });
-                }
-
-                const { aiText, conversationId } = req.body;
-
-                const messages = [
-                    {
-                        role: 'system',
-                        content: 'You extract event details from inquiry emails.'
-                    },
-                    {
-                        role: 'user',
-                        content: `
-                      
-                                Extract event details from this email and provide JSON in this format:
-                                {
-                                    "name": "contact name",
-                                    "email": "contact email",
-                                    "phone": "contact phone (optional)",
-                                    "eventType": "type of event",
-                                    "startTime": "YYYY-MM-DD HH:mm",
-                                    "endTime": "YYYY-MM-DD HH:mm",
-                                    "room": "requested venue space",
-                                    "attendance": "expected guests",
-                                    "services": ["array of requested services"],
-                                    "notes": "additional details (optional)"
-                                }
-
-                                Email content:
-                                ${aiText}
-                    `
-                    }
-                ];
-
-
-                
-                let eventDetailsSchema = z.object({
-                    name: z.string(),
-                    email: z.string(),
-                    phone: z.string().optional(),
-                    eventType: z.string().optional(),
-                    startTime: z.string(),
-                    endTime: z.string(),
-                    room: z.string(),
-                    attendance: z.string(),
-                    services: z.union([
-                        z.array(z.string()),
-                        z.string().transform(str => [str])
-                    ]).transform(val => Array.isArray(val) ? val : [val]),
-                    notes: z.string().optional()
-                });
-
-                const result = await aiService.generateResponse(messages, {
-                    conversationId,
-                    includeBackground: false,
-                    resetHistory: true,
-                    schema: eventDetailsSchema,
-                    schemaName: 'eventDetails',
-                    metadata: { type: 'eventExtraction' }
-                });
-
-                
-                let eventDetails = result.parsedData;
-
-                
-                if (eventDetails.startTime) {
-                    eventDetails.startTime = moment.tz(eventDetails.startTime, 'America/New_York')
-                        .format('YYYY-MM-DD HH:mm');
-                }
-                if (eventDetails.endTime) {
-                    eventDetails.endTime = moment.tz(eventDetails.endTime, 'America/New_York')
-                        .format('YYYY-MM-DD HH:mm');
-                }
-
-                res.json({
-                    ...eventDetails,
-                    conversationId: result.conversationId,
-                    messageCount: result.messageCount,
-                    historyIncluded: result.historyIncluded
-                });
-
-            } catch (error) {
-                console.error('Error in sendAIText:', error);
-                res.status(500).json({
-                    error: error.message,
-                    details: error.issues || error.stack
-                });
-            }
-        });
-
-        this.router.post('/api/sendAIText', async (req, res) => {
-            try {
-                if (!req.body?.aiText) {
-                    return res.status(400).json({
-                        error: 'Invalid request body. Expected { aiText: string }',
-                        receivedBody: req.body
-                    });
-                }
-
-                const { aiText } = req.body;
-
-                const prompt = `
-                    ${this.templates.eventPrompt}
-                    
-                    Extract event details from this email and provide JSON in this format:
-                    {
-                        "name": "contact name",
-                        "email": "contact email",
-                        "phone": "contact phone (optional)",
-                        "eventType": "type of event",
-                        "startTime": "YYYY-MM-DD HH:mm",
-                        "endTime": "YYYY-MM-DD HH:mm",
-                        "room": "requested venue space",
-                        "attendance": "expected guests",
-                        "services": ["array of requested services"],
-                        "notes": "additional details (optional)"
-                    }
-
-                    Email content:
-                    ${aiText}
-                `;
-
-                const eventDetails = await this.processAIResponse(
-                    prompt,
-                    this.eventDetailsSchema,
-                    'You extract event details from inquiry emails.'
-                );
-
-                
-                if (eventDetails.startTime) {
-                    eventDetails.startTime = moment.tz(eventDetails.startTime, 'America/New_York')
-                        .format('YYYY-MM-DD HH:mm');
-                }
-                if (eventDetails.endTime) {
-                    eventDetails.endTime = moment.tz(eventDetails.endTime, 'America/New_York')
-                        .format('YYYY-MM-DD HH:mm');
-                }
-
-                res.json(eventDetails);
-
-            } catch (error) {
-                console.error('Error in sendAIText:', error);
-                res.status(500).json({
-                    error: error.message,
-                    details: error.issues || error.stack
-                });
-            }
-        });
-    }
-
-    formatEmailResponse(response) {
-        return `${response.greeting}\n\n${response.mainContent}\n\n${response.nextSteps.join('\n')}\n\n${response.closing}\n\n${response.signature}`;
-    }
-}
-
-module.exports = EmailProcessorServer;
-
-
-//--- File: /home/luan_ngo/web/events/routes/events.js ---
-
-const express = require('express');
-const router = express.Router();
-const eventService = require('../services/eventService');
-
-
-router.get('/api/events', (req, res) => {
-  try {
-    const events = eventService.loadEvents();
-    res.json(events);
-  } catch (error) {
-    console.error('Error getting events:', error);
-    res.status(500).json({ error: 'Failed to get events' });
-  }
-});
-
-
-router.get('/api/events/:id', (req, res) => {
-  try {
-    const event = eventService.getEvent(req.params.id);
-    if (event) {
-      res.json(event);
-    } else {
-      res.status(404).json({ error: 'Event not found' });
-    }
-  } catch (error) {
-    console.error('Error getting event:', error);
-    res.status(500).json({ error: 'Failed to get event' });
-  }
-});
-router.post('/api/events/sync', async (req, res) => {
-  try {
-    const success = await eventService.syncWithRemote();
-    if (success) {
-      res.json({ message: 'Sync completed successfully' });
-    } else {
-      res.status(500).json({ error: 'Sync failed' });
-    }
-  } catch (error) {
-    console.error('Error during sync:', error);
-    res.status(500).json({ error: 'Sync failed' });
-  }
-});
-
-
-router.put('/api/events/:id', (req, res) => {
-  try {
-    
-    const requiredFields = ['name', 'email', 'startTime', 'endTime'];
-    for (const field of requiredFields) {
-      if (!req.body[field]) {
-        return res.status(400).json({ error: `Missing required field: ${field}` });
-      }
-    }
-
-    const updatedEvent = eventService.updateEvent(req.params.id, req.body);
-    if (updatedEvent) {
-      res.json(updatedEvent);
-    } else {
-      res.status(404).json({ error: 'Event not found' });
-    }
-  } catch (error) {
-    console.error('Error updating event:', error);
-    res.status(500).json({ error: 'Failed to update event' });
-  }
-});
-
-
-router.post('/api/events', (req, res) => {
-  try {
-    
-    const requiredFields = ['name', 'email', 'startTime', 'endTime'];
-    for (const field of requiredFields) {
-      if (!req.body[field]) {
-        return res.status(400).json({ error: `Missing required field: ${field}` });
-      }
-    }
-
-    const newEvent = eventService.createEvent(req.body);
-    if (newEvent) {
-      res.status(201).json(newEvent);
-    } else {
-      res.status(500).json({ error: 'Failed to create event' });
-    }
-  } catch (error) {
-    console.error('Error creating event:', error);
-    res.status(500).json({ error: 'Failed to create event' });
-  }
-});
-
-
-router.delete('/api/events/:id', (req, res) => {
-  try {
-    const success = eventService.deleteEvent(req.params.id);
-    if (success) {
-      res.status(204).send();
-    } else {
-      res.status(404).json({ error: 'Event not found' });
-    }
-  } catch (error) {
-    console.error('Error deleting event:', error);
-    res.status(500).json({ error: 'Failed to delete event' });
-  }
-});
-
-
-router.get('/', (req, res) => {
-  const events = eventService.loadEvents();
-  res.json(events);
-});
-
-router.post('/', (req, res) => {
-  const newEvent = eventService.createEvent(req.body);
-  if (newEvent) {
-    res.json(newEvent);
-  } else {
-    res.status(500).json({ error: 'Failed to create event' });
-  }
-});
-
-router.put('/:id', (req, res) => {
-  const updatedEvent = eventService.updateEvent(req.params.id, req.body);
-  if (updatedEvent) {
-    res.json(updatedEvent);
-  } else {
-    res.status(404).json({ error: 'Event not found' });
-  }
-});
-
-router.delete('/:id', (req, res) => {
-  const success = eventService.deleteEvent(req.params.id);
-  if (success) {
-    res.sendStatus(200);
-  } else {
-    res.status(404).send('Event not found');
-  }
-});
-
-module.exports = router;
-
-//--- File: /home/luan_ngo/web/events/routes/ai.js ---
-
-const express = require('express');
-const router = express.Router();
-const aiService = require('../services/aiService');
-
-
-router.post('/chat', async (req, res) => {
-  const { messages, provider } = req.body;
-  try {
-    
-    if (provider) {
-      aiService.setProvider(provider);
-    }
-
-    
-    let conversationHistory = aiService.loadConversationHistory();
-
-    
-    conversationHistory.push(...messages);
-
-    
-    const aiResponse = await aiService.generateResponse(conversationHistory);
-
-    
-    conversationHistory.push({ role: 'assistant', content: aiResponse });
-
-    
-    aiService.saveConversationHistory(conversationHistory);
-
-    res.json({ response: aiResponse });
-  } catch (error) {
-    res.status(500).json({ error: 'AI service error' });
-  }
-});
-
-
-router.post('/reset', (req, res) => {
-  aiService.saveConversationHistory([]);
-  res.json({ message: 'Conversation history reset' });
-});
-
-module.exports = router;
-
-
 //--- File: /home/luan_ngo/web/events/public/scripts.js ---
 
 
@@ -1210,28 +175,14 @@ export class EventManageApp {
         if (!messagesCard || !messagesContainer) return;
 
         
-        const cardHeight = messagesCard.offsetHeight;
+        const containerTop = messagesContainer.offsetTop;
 
         
-        const otherElements = messagesCard.querySelectorAll('.card-title ');
-        let otherElementsHeight = 0;
-        otherElements.forEach(element => {
-            
-            if (window.getComputedStyle(element).display !== 'none') {
-                otherElementsHeight += element.offsetHeight;
-            }
-        });
+        const cardContentHeight = messagesCard.clientHeight;
 
         
-        const containerStyle = window.getComputedStyle(messagesContainer);
-        const verticalPadding = parseFloat(containerStyle.paddingTop) +
-            parseFloat(containerStyle.paddingBottom) +
-            parseFloat(containerStyle.marginTop) +
-            parseFloat(containerStyle.marginBottom);
-
-        
-        const newHeight = cardHeight - otherElementsHeight - verticalPadding;
-        messagesContainer.style.maxHeight = `${Math.max(newHeight, 100)}px`; 
+        const newHeight = cardContentHeight - containerTop;
+        messagesContainer.style.maxHeight = `${Math.max(newHeight, 100)}px`;
     }
 
 
@@ -1383,6 +334,11 @@ export class EventManageApp {
     
 
     registerEvents() {
+        $(document).on("click", "#actionsEmailContract", (e) => {
+            e.preventDefault();
+            this.actionsEmailContract();
+        });
+
         
         $(document).on("click", ".copyToClipboard", (e) => {
             e.preventDefault();
@@ -1503,6 +459,13 @@ export class EventManageApp {
                 $icon.removeClass('bi-chevron-up').addClass('bi-chevron-down');
             }
         });
+        $('#searchInput').on('input', (e) => {
+            const searchTerm = e.target.value.toLowerCase();
+            $('#contacts .contactCont').each((index, contactElement) => {
+                const contactName = $(contactElement).find('.contactBtn').text().toLowerCase();
+                $(contactElement).toggle(contactName.includes(searchTerm));
+            });
+        });
         
     }
 
@@ -1558,21 +521,21 @@ export class EventManageApp {
         }
     }
 
-
     async sendEmail() {
         const aiText = $("#aiText").html();
         const to = $("#sendMailEmail").val();
-        const subject = $("#sendEmail").attr("subject");
+        const subject = $("#sendMailSubject").val(); 
         if (!confirm("Are you sure you want to send this email?")) return;
         try {
             const data = await $.post("/api/sendEmail", { html: aiText, to: to, subject: subject });
             console.log(data);
-            this.utils.alert("Email sent successfully.");
+            this.showToast("Email sent successfully.", "success");
         } catch (error) {
             console.error("Failed to send email:", error);
-            this.utils.alert("Failed to send email.");
+            this.showToast("Failed to send email.", "error");
         }
     }
+
 
     calculateRate() {
         const timezone = 'America/New_York';
@@ -1964,10 +927,10 @@ export class EventManageApp {
     saveContactInfo() {
         let contact = _.find(this.contacts, ["id", this.currentId]);
         if (!contact) {
-            contact = { id: this.contacts.length + 1 };
-            this.contacts.push(contact);
+            
+            contact = {};
         }
-        contact.id = parseInt(contact.id);
+        contact.id = parseInt(contact.id) || null;
         contact.name = $("#infoName").val();
         contact.email = $("#infoEmail").val();
         contact.phone = $("#actionsPhone").val();
@@ -1982,9 +945,43 @@ export class EventManageApp {
         contact.attendance = $("#infoAttendance").val();
         contact.notes = $("#infoNotes").val();
 
-        $.post("/api/updateEventContact", contact);
-        this.utils.alert("Contact saved");
+        
+        if (contact.id) {
+            
+            $.ajax({
+                url: `/api/events/${contact.id}`,
+                type: 'PUT',
+                data: JSON.stringify(contact),
+                contentType: 'application/json',
+                success: (response) => {
+                    this.showToast("Contact updated", "success");
+                },
+                error: (xhr, status, error) => {
+                    console.error("Failed to update contact:", error);
+                    this.showToast("Failed to update contact", "error");
+                }
+            });
+        } else {
+            
+            $.ajax({
+                url: `/api/events`,
+                type: 'POST',
+                data: JSON.stringify(contact),
+                contentType: 'application/json',
+                success: (response) => {
+                    
+                    contact.id = response.id;
+                    this.showToast("Contact created", "success");
+                },
+                error: (xhr, status, error) => {
+                    console.error("Failed to create contact:", error);
+                    this.showToast("Failed to create contact", "error");
+                }
+            });
+        }
     }
+
+
     async syncEvents() {
         try {
             const response = await fetch('/api/events/sync', {
@@ -2010,7 +1007,32 @@ export class EventManageApp {
     }
 
 
-    
+    async actionsEmailContract() {
+        if (this.currentId === -1) {
+            alert("Error: No contact selected.");
+            return;
+        }
+        const contact = _.find(this.contacts, ["id", this.currentId]);
+        if (!contact) {
+            alert("Error: Contact not found.");
+            return;
+        }
+
+        const subject = `Event Contract for ${contact.name}`;
+        const body = `
+            Hello ${contact.name},<br><br>
+            Please find attached the event contract for your reservation on ${moment(contact.startTime, "YYYY-MM-DD HH:mm").format("MM/DD/YYYY")}.<br><br>
+            Thank you!
+        `;
+
+        try {
+            await this.sendEmail(body, contact.email, subject);
+            this.showToast("Event contract emailed successfully.", "success");
+        } catch (error) {
+            console.error("Failed to email event contract:", error);
+            this.showToast("Failed to email event contract.", "error");
+        }
+    }
 
     createContract() {
         if (this.currentId === -1) {
@@ -2023,6 +1045,9 @@ export class EventManageApp {
             return;
         }
 
+        
+        contact.room = Array.isArray(contact.room) ? contact.room : [contact.room];
+
         const date = moment(contact.startTime, "YYYY-MM-DD HH:mm").format("MM/DD/YYYY");
         const data = {
             issueDate: moment.tz().tz('America/New_York').format("MM/DD/YYYY"),
@@ -2031,7 +1056,7 @@ export class EventManageApp {
             phoneNumber: contact.phone,
             reservationDate: date,
             reservationTime: `${moment.tz(contact.startTime, 'America/New_York').format("HH:mm")}-${moment.tz(contact.endTime, 'America/New_York').format("HH:mm")}`,
-            room: contact.room.join(","),
+            room: contact.room.join(", "),
             expectedAttenance: contact.attendance,
             typeOfParty: contact.partyType,
             totalFees: contact.rentalRate,
@@ -2050,12 +1075,14 @@ export class EventManageApp {
             clientDate: "",
             tacoDate: moment.tz().tz('America/New_York').format("MM/DD/YYYY")
         };
+
         $.post("/api/createEventContract", data, (res) => {
             if (res === true) {
                 window.open(`/files/EventContract_${data.reservationDate.replace(/\
             }
         });
     }
+
     async summarizeLastEmails() {
         try {
             const data = await $.get("/api/readGmail", { email: "all", showCount: 50 });
@@ -2295,7 +1322,7 @@ export class EventManageApp {
                                             <option value="lights">Party Lights</option>
                                             <option value="audio">Audio Equipment</option>
                                             <option value="music">Music</option>
-                                            <option value="kareoke">Karaoke</option>
+                                            <option value="kareoke">kareoke</option>
                                             <option value="catering">Catering</option>
                                             <option value="drink">Drink Package</option>
                                         </select>
@@ -2469,10 +1496,13 @@ export class EventManageApp {
                                     <div class="flex items-center gap-2 flex-1">
                                         <input type="text" id="sendMailEmail" class="input input-bordered flex-1"
                                             placeholder="Email">
+                                        <input type="text" id="sendMailSubject" class="input input-bordered flex-1"
+                                            placeholder="Subject">
                                         <button class="btn btn-primary tooltip" data-tip="Send" id="sendEmail">
                                             <i class="bi bi-send"></i>
                                         </button>
                                     </div>
+
                                 </div>
                             </div>
                         </div>
@@ -2614,6 +1644,212 @@ export class EventManageApp {
 </body>
 
 </html>
+
+//--- File: /home/luan_ngo/web/events/public/EmailProcessor.js ---
+class EmailProcessor {
+    constructor() {
+        this.currentConversationId = null;
+        this.registerEvents();
+    }
+
+    registerEvents() {
+        
+        $(document).on('click', '.summarizeEmailAI', async (e) => {
+            e.preventDefault();
+            const emailContent = $(e.target).closest('.sms').find('.email').text();
+            await this.handleSummarizeEmail(emailContent);
+        });
+
+        
+        $(document).on('click', '.draftEventSpecificEmail', async (e) => {
+            e.preventDefault();
+            const emailContent = $(e.target).closest('.sms').find('.email').text();
+            await this.handleDraftEventEmail(emailContent);
+        });
+
+        
+        $(document).on('click', '.sendToAiTextArea', async (e) => {
+            e.preventDefault();
+            const $emailContainer = $(e.target).closest('.sms');
+            const emailContent = $emailContainer.find('.email').text();
+            this.sendToAiTextArea(emailContent);
+        });
+
+        
+        $(document).on('click', '#newConversation', () => {
+            this.startNewConversation();
+        });
+    }
+
+    startNewConversation() {
+        this.currentConversationId = null;
+        $('#aiText').html('');
+        $('#aiResult').html('');
+    }
+
+    async handleSummarizeEmail(emailContent) {
+        try {
+            
+            const cleanedText = emailContent
+                .replace(/[-<>]/g, '')
+                .replace(/^Sent:.*$/gm, '')
+                .substring(0, 11000);
+
+            const response = await $.post('/api/summarizeAI', { 
+                text: cleanedText,
+                conversationId: this.currentConversationId
+            });
+
+            
+            this.currentConversationId = response.conversationId;
+
+            
+            this.writeToAIResult({
+                content: response.summary,
+                messageCount: response.messageCount,
+                isNewConversation: !this.currentConversationId
+            });
+
+        } catch (error) {
+            console.error('Error summarizing email:', error);
+            alert('Failed to summarize email');
+        }
+    }
+
+    async handleDraftEventEmail(emailContent) {
+        try {
+            const instructions = prompt('Enter any specific instructions for the email draft:');
+            const combinedText = `${emailContent}\n\n[Specific Instructions: ${instructions}]`;
+
+            const response = await $.post('/api/getAIEmail', {
+                aiText: combinedText,
+                emailText: emailContent,
+                conversationId: this.currentConversationId,
+                includeBackground: true
+            });
+
+            
+            this.currentConversationId = response.conversationId;
+
+            
+            const existingContent = $('#aiText').html();
+            const newContent = response.response.replace(/\n/g, '<br>');
+            
+            $('#aiText').html(
+                newContent +
+                (existingContent ? '<br><br> ---------------- <br><br>' + existingContent : '')
+            );
+
+            
+            if ($('#sendMailEmail').val() === '' && response.fromEmail) {
+                $('#sendMailEmail').val(response.fromEmail);
+            }
+
+            
+            this.updateConversationStatus(response.messageCount);
+
+        } catch (error) {
+            console.error('Error drafting event email:', error);
+            alert('Failed to draft event email');
+        }
+    }
+
+    async handleGetEventInformation(emailContent, senderEmail) {
+        try {
+            const response = await $.post('/api/sendAIEventInformation', {
+                aiText: `${emailContent} Email: ${senderEmail}`,
+                conversationId: this.currentConversationId
+            });
+
+            
+            this.currentConversationId = response.conversationId;
+
+            
+            if (response && Object.keys(response).length > 0) {
+                
+                $(document).trigger('eventDetailsReceived', [response]);
+                
+                
+                this.writeToAIResult({
+                    content: `Event Details Extracted:<br>${JSON.stringify(response, null, 2)}`,
+                    messageCount: response.messageCount,
+                    isNewConversation: false
+                });
+            } else {
+                throw new Error('No event details found in response');
+            }
+
+        } catch (error) {
+            console.error('Error getting event information:', error);
+            alert('Failed to get event information');
+        }
+    }
+
+    sendToAiTextArea(emailContent) {
+        
+        if (!this.currentConversationId) {
+            $('#aiText').html('');
+        }
+
+        
+        const formattedContent = emailContent.replace(/\n/g, '<br>');
+        $('#aiText').html(
+            (this.currentConversationId ? $('#aiText').html() + '<br><br>--------------------<br><br>' : '') +
+            formattedContent
+        );
+
+        
+        $('html, body').animate({
+            scrollTop: $('#aiText').offset().top
+        }, 500);
+
+        
+        $('#aiText').focus();
+    }
+
+    writeToAIResult({content, messageCount, isNewConversation}) {
+        
+        content = content.replace(/:\[Specific Instructions:.*?\]/g, '');
+
+        const conversationStatus = messageCount ? 
+            `<div class="text-muted small">Conversation messages: ${messageCount}</div>` : '';
+
+        const responseHTML = `
+            <div class="p-2 aiChatReponse">
+                <div class="aiChatReponseContent">
+                    ${content}
+                </div>
+                ${conversationStatus}
+                <div class="mt-2">
+                    <a href="#" class="btn btn-primary sendToAiFromResult" title="Send to AI from Result">
+                        <i class="bi bi-send"></i> Send to AI
+                    </a>
+                    <button class="btn btn-secondary copyToClipboard ml-2" title="Copy to Clipboard">
+                        <i class="bi bi-clipboard"></i> Copy
+                    </button>
+                    ${this.currentConversationId ? `
+                        <button class="btn btn-outline-secondary newConversation ml-2" title="Start New Conversation">
+                            <i class="bi bi-plus-circle"></i> New Conversation
+                        </button>
+                    ` : ''}
+                </div>
+            </div>
+        `;
+
+        if (isNewConversation) {
+            $('#aiResult').html(responseHTML);
+        } else {
+            $('#aiResult').prepend(responseHTML);
+        }
+    }
+
+    updateConversationStatus(messageCount) {
+        if (messageCount) {
+            const statusHtml = `<div class="text-muted small mt-2">Conversation messages: ${messageCount}</div>`;
+            $('.aiChatReponse').first().find('.aiChatReponseContent').after(statusHtml);
+        }
+    }
+}
 
 //--- File: /home/luan_ngo/web/events/src/styles.css ---
 @tailwind base;

@@ -29,7 +29,6 @@ class EmailProcessorServer {
     getRouter() {
         return this.router;
     }
-
     async checkAvailabilityAI(date, emailText) {
         try {
             const calendarEvents = await this.googleCalendarService.listEvents();

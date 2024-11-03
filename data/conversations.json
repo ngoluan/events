@@ -2,27 +2,33 @@
   {
     "role": "system",
     "content": "You extract event details from inquiry emails.",
-    "timestamp": "2024-11-02T20:34:57.614Z"
+    "timestamp": "2024-11-03T21:46:47.111Z"
   },
   {
     "role": "user",
-    "content": "\n                      \n                                Extract event details from this email and provide JSON in this format:\n                                {\n                                    \"name\": \"contact name\",\n                                    \"email\": \"contact email\",\n                                    \"phone\": \"contact phone (optional)\",\n                                    \"partyType\": \"type of event\",\n                                    \"startTime\": \"YYYY-MM-DD HH:mm\",\n                                    \"endTime\": \"YYYY-MM-DD HH:mm\",\n                                    \"room\": \"requested venue space\",\n                                    \"attendance\": \"expected guests\",\n                                    \"services\": [\"array of requested services\"],\n                                    \"notes\": \"additional details (optional)\"\n                                }\n\n                                Email content:\n                                Go through the following messages and fill in the JSON below. Try to look for the name, phone, and email. For email, exclude my email which is info@eattaco.ca. Dates should be in the format: YYYY-MM-DD HH:mm. Phone numbers should be in the format: 14162771856. IMPORTANT: respond only with the JSON, nothing else.\n\nThis is the JSON format that I want:\n\n{\n    \"phone\": \"\",\n    \"id\": \"\",\n    \"status\": \"contractSent\",\n    \"services\": \"bar;lights;audio;music;kareoke\",\n    \"room\": \"Lounge\",\n    \"name\": \"\",\n    \"email\": \"\",\n    \"startTime\": \"\",\n    \"endTime\": \"\",\n    \"rentalRate\": \"\",\n    \"minSpend\": \"\",\n    \"partyType\": \"\",\n    \"attendance\": \"\",\n    \"source\": \"\",\n    \"notes\": \"\",\n    \"summary\": \"\" \n}\n\nThis is the email:\n\n                        \n                            From: Kreative Kulture <kreativekultureto@gmail.com>\n                            To: \"Luan (TACO TACO)\" <info@eattaco.ca>\n                            Subject: Kreative Kulture Booking Inquiry\n                            Time: 10/30/2024 18:17\n                        \n                        \n                            Hi Luan,\n\nIs TacoTaco available December 8th 7-11?\n\nKage Wolfe\nKulture Artistic Director\n\n                        \n                     Email: kreativekultureto@gmail.com\n                    ",
-    "timestamp": "2024-11-02T20:34:57.614Z"
+    "content": "\n                      \n                                Extract event details from this email and provide JSON in this format:\n                                {\n                                    \"name\": \"contact name\",\n                                    \"email\": \"contact email\",\n                                    \"phone\": \"contact phone (optional)\",\n                                    \"partyType\": \"type of event\",\n                                    \"startTime\": \"YYYY-MM-DD HH:mm\",\n                                    \"endTime\": \"YYYY-MM-DD HH:mm\",\n                                    \"room\": \"requested venue space\",\n                                    \"attendance\": \"expected guests\",\n                                    \"services\": [\"array of requested services\"],\n                                    \"notes\": \"additional details (optional)\"\n                                }\n\n                                Email content:\n                                Go through the following messages and fill in the JSON below. Try to look for the name, phone, and email. For email, exclude my email which is info@eattaco.ca. Dates should be in the format: YYYY-MM-DD HH:mm. Phone numbers should be in the format: 14162771856. IMPORTANT: respond only with the JSON, nothing else.\n\nThis is the JSON format that I want:\n\n{\n    \"phone\": \"\",\n    \"id\": \"\",\n    \"status\": \"contractSent\",\n    \"services\": \"bar;lights;audio;music;kareoke\",\n    \"room\": \"Lounge\",\n    \"name\": \"\",\n    \"email\": \"\",\n    \"startTime\": \"\",\n    \"endTime\": \"\",\n    \"rentalRate\": \"\",\n    \"minSpend\": \"\",\n    \"partyType\": \"\",\n    \"attendance\": \"\",\n    \"source\": \"\",\n    \"notes\": \"\",\n    \"summary\": \"\" \n}\n\nThis is the email:\n\n                                 Email: \n                    ",
+    "timestamp": "2024-11-03T21:46:47.111Z"
   },
   {
     "role": "assistant",
     "content": {
-      "name": "Kage Wolfe",
-      "email": "kreativekultureto@gmail.com",
+      "name": "",
+      "email": "",
       "phone": "",
       "partyType": "",
-      "startTime": "2024-12-08 19:00",
-      "endTime": "2024-12-08 23:00",
-      "room": "",
+      "startTime": "",
+      "endTime": "",
+      "room": "Lounge",
       "attendance": "",
-      "services": [],
+      "services": [
+        "bar",
+        "lights",
+        "audio",
+        "music",
+        "kareoke"
+      ],
       "notes": ""
     },
-    "timestamp": "2024-11-02T20:34:57.614Z"
+    "timestamp": "2024-11-03T21:46:47.111Z"
   }
 ]
