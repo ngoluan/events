@@ -315,7 +315,7 @@ class EmailProcessorServer {
 
                 res.json({
                     ...response,
-                    response: followUpResponse,
+                    response: followUpResponse.response,
                 });
 
             } catch (error) {

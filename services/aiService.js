@@ -48,13 +48,21 @@ class AIService {
 
   saveConversations() {
     try {
+      // Process message history to stringify any object content
+      const processedHistory = this.messageHistory.map(message => {
+        const processedMessage = { ...message };
+        if (typeof processedMessage.content === 'object' && processedMessage.content !== null) {
+          processedMessage.content = JSON.stringify(processedMessage.content);
+        }
+        return processedMessage;
+      });
 
-
-      fs.writeFileSync(this.conversationsPath, JSON.stringify(this.messageHistory, null, 2));
+      fs.writeFileSync(this.conversationsPath, JSON.stringify(processedHistory, null, 2));
     } catch (error) {
       console.error('Error saving conversations:', error);
     }
   }
+
 
   async generateResponse(messages, options = {}) {
     try {
@@ -78,11 +86,7 @@ class AIService {
 
       // Add conversation history if needed
       if (includeHistory && !resetHistory && this.messageHistory.length > 0) {
-        contextualizedMessages.push(...this.messageHistory);
-        contextualizedMessages.push({
-          role: 'system',
-          content: 'Previous conversation history provided above.'
-        });
+        contextualizedMessages.push(...this.messageHistory); 
       }
 
       // Add new messages
@@ -120,6 +124,13 @@ class AIService {
         parsedData = result.choices[0].message.parsed;
         response = parsedData
       } else {
+        contextualizedMessages = contextualizedMessages.map(message => {
+          if (typeof message.content === 'object' && message.content !== null) {
+            message.content = JSON.stringify(message.content);
+          }
+          return message;
+        });
+
         const result = await openai.chat.completions.create({
           model: this.provider.model,
           messages: contextualizedMessages,

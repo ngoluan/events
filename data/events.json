@@ -18600,10 +18600,10 @@
       "attendance": "30",
       "services": "bar",
       "notes": "$100 deposit to book",
-      "messageCount": 3,
-      "historyIncluded": false,
+      "messageCount": "3",
+      "historyIncluded": "false",
       "id": 1142,
-      "status": "",
+      "status": ";reserved",
       "rentalRate": "200",
       "minSpend": ""
     },
@@ -18624,6 +18624,24 @@
       "source": "",
       "notes": "$200 deposit to book",
       "summary": "Liem from TacoTaco confirmed the Lounge is booked for an event for approximately 180 guests from 10 PM to 2 AM on November 24, 2024, with a rental rate of $100 per hour and a minimum spend of $500, including access to audio/visual services."
+    },
+    {
+      "phone": "14167389954",
+      "id": 1144,
+      "status": "contractSent",
+      "services": "bar;lights;audio;music;kareoke",
+      "room": "Lounge",
+      "name": "J.R. Ostonal",
+      "email": "thatboyjurr@gmail.com",
+      "startTime": "2025-01-26 16:00",
+      "endTime": "2025-01-26 20:00",
+      "rentalRate": "400",
+      "minSpend": "400",
+      "partyType": "R&B Event",
+      "attendance": "60-75",
+      "source": "",
+      "notes": "$200 deposit to book",
+      "summary": "J.R. Ostonal is looking to book the Moonlight Lounge for a private R&B event on January 19, 2025, from 10 PM to 2 AM, with an expected attendance of 60-75 guests. The rental will cost $100 per hour with a minimum spend of $500, and he is inquiring about catering and drink options."
     }
   ]
 }

@@ -297,10 +297,19 @@
                                         <i class="bi bi-file-earmark-text"></i>
                                     </button>
                                 </div>
-                                <label class="flex items-center gap-2 ml-auto">
-                                    <input type="checkbox" class="checkbox checkbox-primary" id="depositCheck">
-                                    <span>Include Deposit</span>
-                                </label>
+
+                                <button class="btn btn-primary tooltip" data-tip="Create Contract"
+                                id="actionsCreateContract">
+                                <i class="bi bi-file-text"></i>
+                            </button>
+                            <button class="btn btn-primary tooltip" data-tip="Email Contract"
+                                id="actionsEmailContract">
+                                <i class="bi bi-envelope"></i>
+                            </button>
+                            <button class="btn btn-primary tooltip" data-tip="Book Calendar"
+                                id="actionsBookCalendar">
+                                <i class="bi bi-calendar-check"></i>
+                            </button>
                             </div>
 
                             <div id="depositPw" class="text-sm text-base-content/70"></div>
@@ -344,18 +353,7 @@
                         <div class="card-body">
                             <h2 class="card-title text-lg mb-4">Actions & AI Assistant</h2>
                             <div class="flex flex-wrap gap-2 mb-4">
-                                <button class="btn btn-primary tooltip" data-tip="Create Contract"
-                                    id="actionsCreateContract">
-                                    <i class="bi bi-file-text"></i>
-                                </button>
-                                <button class="btn btn-primary tooltip" data-tip="Email Contract"
-                                    id="actionsEmailContract">
-                                    <i class="bi bi-envelope"></i>
-                                </button>
-                                <button class="btn btn-primary tooltip" data-tip="Book Calendar"
-                                    id="actionsBookCalendar">
-                                    <i class="bi bi-calendar-check"></i>
-                                </button>
+                              
                                 <button class="btn btn-secondary tooltip" data-tip="Event AI" id="eventAI">
                                     <i class="bi bi-calendar-plus"></i>
                                 </button>
