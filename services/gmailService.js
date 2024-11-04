@@ -2,7 +2,7 @@ const { google } = require('googleapis');
 const path = require('path');
 const fs = require('fs');
 const moment = require('moment');
-
+const cheerio = require('cheerio');
 class GmailService {
     constructor(auth) {
         this.auth = auth;
@@ -202,6 +202,33 @@ class GmailService {
             throw error;
         }
     }
+    parseEmailParts(parts) {
+        let htmlContent = '';
+        let textContent = '';
+
+        if (parts && parts.length > 0) {
+            parts.forEach(part => {
+                if (part.parts && part.parts.length > 0) {
+                    const { html, text } = this.parseEmailParts(part.parts);
+                    htmlContent += html;
+                    textContent += text;
+                } else {
+                    if (part.mimeType === 'text/html') {
+                        const data = part.body.data;
+                        if (data) {
+                            htmlContent += Buffer.from(data, 'base64').toString('utf8');
+                        }
+                    } else if (part.mimeType === 'text/plain') {
+                        const data = part.body.data;
+                        if (data) {
+                            textContent += Buffer.from(data, 'base64').toString('utf8');
+                        }
+                    }
+                }
+            });
+        }
+        return { html: htmlContent, text: textContent };
+    }
     async processMessageBatch(messages, threadMap) {
         if (!messages || !messages.length) return [];
 
@@ -302,7 +329,6 @@ class GmailService {
                 }
 
                 const fullMessage = await this.getMessage(message.id);
-                const content = fullMessage.parsedContent || '';
 
                 const emailData = {
                     id: message.id,
@@ -312,14 +338,11 @@ class GmailService {
                     subject: fullMessage.payload.headers.find(h => h.name === 'Subject')?.value || '',
                     timestamp: fullMessage.payload.headers.find(h => h.name === 'Date')?.value || '',
                     internalDate: fullMessage.internalDate,
-                    text: content,
+                    text: fullMessage.parsedContent.text,
+                    html: fullMessage.parsedContent.html,
                     labels: fullMessage.labelIds || []
                 };
 
-                // If still no content, log warning
-                if (!content.trim()) {
-                    console.warn(`Warning: No content parsed for message ${message.id}`);
-                }
 
                 this.emailCache.set(message.id, emailData);
                 processedEmails.push(emailData);

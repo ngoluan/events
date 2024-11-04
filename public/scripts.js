@@ -12,6 +12,7 @@ export class EventManageApp {
         // AI-related properties
         this.templates = {};
         this.userEmail = ''; // To store the authenticated user's email
+
         this.emailFilters = {
             showReplied: localStorage.getItem('showRepliedEmails') !== 'false'
         };
@@ -41,7 +42,6 @@ export class EventManageApp {
         // Load initial data
         this.getAllContacts();
         this.createCalendar();
-        this.initializeEmailFilters();
         //this.readGmail("all", false);
         await this.loadInitialEmails();
 
@@ -144,38 +144,6 @@ export class EventManageApp {
             console.error("Failed to load initial emails:", error);
             throw error;
         }
-    }
-    initializeEmailFilters() {
-        const filterHtml = `
-            <div class="flex items-center gap-2 mb-3 p-2 bg-base-200 rounded">
-                <label class="cursor-pointer label">
-                    <span class="label-text mr-2">Show Replied Emails</span>
-                    <input type="checkbox" class="toggle toggle-primary" id="toggleRepliedEmails" 
-                        ${this.emailFilters.showReplied ? 'checked' : ''}>
-                </label>
-                <div class="text-xs text-base-content/70 ml-2" id="filterStatus">
-                    <i class="bi bi-info-circle"></i>
-                    ${this.emailFilters.showReplied ? 'Showing all emails' : 'Showing only unreplied emails'}
-                </div>
-            </div>
-        `;
-
-        // Insert after the card title
-        $("#messages .card-title").after(filterHtml);
-
-        // Initialize toggle event handler
-        $('#toggleRepliedEmails').on('change', (e) => {
-            this.emailFilters.showReplied = e.target.checked;
-            localStorage.setItem('showRepliedEmails', e.target.checked);
-
-            // Update status text
-            $('#filterStatus').html(`
-                <i class="bi bi-info-circle"></i>
-                ${e.target.checked ? 'Showing all emails' : 'Showing only unreplied emails'}
-            `);
-
-            this.refreshEmails();
-        });
     }
 
     adjustMessagesContainerHeight() {
@@ -341,9 +309,36 @@ export class EventManageApp {
         }
     }
 
-    /*** Event Registration ***/
+    toggleRepliedEmails(e) {
+        // Toggle the filter state
+        this.emailFilters.showReplied = !this.emailFilters.showReplied;
 
+        // Save to localStorage
+        localStorage.setItem('showRepliedEmails', this.emailFilters.showReplied);
+
+        // Update button text and icon
+        const $button = $(e.currentTarget);
+        if (this.emailFilters.showReplied) {
+            $button.html('<i class="bi bi-eye-slash"></i> Hide Replied');
+            $button.attr('data-tip', 'Hide Replied Emails');
+        } else {
+            $button.html('<i class="bi bi-eye"></i> Show All');
+            $button.attr('data-tip', 'Show All Emails');
+        }
+
+        // Add a brief animation
+        $button.addClass('animate-press');
+        setTimeout(() => $button.removeClass('animate-press'), 200);
+
+        // Refresh the emails display
+        this.refreshEmails();
+    }
     registerEvents() {
+        // Update button click handler
+        $('#toggleRepliedEmails').on('click', (e) => {
+            e.preventDefault();
+            this.toggleRepliedEmails(e);
+        });
         $(document).on("click", "#actionsEmailContract", (e) => {
             e.preventDefault();
             this.actionsEmailContract();
@@ -664,11 +659,9 @@ export class EventManageApp {
             return;
         }
 
-        // Sort emails by timestamp (newest first) and filter based on reply status
         const filteredEmails = data
             .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
             .filter(email => {
-                // If showing replied emails, show all. Otherwise, only show unreplied
                 return this.emailFilters.showReplied ? true : !email.replied;
             });
 
@@ -676,30 +669,58 @@ export class EventManageApp {
         let html = '';
 
         filteredEmails.forEach((email) => {
-            if (!email || !email.subject || !email.text) {
+            if (!email || !email.subject) {
                 console.warn("Skipping invalid email entry:", email);
                 return;
             }
 
-            // Skip excluded emails
-            if (exclusionArray.some((exclusion) =>
-                email.subject.toLowerCase().includes(exclusion) ||
-                email.text.toLowerCase().includes(exclusion)
-            )) {
+            // Process email content with proper newline handling
+            let emailContent = '';
+            if (email.text) {
+                // For text emails, replace multiple newlines with proper spacing
+                emailContent = email.text
+                    .replace(/\r\n/g, '\n') // Normalize Windows-style newlines
+                    .replace(/\r/g, '\n')   // Normalize old Mac-style newlines
+                    .replace(/\n{3,}/g, '\n\n') // Replace excessive newlines with double newlines
+                    .replace(/\n/g, '<br>'); // Convert remaining newlines to <br>
+            } else if (email.html) {
+                // For HTML emails, use a temporary div to parse and preserve formatting
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = email.html;
+
+                // Remove script and style tags
+                const scripts = tempDiv.getElementsByTagName('script');
+                const styles = tempDiv.getElementsByTagName('style');
+                for (let i = scripts.length - 1; i >= 0; i--) scripts[i].remove();
+                for (let i = styles.length - 1; i >= 0; i--) styles[i].remove();
+
+                // Get text content and preserve some HTML formatting
+                emailContent = tempDiv.innerHTML
+                    .replace(/<div[^>]*>/gi, '')
+                    .replace(/<\/div>/gi, '<br>')
+                    .replace(/<p[^>]*>/gi, '')
+                    .replace(/<\/p>/gi, '<br><br>')
+                    .replace(/<br\s*\/?>\s*<br\s*\/?>/gi, '<br><br>') // Normalize multiple breaks
+                    .replace(/(<br\s*\/?>\s*){3,}/gi, '<br><br>'); // Remove excessive breaks
+            } else {
+                console.warn("Email has no content:", email);
                 return;
             }
 
             const emailAddressMatch = email.from.match(/<([^>]+)>/);
             const emailAddress = emailAddressMatch ? emailAddressMatch[1] : email.from;
 
-            if (emailAddress !== "INTERAC" && email.text) {
-                email.text = email.text.replace(/\n/g, "<br>");
+            // Skip emails based on exclusion criteria
+            if (exclusionArray.some((exclusion) =>
+                email.subject.toLowerCase().includes(exclusion) ||
+                emailContent.toLowerCase().includes(exclusion)
+            )) {
+                return;
             }
 
             const isUnread = email.labels && email.labels.includes("UNREAD");
             const isImportant = email.labels && email.labels.includes("IMPORTANT");
 
-            // Icons for email status
             const unreadIcon = isUnread
                 ? `<i class="bi bi-envelope-open-text text-warning" title="Unread"></i> `
                 : `<i class="bi bi-envelope text-secondary" title="Read"></i> `;
@@ -736,7 +757,7 @@ export class EventManageApp {
                             ${email.replied ? '<div class="text-success"><strong>Status:</strong> Replied</div>' : ''}
                         </div>
                         <div class="email-body">
-                            ${email.text}
+                            ${emailContent}
                         </div>
                     </div>
     
@@ -772,7 +793,6 @@ export class EventManageApp {
             `);
         }
     }
-
     // Add this new method to initialize tooltips
     initializeTooltips() {
         // Remove any existing tooltip initialization

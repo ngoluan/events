@@ -14,6 +14,7 @@ export class EventManageApp {
         
         this.templates = {};
         this.userEmail = ''; 
+
         this.emailFilters = {
             showReplied: localStorage.getItem('showRepliedEmails') !== 'false'
         };
@@ -43,7 +44,6 @@ export class EventManageApp {
         
         this.getAllContacts();
         this.createCalendar();
-        this.initializeEmailFilters();
         
         await this.loadInitialEmails();
 
@@ -147,27 +147,7 @@ export class EventManageApp {
             throw error;
         }
     }
-    initializeEmailFilters() {
-        const filterHtml = `
-            <div class="flex items-center gap-2 mb-3">
-                <label class="cursor-pointer label">
-                    <span class="label-text mr-2">Show Replied Emails</span>
-                    <input type="checkbox" class="toggle toggle-primary" id="toggleRepliedEmails" 
-                        ${this.emailFilters.showReplied ? 'checked' : ''}>
-                </label>
-            </div>
-        `;
 
-        
-        $("#messages .card-title").after(filterHtml);
-
-        
-        $('#toggleRepliedEmails').on('change', (e) => {
-            this.emailFilters.showReplied = e.target.checked;
-            localStorage.setItem('showRepliedEmails', e.target.checked);
-            this.refreshEmails();
-        });
-    }
     adjustMessagesContainerHeight() {
         const messagesCard = document.querySelector('#messages .card-body');
         const messagesContainer = document.querySelector('.messages-container');
@@ -331,9 +311,36 @@ export class EventManageApp {
         }
     }
 
+    toggleRepliedEmails(e) {
+        
+        this.emailFilters.showReplied = !this.emailFilters.showReplied;
+        
+        
+        localStorage.setItem('showRepliedEmails', this.emailFilters.showReplied);
     
-
+        
+        const $button = $(e.currentTarget);
+        if (this.emailFilters.showReplied) {
+            $button.html('<i class="bi bi-eye-slash"></i> Hide Replied');
+            $button.attr('data-tip', 'Hide Replied Emails');
+        } else {
+            $button.html('<i class="bi bi-eye"></i> Show All');
+            $button.attr('data-tip', 'Show All Emails');
+        }
+        
+        
+        $button.addClass('animate-press');
+        setTimeout(() => $button.removeClass('animate-press'), 200);
+    
+        
+        this.refreshEmails();
+    }
     registerEvents() {
+        
+        $('#toggleRepliedEmails').on('click', (e) => {
+            e.preventDefault();
+            this.toggleRepliedEmails(e);
+        });
         $(document).on("click", "#actionsEmailContract", (e) => {
             e.preventDefault();
             this.actionsEmailContract();
@@ -573,13 +580,17 @@ export class EventManageApp {
                 
                 response = await $.get("/gmail/readGmail", {
                     email: email,
-                    type: 'contact'
+                    type: 'contact',
+                    orderBy: 'timestamp',
+                    order: 'desc'  
                 });
             } else {
                 
                 response = await $.get("/gmail/readGmail", {
                     type: 'all',
-                    forceRefresh: false
+                    forceRefresh: false,
+                    orderBy: 'timestamp',
+                    order: 'desc'  
                 });
             }
 
@@ -650,16 +661,24 @@ export class EventManageApp {
             return;
         }
 
-        data = _.orderBy(data, ["timestamp"], ["desc"]);
+        
+        const filteredEmails = data
+            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+            .filter(email => {
+                
+                return this.emailFilters.showReplied ? true : !email.replied;
+            });
+
         const exclusionArray = ["calendar-notification", "accepted this invitation", "peerspace", "tagvenue"];
         let html = '';
 
-        data.forEach((email) => {
+        filteredEmails.forEach((email) => {
             if (!email || !email.subject || !email.text) {
                 console.warn("Skipping invalid email entry:", email);
                 return;
             }
 
+            
             if (exclusionArray.some((exclusion) =>
                 email.subject.toLowerCase().includes(exclusion) ||
                 email.text.toLowerCase().includes(exclusion)
@@ -676,20 +695,49 @@ export class EventManageApp {
 
             const isUnread = email.labels && email.labels.includes("UNREAD");
             const isImportant = email.labels && email.labels.includes("IMPORTANT");
+
+            
             const unreadIcon = isUnread
                 ? `<i class="bi bi-envelope-open-text text-warning" title="Unread"></i> `
                 : `<i class="bi bi-envelope text-secondary" title="Read"></i> `;
             const importantIcon = isImportant
                 ? `<i class="bi bi-star-fill text-danger" title="Important"></i> `
                 : "";
+            const repliedIcon = email.replied
+                ? `<i class="bi bi-reply-fill text-success" title="Replied"></i> `
+                : "";
+
+            const timestamp = moment.tz(email.timestamp, 'America/New_York');
+            const timeDisplay = timestamp.format("MM/DD/YYYY HH:mm");
+            const timeAgo = timestamp.fromNow();
 
             html += `
-                <div class="sms" subject="${_.escape(email.subject)}" to="${_.escape(emailAddress)}" data-id="${_.escape(email.id)}">
+                <div class="sms ${email.replied ? 'replied' : ''}" subject="${_.escape(email.subject)}" to="${_.escape(emailAddress)}" data-id="${_.escape(email.id)}">
                     <div class="flex items-center justify-between mb-2">
                         <button class="icon-btn toggle-button tooltip" data-tip="Toggle Content">
                             <i class="bi bi-chevron-down"></i>
                         </button>
-                          <div class="action-buttons flex gap-2 mt-2">
+                        <div class="flex gap-2">
+                            ${unreadIcon}
+                            ${importantIcon}
+                            ${repliedIcon}
+                        </div>
+                    </div>
+                    
+                    <div class="email collapsed">
+                        <div class="email-header">
+                            <div><strong>From:</strong> ${_.escape(email.from)}</div>
+                            <div><strong>To:</strong> ${_.escape(email.to)}</div>
+                            <div><strong>Subject:</strong> ${_.escape(email.subject)}</div>
+                            <div><strong>Time:</strong> ${timeDisplay} (${timeAgo})</div>
+                            ${email.replied ? '<div class="text-success"><strong>Status:</strong> Replied</div>' : ''}
+                        </div>
+                        <div class="email-body">
+                            ${email.text}
+                        </div>
+                    </div>
+    
+                    <div class="action-buttons flex gap-2 mt-2">
                         <button class="icon-btn summarizeEmailAI tooltip tooltip-top" data-tip="Summarize Email">
                             <i class="bi bi-list-task"></i>
                         </button>
@@ -706,25 +754,6 @@ export class EventManageApp {
                             <i class="bi bi-send"></i>
                         </button>
                     </div>
-                        <div class="flex gap-2">
-                            ${unreadIcon}
-                            ${importantIcon}
-                        </div>
-                    </div>
-                    
-                    <div class="email">
-                        <div class="email-header">
-                            <div><strong>From:</strong> ${_.escape(email.from)}</div>
-                            <div><strong>To:</strong> ${_.escape(email.to)}</div>
-                            <div><strong>Subject:</strong> ${_.escape(email.subject)}</div>
-                            <div><strong>Time:</strong> ${moment.tz(email.timestamp, 'America/New_York').format("MM/DD/YYYY HH:mm")}</div>
-                        </div>
-                        <div class="email-body">
-                            ${email.text}
-                        </div>
-                    </div>
-    
-                  
                 </div>`;
         });
 
@@ -735,7 +764,7 @@ export class EventManageApp {
             $(".messages-container").html(`
                 <div class="alert alert-info">
                     <i class="bi bi-info-circle"></i>
-                    No matching emails found
+                    No ${!this.emailFilters.showReplied ? 'unreplied' : ''} emails found
                 </div>
             `);
         }
@@ -1018,20 +1047,57 @@ export class EventManageApp {
             return;
         }
 
-        const subject = `Event Contract for ${contact.name}`;
-        const body = `
-            Hello ${contact.name},<br><br>
-            Please find attached the event contract for your reservation on ${moment(contact.startTime, "YYYY-MM-DD HH:mm").format("MM/DD/YYYY")}.<br><br>
-            Thank you!
-        `;
+        const date = moment(contact.startTime, "YYYY-MM-DD HH:mm").format("MM/DD/YYYY");
+        const formattedPassword = moment(contact.startTime, "YYYY-MM-DD HH:mm").format("MMMMDD");
 
-        try {
-            await this.sendEmail(body, contact.email, subject);
-            this.showToast("Event contract emailed successfully.", "success");
-        } catch (error) {
-            console.error("Failed to email event contract:", error);
-            this.showToast("Failed to email event contract.", "error");
+        const subject = `Event Contract ${date}`;
+        const body = `Hi ${contact.name},
+    
+        Please see attached for the event contract. The contract has been pre-filled but if you can't see the details, please view the contract on a computer rather than a phone. Let me know if you have any questions otherwise you can simply respond to this email saying that you accept it, and attach a picture of your ID (we only need a picture of your face and your name). To fully reserve the date, please transfer the deposit to info@eattaco.ca, with the password '${formattedPassword}'.
+        
+        TacoTaco Events Team
+        TacoTaco 
+        www.eattaco.ca`;
+
+        const mailtoLink = `mailto:${encodeURIComponent(contact.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+
+        window.location.href = mailtoLink;
+    }
+    async createBooking() {
+        if (this.currentId === -1) {
+            alert("Error: No contact selected.");
+            return;
         }
+        const contact = _.find(this.contacts, ["id", this.currentId]);
+        this.openGoogleCalendar(contact);
+        
+        contact.status.push("reserved");
+        contact.status = contact.status.join(";");
+        contact.services = contact.services.join(";");
+        contact.room = contact.room.join(";");
+    }
+
+    openGoogleCalendar(contact) {
+        
+        const timezone = 'America/New_York';
+
+        
+        const startMoment = moment.tz(contact.startTime, "YYYY-MM-DD HH:mm", timezone);
+        const endMoment = moment.tz(contact.endTime, "YYYY-MM-DD HH:mm", timezone);
+
+        
+        const startDateUTC = startMoment.clone().utc().format("YYYYMMDDTHHmmss") + "Z";
+        const endDateUTC = endMoment.clone().utc().format("YYYYMMDDTHHmmss") + "Z";
+
+        
+        const title = `${contact.name} (${contact.room.join(", ")})`;
+        const details = `${contact.notes} - Email: ${contact.email}`;
+
+        
+        const googleCalendarUrl = `https:
+
+        
+        window.open(googleCalendarUrl, '_blank');
     }
 
     createContract() {
@@ -1425,6 +1491,9 @@ export class EventManageApp {
                             <div class="flex justify-between items-center mb-4">
                                 <h2 class="card-title text-lg">Messages</h2>
                                 <div class="flex gap-2">
+                                    <button class="btn btn-sm gap-2 tooltip tooltip-left" data-tip="Hide Replied Emails" id="toggleRepliedEmails">
+                                        <i class="bi bi-eye-slash"></i>
+                                    </button>
                                     <button class="btn btn-ghost btn-sm btn-square tooltip tooltip-left"
                                         data-tip="Read Email" id="readAllEmails">
                                         <i class="bi bi-envelope"></i>
