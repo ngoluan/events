@@ -147,12 +147,16 @@ export class EventManageApp {
     }
     initializeEmailFilters() {
         const filterHtml = `
-            <div class="flex items-center gap-2 mb-3">
+            <div class="flex items-center gap-2 mb-3 p-2 bg-base-200 rounded">
                 <label class="cursor-pointer label">
                     <span class="label-text mr-2">Show Replied Emails</span>
                     <input type="checkbox" class="toggle toggle-primary" id="toggleRepliedEmails" 
                         ${this.emailFilters.showReplied ? 'checked' : ''}>
                 </label>
+                <div class="text-xs text-base-content/70 ml-2" id="filterStatus">
+                    <i class="bi bi-info-circle"></i>
+                    ${this.emailFilters.showReplied ? 'Showing all emails' : 'Showing only unreplied emails'}
+                </div>
             </div>
         `;
 
@@ -163,9 +167,17 @@ export class EventManageApp {
         $('#toggleRepliedEmails').on('change', (e) => {
             this.emailFilters.showReplied = e.target.checked;
             localStorage.setItem('showRepliedEmails', e.target.checked);
+
+            // Update status text
+            $('#filterStatus').html(`
+                <i class="bi bi-info-circle"></i>
+                ${e.target.checked ? 'Showing all emails' : 'Showing only unreplied emails'}
+            `);
+
             this.refreshEmails();
         });
     }
+
     adjustMessagesContainerHeight() {
         const messagesCard = document.querySelector('#messages .card-body');
         const messagesContainer = document.querySelector('.messages-container');
@@ -571,13 +583,17 @@ export class EventManageApp {
                 // Loading emails for specific contact
                 response = await $.get("/gmail/readGmail", {
                     email: email,
-                    type: 'contact'
+                    type: 'contact',
+                    orderBy: 'timestamp',
+                    order: 'desc'  // Explicitly request descending order
                 });
             } else {
                 // Loading all emails
                 response = await $.get("/gmail/readGmail", {
                     type: 'all',
-                    forceRefresh: false
+                    forceRefresh: false,
+                    orderBy: 'timestamp',
+                    order: 'desc'  // Explicitly request descending order
                 });
             }
 
@@ -648,16 +664,24 @@ export class EventManageApp {
             return;
         }
 
-        data = _.orderBy(data, ["timestamp"], ["desc"]);
+        // Sort emails by timestamp (newest first) and filter based on reply status
+        const filteredEmails = data
+            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+            .filter(email => {
+                // If showing replied emails, show all. Otherwise, only show unreplied
+                return this.emailFilters.showReplied ? true : !email.replied;
+            });
+
         const exclusionArray = ["calendar-notification", "accepted this invitation", "peerspace", "tagvenue"];
         let html = '';
 
-        data.forEach((email) => {
+        filteredEmails.forEach((email) => {
             if (!email || !email.subject || !email.text) {
                 console.warn("Skipping invalid email entry:", email);
                 return;
             }
 
+            // Skip excluded emails
             if (exclusionArray.some((exclusion) =>
                 email.subject.toLowerCase().includes(exclusion) ||
                 email.text.toLowerCase().includes(exclusion)
@@ -674,20 +698,49 @@ export class EventManageApp {
 
             const isUnread = email.labels && email.labels.includes("UNREAD");
             const isImportant = email.labels && email.labels.includes("IMPORTANT");
+
+            // Icons for email status
             const unreadIcon = isUnread
                 ? `<i class="bi bi-envelope-open-text text-warning" title="Unread"></i> `
                 : `<i class="bi bi-envelope text-secondary" title="Read"></i> `;
             const importantIcon = isImportant
                 ? `<i class="bi bi-star-fill text-danger" title="Important"></i> `
                 : "";
+            const repliedIcon = email.replied
+                ? `<i class="bi bi-reply-fill text-success" title="Replied"></i> `
+                : "";
+
+            const timestamp = moment.tz(email.timestamp, 'America/New_York');
+            const timeDisplay = timestamp.format("MM/DD/YYYY HH:mm");
+            const timeAgo = timestamp.fromNow();
 
             html += `
-                <div class="sms" subject="${_.escape(email.subject)}" to="${_.escape(emailAddress)}" data-id="${_.escape(email.id)}">
+                <div class="sms ${email.replied ? 'replied' : ''}" subject="${_.escape(email.subject)}" to="${_.escape(emailAddress)}" data-id="${_.escape(email.id)}">
                     <div class="flex items-center justify-between mb-2">
                         <button class="icon-btn toggle-button tooltip" data-tip="Toggle Content">
                             <i class="bi bi-chevron-down"></i>
                         </button>
-                          <div class="action-buttons flex gap-2 mt-2">
+                        <div class="flex gap-2">
+                            ${unreadIcon}
+                            ${importantIcon}
+                            ${repliedIcon}
+                        </div>
+                    </div>
+                    
+                    <div class="email collapsed">
+                        <div class="email-header">
+                            <div><strong>From:</strong> ${_.escape(email.from)}</div>
+                            <div><strong>To:</strong> ${_.escape(email.to)}</div>
+                            <div><strong>Subject:</strong> ${_.escape(email.subject)}</div>
+                            <div><strong>Time:</strong> ${timeDisplay} (${timeAgo})</div>
+                            ${email.replied ? '<div class="text-success"><strong>Status:</strong> Replied</div>' : ''}
+                        </div>
+                        <div class="email-body">
+                            ${email.text}
+                        </div>
+                    </div>
+    
+                    <div class="action-buttons flex gap-2 mt-2">
                         <button class="icon-btn summarizeEmailAI tooltip tooltip-top" data-tip="Summarize Email">
                             <i class="bi bi-list-task"></i>
                         </button>
@@ -704,25 +757,6 @@ export class EventManageApp {
                             <i class="bi bi-send"></i>
                         </button>
                     </div>
-                        <div class="flex gap-2">
-                            ${unreadIcon}
-                            ${importantIcon}
-                        </div>
-                    </div>
-                    
-                    <div class="email">
-                        <div class="email-header">
-                            <div><strong>From:</strong> ${_.escape(email.from)}</div>
-                            <div><strong>To:</strong> ${_.escape(email.to)}</div>
-                            <div><strong>Subject:</strong> ${_.escape(email.subject)}</div>
-                            <div><strong>Time:</strong> ${moment.tz(email.timestamp, 'America/New_York').format("MM/DD/YYYY HH:mm")}</div>
-                        </div>
-                        <div class="email-body">
-                            ${email.text}
-                        </div>
-                    </div>
-    
-                  
                 </div>`;
         });
 
@@ -733,7 +767,7 @@ export class EventManageApp {
             $(".messages-container").html(`
                 <div class="alert alert-info">
                     <i class="bi bi-info-circle"></i>
-                    No matching emails found
+                    No ${!this.emailFilters.showReplied ? 'unreplied' : ''} emails found
                 </div>
             `);
         }

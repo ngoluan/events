@@ -18606,6 +18606,24 @@
       "status": "",
       "rentalRate": "200",
       "minSpend": ""
+    },
+    {
+      "phone": "17058962176",
+      "id": 1143,
+      "status": "contractSent",
+      "services": "bar;lights;audio;music;kareoke",
+      "room": "Lounge",
+      "name": "Matthew MacQuarrie-Cottle",
+      "email": "matthewamacq@gmail.com",
+      "startTime": "2024-11-24 22:00",
+      "endTime": "2024-11-25 02:00",
+      "rentalRate": "400",
+      "minSpend": "500",
+      "partyType": "",
+      "attendance": "180",
+      "source": "",
+      "notes": "$200 deposit to book",
+      "summary": "Liem from TacoTaco confirmed the Lounge is booked for an event for approximately 180 guests from 10 PM to 2 AM on November 24, 2024, with a rental rate of $100 per hour and a minimum spend of $500, including access to audio/visual services."
     }
   ]
 }
