@@ -3,27 +3,22 @@
 
 export class EventManageApp {
     constructor() {
-        // General properties
+        this.calendarEvents = [];
         this.mainCalendar = null;
         this.contacts = [];
         this.currentId = -1;
         this.emailProcessor = new EmailProcessor();
-
-        // AI-related properties
         this.templates = {};
         this.userEmail = '';
-
-        // Initialize emailFilters with proper boolean value
         const showRepliedSetting = localStorage.getItem('showRepliedEmails');
         this.emailFilters = {
             showReplied: showRepliedSetting === null ? true : showRepliedSetting === 'true'
         };
-
         this.backgroundInfo = {};
         this.emailsLoaded = false;
-
         this.initializeToastContainer();
     }
+
     async init() {
         // Initialize utilities
         this.sounds = {
@@ -64,7 +59,22 @@ export class EventManageApp {
 
         this.initializeBackgroundInfo();
     }
-
+    showReceiptManager() {
+        if (this.currentId === -1) {
+            this.showToast("Error: No contact selected.", "error");
+            return;
+        }
+    
+        const contact = _.find(this.contacts, ["id", this.currentId]);
+        if (!contact) {
+            this.showToast("Error: Contact not found.", "error");
+            return;
+        }
+    
+        const rentalFee = parseFloat($("#infoRentalRate").val()) || 0;
+        window.currentReceipt = new ReceiptManager(rentalFee);
+    }
+    
     initializeToastContainer() {
         // Create a container for toasts if it doesn't exist
         if (!document.getElementById('toast-container')) {
@@ -208,11 +218,8 @@ export class EventManageApp {
             this.myReceipt.setDeposit(event.target.checked);
         });
 
-        // Alert on new SMS received
 
     }
-
-    /*** AI-Related Methods ***/
 
     async loadTemplates() {
         try {
@@ -344,7 +351,15 @@ export class EventManageApp {
         this.refreshEmails();
     }
     registerEvents() {
-        // Update button click handler
+        $("#receipt").on("click", (e) => {
+            e.preventDefault();
+            this.showReceiptManager();
+        });
+        $('#refreshCalendarSync').on('click', (e) => {
+            e.preventDefault();
+            this.refreshCalendarSync();
+        });
+
         $('#toggleRepliedEmails').on('click', (e) => {
             e.preventDefault();
             this.toggleRepliedEmails(e);
@@ -452,7 +467,7 @@ export class EventManageApp {
         $(document).on("click", ".contactBtn", (e) => {
             e.preventDefault();
             $('html, body').animate({ scrollTop: $('#info').offset().top }, 500);
-            this.loadContact($(e.target).data("id"));
+            this.loadContact($(e.target).parent().data("id"));
         });
 
         $(document).on("click", ".sendToAiFromResult", (e) => {
@@ -542,7 +557,7 @@ export class EventManageApp {
         const subject = $("#sendMailSubject").val(); // Updated line
         if (!confirm("Are you sure you want to send this email?")) return;
         try {
-            const data = await $.post("/api/sendEmail", { html: aiText, to: to, subject: subject });
+            const data = await $.post("/gmail/sendEmail", { html: aiText, to: to, subject: subject });
             console.log(data);
             this.showToast("Email sent successfully.", "success");
         } catch (error) {
@@ -620,7 +635,15 @@ export class EventManageApp {
             throw error;
         }
     }
-
+    async refreshCalendarSync() {
+        try {
+            await this.createCalendar();
+            this.showToast("Calendar sync refreshed", "success");
+        } catch (error) {
+            console.error('Error refreshing calendar sync:', error);
+            this.showToast("Failed to refresh calendar sync", "error");
+        }
+    }
     refreshEmails() {
         const messagesContainer = $("#messages .messages-container");
         const loadingHtml = `
@@ -825,36 +848,74 @@ export class EventManageApp {
             .then(response => response.json())
             .then(contacts => {
                 this.contacts = contacts;
-                const $contactsContent = $("#contacts");
-                $contactsContent.empty();
-                let html = '';
-
-                contacts.slice().reverse().forEach(contact => {
-                    if (!contact || !contact.startTime) return;
-
-                    const date = moment.tz(contact.startTime, 'America/New_York').format("MM/DD/YYYY");
-                    let colour = "blue";
-                    if (contact.status) {
-                        if (contact.status.includes("depositPaid")) colour = "black";
-                        if (contact.status.includes("reserved")) colour = "green";
-                    }
-                    if (moment.tz(contact.startTime, 'America/New_York').isBefore(moment().subtract(2, "days"))) {
-                        colour = "lightgrey";
-                    }
-                    if (!contact.name) return;
-                    html += `
-            <div class="contactCont" data-id="${_.escape(contact.id)}" data-date="${_.escape(date)}">
-              <a href="#" class="contactBtn" style="color:${_.escape(colour)};" data-id="${_.escape(contact.id)}">${_.escape(contact.name)} (${_.escape(date)})</a>
-            </div>`;
-                });
-
-                $contactsContent.append(html);
+                this.renderContactsWithCalendarSync();
             })
             .catch(error => {
                 console.error("Error getting contacts:", error);
                 this.showToast('Failed to load contacts', 'error');
             });
     }
+    renderContactsWithCalendarSync() {
+        // Create map of calendar events for efficient lookup
+        const eventMap = new Map();
+        this.calendarEvents.forEach(event => {
+            const eventDate = moment.tz(event.startTime, 'America/New_York').format('YYYY-MM-DD');
+            const eventKey = `${event.title.toLowerCase()}_${eventDate}`;
+            eventMap.set(eventKey, event);
+        });
+
+        // Process contacts and generate HTML
+        const $contactsContent = $("#contacts");
+        $contactsContent.empty();
+        let html = '';
+
+        this.contacts.slice().reverse().forEach(contact => {
+            if (!contact || !contact.startTime || !contact.name) return;
+
+            const contactDate = moment.tz(contact.startTime, 'America/New_York');
+            const formattedDate = contactDate.format("MM/DD/YYYY");
+            const lookupKey = `${contact.name.toLowerCase()}_${contactDate.format('YYYY-MM-DD')}`;
+
+            // Determine color based on various conditions
+            let colour = "blue"; // default color
+            let statusIcons = '';
+
+            // Check calendar sync status
+            const hasCalendarEntry = eventMap.has(lookupKey);
+
+            if (hasCalendarEntry) {
+                statusIcons += '<i class="bi bi-calendar-check-fill text-success ml-2"></i>';
+            } else {
+                // Apply existing color logic
+                if (contact.status) {
+                    if (contact.status.includes("depositPaid")) {
+                        statusIcons += '<i class="bi bi-cash text-success ml-2"></i>';
+                    }
+                    if (contact.status.includes("reserved")) {
+                        statusIcons += '<i class="bi bi-bookmark-check text-primary ml-2"></i>';
+                    }
+                }
+                if (contactDate.isBefore(moment().subtract(2, "days"))) {
+                    colour = "lightgrey";
+                }
+            }
+
+            html += `
+                <div class="contactCont hover:bg-base-200 transition-colors" 
+                     data-id="${_.escape(contact.id)}" 
+                     data-date="${_.escape(formattedDate)}">
+                    <a href="#" class="contactBtn flex items-center justify-between p-2" 
+                       style="color:${_.escape(colour)};" 
+                       data-id="${_.escape(contact.id)}">
+                        <span class="flex-1">${_.escape(contact.name)} (${_.escape(formattedDate)})</span>
+                        <span class="flex items-center">${statusIcons}</span>
+                    </a>
+                </div>`;
+        });
+
+        $contactsContent.append(html);
+    }
+
 
     loadContact(id) {
         const contact = _.find(this.contacts, ["id", id]);
@@ -957,33 +1018,48 @@ export class EventManageApp {
             $saveStatus.addClass('hidden');
         }, 3000);
     }
-
     async createCalendar() {
         this.mainCalendar = new Calendar('calendar');
         try {
             const data = await $.get("/calendar/getEventCalendar");
 
-            // Process the events data
-            const eventData = data.map((event, index) => {
+            // Process calendar events
+            this.calendarEvents = data.map((event, index) => {
                 const timezone = 'America/New_York';
                 const startTime = moment.tz(event.start.dateTime || event.start.date, timezone);
                 const endTime = moment.tz(event.end.dateTime || event.end.date, timezone);
+
+                event.summary = `${event.summary} <br>${startTime.format("HHmm")}-${endTime.format("HHmm")}`;
+
+                let calendarEnd = endTime.clone();
+                if (endTime.isAfter(startTime.clone().hour(23).minute(59))) {
+                    calendarEnd = startTime.clone().hour(23).minute(59);
+                }
 
                 return {
                     id: index,
                     title: event.summary || 'No Title',
                     startTime: startTime.format(),
-                    endTime: endTime.format(),
+                    endTime: calendarEnd.format(),
                     description: event.description || '',
                     room: event.location || ''
                 };
             });
 
-            this.mainCalendar.loadEvents(eventData);
+            // Load events into calendar
+            this.mainCalendar.loadEvents(this.calendarEvents);
+
+            // Update contacts display if contacts are loaded
+            if (this.contacts.length > 0) {
+                this.getAllContacts();
+            }
+
         } catch (error) {
             console.error('Error loading calendar events:', error);
+            this.showToast('Failed to load calendar events', 'error');
         }
     }
+
 
     /*** Contact Methods ***/
 
@@ -1099,16 +1175,81 @@ export class EventManageApp {
     }
     async createBooking() {
         if (this.currentId === -1) {
-            alert("Error: No contact selected.");
+            this.showToast("Error: No contact selected.", "error");
             return;
         }
+
         const contact = _.find(this.contacts, ["id", this.currentId]);
-        this.openGoogleCalendar(contact);
-        //this.copyEmailToClipboard(contact);
-        contact.status.push("reserved");
-        contact.status = contact.status.join(";");
-        contact.services = contact.services.join(";");
-        contact.room = contact.room.join(";");
+        if (!contact) {
+            this.showToast("Error: Contact not found.", "error");
+            return;
+        }
+
+        try {
+            // Create the calendar event
+            await this.openGoogleCalendar(contact);
+
+            // Update contact status
+            if (typeof contact.status === 'string') {
+                contact.status = contact.status.split(';');
+            } else if (!Array.isArray(contact.status)) {
+                contact.status = [];
+            }
+
+            if (!contact.status.includes("reserved")) {
+                contact.status.push("reserved");
+            }
+
+            // Save the updated contact
+            await this.saveContactInfo();
+
+            // Refresh calendar events and update display
+            await this.createCalendar();
+
+            this.showToast("Booking created successfully", "success");
+
+            // Ask about sending confirmation email
+            const sendEmail = confirm("Would you like to send a confirmation email to the event organizer?");
+
+            if (sendEmail) {
+                const eventDate = moment(contact.startTime).format('MMMM Do');
+                const eventTime = `${moment(contact.startTime).format('h:mm A')} - ${moment(contact.endTime).format('h:mm A')}`;
+
+                const emailSubject = "You're all set for " + eventDate + "";
+                const emailBody = `
+    Hi ${contact.name}!
+    
+    Great news - you're officially booked in for ${eventDate} from ${eventTime}! 
+    
+    We've received your contract and deposit, and I've just sent you a calendar invite. You'll have access to ${contact.room} for your event.
+    
+    Quick reminder: Three days before the big day, could you let us know:
+    - Final guest count
+    - Catering preferences (if you'd like our food & beverage service)
+    
+    Can't wait to help make your event amazing! Let me know if you need anything before then.
+    
+    Cheers,
+    TacoTaco Events Team'
+                `.trim();
+
+                try {
+                    await $.post("/gmail/sendEmail", {
+                        html: emailBody.replace(/\n/g, '<br>'),
+                        to: contact.email,
+                        subject: emailSubject
+                    });
+                    this.showToast("Confirmation email sent successfully", "success");
+                } catch (error) {
+                    console.error("Failed to send confirmation email:", error);
+                    this.showToast("Failed to send confirmation email", "error");
+                }
+            }
+
+        } catch (error) {
+            console.error('Error creating booking:', error);
+            this.showToast("Failed to create booking", "error");
+        }
     }
 
     openGoogleCalendar(contact) {

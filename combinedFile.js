@@ -1,1277 +1,26 @@
 
-//--- File: /home/luan_ngo/web/events/services/googleCalendarService.js ---
-
-const { google } = require('googleapis');
-const path = require('path');
-
-class GoogleCalendarService {
-  constructor(auth) {
-    this.auth = auth; 
-  }
-
-  async listEvents() {
-    
-    const authClient = await this.auth.getOAuth2Client();
-    const calendar = google.calendar({ version: 'v3', auth: authClient });
-    const res = await calendar.events.list({
-      calendarId: 'primary',
-      timeMin: new Date().toISOString(),
-      maxResults: 2500,
-      singleEvents: true,
-      orderBy: 'startTime',
-    });
-    return res.data.items || [];
-  }
-
-  async addEvent(eventData) {
-    
-    const authClient = await this.auth.getOAuth2Client();
-    const calendar = google.calendar({ version: 'v3', auth: authClient });
-    const event = {
-      summary: `Event: ${eventData.name}`,
-      location: eventData.location || '',
-      description: eventData.notes || '',
-      start: {
-        dateTime: eventData.startTime,
-        timeZone: 'America/New_York',
-      },
-      end: {
-        dateTime: eventData.endTime,
-        timeZone: 'America/New_York',
-      },
-    };
-    const res = await calendar.events.insert({
-      calendarId: 'primary',
-      resource: event,
-    });
-    return res.data;
-  }
-}
-
-module.exports = GoogleCalendarService;
-
-
-//--- File: /home/luan_ngo/web/events/services/gmailService.js ---
-const { google } = require('googleapis');
-const path = require('path');
-const fs = require('fs');
-const moment = require('moment');
-const cheerio = require('cheerio');
-class GmailService {
-    constructor(auth) {
-        this.auth = auth;
-        this.cacheFilePath = path.join(__dirname, '..', 'data', 'emails.json');
-        this.lastRetrievalPath = path.join(__dirname, '..', 'data', 'lastRetrieval.json');
-        this.emailCache = new Map();
-        this.lastRetrievalDate = this.loadLastRetrievalDate();
-
-        
-        const dataDir = path.join(__dirname, '..', 'data');
-        if (!fs.existsSync(dataDir)) {
-            fs.mkdirSync(dataDir, { recursive: true });
-        }
-    }
-
-    loadLastRetrievalDate() {
-        try {
-            if (fs.existsSync(this.lastRetrievalPath)) {
-                const data = JSON.parse(fs.readFileSync(this.lastRetrievalPath, 'utf8'));
-                return data.lastRetrieval;
-            }
-        } catch (error) {
-            console.error('Error loading last retrieval date:', error);
-        }
-        
-        return moment().subtract(7, 'days').format('YYYY/MM/DD');
-    }
-
-    saveLastRetrievalDate() {
-        try {
-            const data = {
-                lastRetrieval: moment().format('YYYY/MM/DD')
-            };
-            fs.writeFileSync(this.lastRetrievalPath, JSON.stringify(data, null, 2), 'utf8');
-        } catch (error) {
-            console.error('Error saving last retrieval date:', error);
-        }
-    }
-
-    saveEmailsToCache(emails) {
-        try {
-            
-            const sortedEmails = emails.sort((a, b) => {
-                return new Date(b.internalDate) - new Date(a.internalDate);
-            });
-            fs.writeFileSync(this.cacheFilePath, JSON.stringify(sortedEmails, null, 2), 'utf8');
-
-            
-            sortedEmails.forEach(email => {
-                this.emailCache.set(email.id, email);
-            });
-        } catch (error) {
-            console.error('Error saving emails to cache:', error);
-        }
-    }
-
-    loadEmailsFromCache() {
-        try {
-            if (fs.existsSync(this.cacheFilePath)) {
-                const emails = JSON.parse(fs.readFileSync(this.cacheFilePath, 'utf8'));
-                
-                emails.forEach(email => {
-                    this.emailCache.set(email.id, email);
-                });
-                return emails;
-            }
-        } catch (error) {
-            console.error('Error loading emails from cache:', error);
-        }
-        return [];
-    }
-    async listMessages(options = {}) {
-        try {
-            const authClient = await this.auth.getOAuth2Client();
-            const gmail = google.gmail({ version: 'v1', auth: authClient });
-
-            
-            const sentResponse = await gmail.users.messages.list({
-                userId: 'me',
-                maxResults: options.maxResults || 100,
-                q: options.email ? `from:me to:${options.email}` : 'in:sent',
-                orderBy: 'internalDate desc'
-            });
-
-            const sentMessages = sentResponse.data.messages || [];
-
-            
-            const fullSentMessages = await Promise.all(
-                sentMessages.map(async msg => {
-                    try {
-                        return await this.getMessage(msg.id);
-                    } catch (err) {
-                        console.error(`Error getting sent message ${msg.id}:`, err);
-                        return null;
-                    }
-                })
-            ).then(messages => messages.filter(msg => msg !== null));
-
-            
-            const inboxResponse = await gmail.users.messages.list({
-                userId: 'me',
-                maxResults: options.maxResults || 100,
-                q: options.email ? `{to:${options.email} from:${options.email}}` : 'in:inbox',
-                orderBy: 'internalDate desc'
-            });
-
-            const inboxMessages = inboxResponse.data.messages || [];
-
-            
-            const processedMessages = await this.processMessageBatch(
-                inboxMessages,
-                fullSentMessages
-            );
-
-            if (!options.email) {
-                this.saveLastRetrievalDate();
-            }
-
-            return processedMessages;
-
-        } catch (error) {
-            console.error('Error listing messages:', error);
-            throw error;
-        }
-    }
-
-    checkIfReplied(inboxMessage, sentMessages) {
-        try {
-            if (!inboxMessage?.payload?.headers) {
-                console.log('No headers found for inbox message:', inboxMessage?.id);
-                return false;
-            }
-
-            
-            const messageId = inboxMessage.payload.headers.find(h => h.name === 'Message-ID')?.value || '';
-            const threadId = inboxMessage.threadId;
-
-
-            const hasReply = sentMessages.some(sentMessage => {
-                if (!sentMessage?.payload?.headers) {
-                    console.log('No headers found for sent message:', sentMessage?.id);
-                    return false;
-                }
-
-                
-                if (sentMessage.threadId !== threadId) {
-                    return false;
-                }
-
-                
-                const inReplyTo = sentMessage.payload.headers.find(h => h.name === 'In-Reply-To')?.value || '';
-                const references = sentMessage.payload.headers.find(h => h.name === 'References')?.value || '';
-
-
-
-                
-                if (messageId && (inReplyTo.includes(messageId) || references.includes(messageId))) {
-                    return true;
-                }
-
-                
-                const sentDate = new Date(sentMessage.internalDate);
-                const inboxDate = new Date(inboxMessage.internalDate);
-
-                
-                const isNewerInThread = sentDate > inboxDate;
-                if (isNewerInThread) {
-                    console.log('Found reply through date comparison');
-                }
-                return isNewerInThread;
-            });
-
-            return hasReply;
-
-        } catch (error) {
-            console.error('Error checking if replied:', error);
-            return false;
-        }
-    }
-    async getMessage(messageId) {
-        try {
-            
-            if (this.emailCache.has(messageId)) {
-                return this.emailCache.get(messageId);
-            }
-
-            const auth = await this.auth.getOAuth2Client();
-            const gmail = google.gmail({ version: 'v1', auth });
-            const emailData = await gmail.users.messages.get({
-                userId: 'me',
-                id: messageId,
-                format: 'full'
-            });
-
-            let html = '';
-            let text = '';
-            if (emailData.data.payload.mimeType === 'text/plain' && emailData.data.payload.body.data) {
-                text = Buffer.from(emailData.data.payload.body.data, 'base64').toString('utf8');
-            } else if (emailData.data.payload.mimeType === 'text/html' && emailData.data.payload.body.data) {
-                html = Buffer.from(emailData.data.payload.body.data, 'base64').toString('utf8');
-            } else if (emailData.data.payload.parts) {
-                const { html: htmlPart, text: textPart } = this.parseEmailParts(emailData.data.payload.parts);
-                html = htmlPart;
-                text = textPart;
-            }
-
-            
-            if (!text && html) {
-                text = this.extractPlainTextFromHtml(html);
-            }
-
-            
-            const fullMessage = {
-                id: messageId,
-                threadId: emailData.data.threadId,
-                labelIds: emailData.data.labelIds,
-                snippet: emailData.data.snippet,
-                internalDate: emailData.data.internalDate,
-                payload: emailData.data.payload,
-                parsedContent: {
-                    text,
-                    html
-                }
-            };
-
-            return fullMessage;
-        } catch (error) {
-            console.error('Error getting message:', error);
-            throw error;
-        }
-    }
-    parseEmailParts(parts) {
-        let htmlContent = '';
-        let textContent = '';
-
-        if (parts && parts.length > 0) {
-            parts.forEach(part => {
-                if (part.parts && part.parts.length > 0) {
-                    const { html, text } = this.parseEmailParts(part.parts);
-                    htmlContent += html;
-                    textContent += text;
-                } else {
-                    if (part.mimeType === 'text/html') {
-                        const data = part.body.data;
-                        if (data) {
-                            htmlContent += Buffer.from(data, 'base64').toString('utf8');
-                        }
-                    } else if (part.mimeType === 'text/plain') {
-                        const data = part.body.data;
-                        if (data) {
-                            textContent += Buffer.from(data, 'base64').toString('utf8');
-                        }
-                    }
-                }
-            });
-        }
-        return { html: htmlContent, text: textContent };
-    }
-    async processMessageBatch(messages, sentMessages) {
-        if (!messages || !messages.length) return [];
-
-        const asyncLib = require('async');
-        let processedEmails = [];
-
-        await asyncLib.eachLimit(messages, 5, async (message) => {
-            try {
-                const fullMessage = await this.getMessage(message.id);
-                let replied = false;
-                if (!fullMessage?.payload?.headers) {
-                    console.error(`Invalid message structure for ID ${message.id}`);
-                }
-                else {
-                    replied = this.checkIfReplied(fullMessage, sentMessages);
-                }
-
-
-                const headers = fullMessage.payload.headers;
-                const emailData = {
-                    id: message.id,
-                    threadId: fullMessage.threadId,
-                    from: headers.find(h => h.name === 'From')?.value || '',
-                    to: headers.find(h => h.name === 'To')?.value || '',
-                    subject: headers.find(h => h.name === 'Subject')?.value || '',
-                    timestamp: headers.find(h => h.name === 'Date')?.value || '',
-                    internalDate: fullMessage.internalDate,
-                    text: fullMessage.parsedContent?.text || '',
-                    html: fullMessage.parsedContent?.html || '',
-                    labels: fullMessage.labelIds || [],
-                    snippet: fullMessage.snippet || '',
-                    replied
-                };
-
-                
-                this.emailCache.set(message.id, emailData);
-                processedEmails.push(emailData);
-
-            } catch (err) {
-                console.error(`Error processing message ID ${message.id}:`, err);
-            }
-        });
-
-        return processedEmails.sort((a, b) => {
-            const dateA = Number(a.internalDate);
-            const dateB = Number(b.internalDate);
-            return dateB - dateA;
-        });
-    }
-
-    extractPlainTextFromHtml(html) {
-        let plainText = "";
-
-        try {
-            let cleanedHtml = html.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
-            cleanedHtml = cleanedHtml.replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n');
-            const $ = cheerio.load(cleanedHtml);
-            plainText = $.text().trim();
-            plainText = plainText.replace(/ {2,}/g, ' ');
-            plainText = plainText.replace(/\t+/g, ' ');
-            plainText = plainText.replace(/\n{3,}/g, '\n\n');
-            plainText = plainText.replace(/^\s+/gm, '');
-        } catch (e) {
-            console.log(e);
-        }
-
-        return plainText;
-    }
-
-    convertHtmlToText(html) {
-        try {
-            
-            return html
-                .replace(/<style[^>]*>.*<\/style>/gs, '') 
-                .replace(/<script[^>]*>.*<\/script>/gs, '') 
-                .replace(/<[^>]+>/g, ' ') 
-                .replace(/&nbsp;/g, ' ') 
-                .replace(/\s+/g, ' ') 
-                .trim(); 
-        } catch (error) {
-            console.error('Error converting HTML to text:', error);
-            return '';
-        }
-    }
-    mergeEmails(cachedEmails, newEmails) {
-        
-        const emailMap = new Map();
-
-        
-        cachedEmails.forEach(email => emailMap.set(email.id, email));
-
-        
-        newEmails.forEach(email => emailMap.set(email.id, {
-            ...email,
-            replied: email.replied || false 
-        }));
-
-        
-        const mergedEmails = Array.from(emailMap.values());
-        return mergedEmails.sort((a, b) => {
-            const dateA = Number(a.internalDate);
-            const dateB = Number(b.internalDate);
-            return dateB - dateA;
-        });
-    }
-    async listAllLabels() {
-        try {
-            const auth = await this.auth.getOAuth2Client();
-            const gmail = google.gmail({ version: 'v1', auth });
-
-            const response = await gmail.users.labels.list({
-                userId: 'me'
-            });
-
-            
-            return response.data.labels.map(label => ({
-                id: label.id,
-                name: label.name,
-                type: label.type,
-                messageListVisibility: label.messageListVisibility,
-                labelListVisibility: label.labelListVisibility
-            }));
-        } catch (error) {
-            console.error('Error listing labels:', error);
-            throw error;
-        }
-    }
-    async archiveEmail(messageId) {
-        try {
-            const auth = await this.auth.getOAuth2Client();
-            const gmail = google.gmail({ version: 'v1', auth });
-
-            
-            await gmail.users.messages.modify({
-                userId: 'me',
-                id: messageId,
-                requestBody: {
-                    removeLabelIds: ['INBOX'],
-                    addLabelIds: ["Label_6"]
-                }
-            });
-
-            
-            if (this.emailCache.has(messageId)) {
-                const emailData = this.emailCache.get(messageId);
-
-                
-                emailData.labels = emailData.labels || [];
-                emailData.labels = emailData.labels.filter(label => label !== 'INBOX');
-                if (!emailData.labels.includes('Label_6')) {
-                    emailData.labels.push('Label_6');
-                }
-
-                
-                this.emailCache.set(messageId, emailData);
-
-                
-                try {
-                    let cachedEmails = [];
-                    if (fs.existsSync(this.cacheFilePath)) {
-                        cachedEmails = JSON.parse(fs.readFileSync(this.cacheFilePath, 'utf8'));
-                    }
-
-                    
-                    const emailIndex = cachedEmails.findIndex(email => email.id === messageId);
-                    if (emailIndex !== -1) {
-                        cachedEmails[emailIndex] = emailData;
-                    }
-
-                    
-                    fs.writeFileSync(this.cacheFilePath, JSON.stringify(cachedEmails, null, 2), 'utf8');
-                } catch (cacheError) {
-                    console.error('Error updating cache file:', cacheError);
-                    
-                }
-            }
-
-            return true;
-        } catch (error) {
-            console.error('Error archiving email:', error);
-            
-            try {
-                const auth = await this.auth.getOAuth2Client();
-                const gmail = google.gmail({ version: 'v1', auth });
-
-                await gmail.users.messages.modify({
-                    userId: 'me',
-                    id: messageId,
-                    requestBody: {
-                        removeLabelIds: ['INBOX'],
-                        addLabelIds: ['Label_6']
-                    }
-                });
-
-                
-                if (this.emailCache.has(messageId)) {
-                    const emailData = this.emailCache.get(messageId);
-                    emailData.labels = emailData.labels.filter(label => label !== 'INBOX');
-                    this.emailCache.set(messageId, emailData);
-
-                    
-                    try {
-                        let cachedEmails = [];
-                        if (fs.existsSync(this.cacheFilePath)) {
-                            cachedEmails = JSON.parse(fs.readFileSync(this.cacheFilePath, 'utf8'));
-                        }
-                        const emailIndex = cachedEmails.findIndex(email => email.id === messageId);
-                        if (emailIndex !== -1) {
-                            cachedEmails[emailIndex] = emailData;
-                        }
-                        fs.writeFileSync(this.cacheFilePath, JSON.stringify(cachedEmails, null, 2), 'utf8');
-                    } catch (cacheError) {
-                        console.error('Error updating cache file:', cacheError);
-                    }
-                }
-
-                return true;
-            } catch (fallbackError) {
-                console.error('Fallback archive failed:', fallbackError);
-                throw fallbackError;
-            }
-        }
-    }
-    
-    updateEmailInCache(emailData) {
-        
-        this.emailCache.set(emailData.id, emailData);
-
-        
-        try {
-            let cachedEmails = [];
-            if (fs.existsSync(this.cacheFilePath)) {
-                cachedEmails = JSON.parse(fs.readFileSync(this.cacheFilePath, 'utf8'));
-            }
-
-            const emailIndex = cachedEmails.findIndex(email => email.id === emailData.id);
-            if (emailIndex !== -1) {
-                cachedEmails[emailIndex] = emailData;
-            } else {
-                cachedEmails.push(emailData);
-            }
-
-            
-            cachedEmails.sort((a, b) => {
-                const dateA = Number(a.internalDate);
-                const dateB = Number(b.internalDate);
-                return dateB - dateA;
-            });
-
-            fs.writeFileSync(this.cacheFilePath, JSON.stringify(cachedEmails, null, 2), 'utf8');
-        } catch (error) {
-            console.error('Error updating email in cache:', error);
-        }
-    }
-
-    async getAllEmails(maxResults = 100, onlyImportant = false) {
-        try {
-            
-            let cachedEmails = this.loadEmailsFromCache();
-
-            
-            const lastRetrievalDate = moment(this.loadLastRetrievalDate(), "YYYY/MM/DD");
-            const now = moment();
-            const needsUpdate = !cachedEmails.length || lastRetrievalDate.isBefore(now, 'day');
-
-            if (needsUpdate) {
-                
-                const processedMessages = await this.listMessages({
-                    maxResults,
-                    onlyImportant
-                });
-
-                
-                const allEmails = this.mergeEmails(cachedEmails, processedMessages);
-
-                
-                this.saveEmailsToCache(allEmails);
-
-                return allEmails;
-            }
-
-            return cachedEmails;
-        } catch (error) {
-            console.error('Error getting all emails:', error);
-            
-            return this.loadEmailsFromCache();
-        }
-    }
-
-    async getEmailsForContact(email) {
-        try {
-            
-            const cachedEmails = this.loadEmailsFromCache();
-            const contactEmails = cachedEmails.filter(e => {
-                const fromMatch = e.from.includes(email);
-                const toMatch = e.to.includes(email);
-                return fromMatch || toMatch;
-            });
-
-            
-            const messages = await this.listMessages({
-                email: email,
-                maxResults: 50
-            });
-
-            
-            const allContactEmails = this.mergeEmails(contactEmails, messages);
-
-            
-            this.updateCacheWithEmails(messages);
-
-            return allContactEmails;
-        } catch (error) {
-            console.error('Error getting emails for contact:', error);
-            
-            return this.loadEmailsFromCache().filter(e => {
-                const fromMatch = e.from.includes(email);
-                const toMatch = e.to.includes(email);
-                return fromMatch || toMatch;
-            });
-        }
-    }
-    async getAllEmails(maxResults = 100, onlyImportant = false) {
-        try {
-            
-            let cachedEmails = this.loadEmailsFromCache();
-
-            
-            const lastRetrievalDate = moment(this.loadLastRetrievalDate(), "YYYY/MM/DD");
-            const now = moment();
-            const needsUpdate = !cachedEmails.length || lastRetrievalDate.isBefore(now, 'day');
-
-            if (needsUpdate) {
-                
-                const processedMessages = await this.listMessages({
-                    maxResults,
-                    onlyImportant
-                });
-
-                
-                const allEmails = this.mergeEmails(cachedEmails, processedMessages);
-
-                
-                this.saveEmailsToCache(allEmails);
-
-                return allEmails;
-            }
-
-            return cachedEmails;
-        } catch (error) {
-            console.error('Error getting all emails:', error);
-            
-            return this.loadEmailsFromCache();
-        }
-    }
-    updateCacheWithEmails(newEmails) {
-        const cachedEmails = this.loadEmailsFromCache();
-        const updatedEmails = this.mergeEmails(cachedEmails, newEmails);
-        this.saveEmailsToCache(updatedEmails);
-    }
-
-    async getThreadMessages(threadId) {
-        try {
-            const authClient = await this.auth.getOAuth2Client();
-            const gmail = google.gmail({ version: 'v1', auth: authClient });
-            const res = await gmail.users.threads.get({
-                userId: 'me',
-                id: threadId,
-                format: 'full',
-            });
-            return res.data.messages || [];
-        } catch (error) {
-            console.error('Error fetching thread messages:', error);
-            throw error;
-        }
-    }
-
-    async forceFullRefresh() {
-        try {
-            
-            this.lastRetrievalDate = moment().subtract(1, 'year').format('YYYY/MM/DD');
-            const messages = await this.listMessages({
-                maxResults: 500 
-            });
-            const emails = await this.processMessageBatch(messages);
-            this.saveEmailsToCache(emails);
-            this.saveLastRetrievalDate(); 
-            return emails;
-        } catch (error) {
-            console.error('Error during full refresh:', error);
-            throw error;
-        }
-    }
-
-    clearCache() {
-        try {
-            this.emailCache.clear();
-            if (fs.existsSync(this.cacheFilePath)) {
-                fs.unlinkSync(this.cacheFilePath);
-            }
-        } catch (error) {
-            console.error('Error clearing cache:', error);
-        }
-    }
-}
-
-module.exports = GmailService;
-
-//--- File: /home/luan_ngo/web/events/services/eventService.js ---
-
-const fs = require('fs');
-const path = require('path');
-const axios = require('axios');
-class EventService {
-  constructor() {
-    this.eventsFilePath = path.join(__dirname, '..', 'data', 'events.json');
-    this.remoteApiGetUrl = 'https:
-    this.remoteApiUpdateUrl = 'https:
-
-    this.initializeEventsFile();
-  }
-
-  initializeEventsFile() {
-    const dataDir = path.dirname(this.eventsFilePath);
-    if (!fs.existsSync(dataDir)) {
-      fs.mkdirSync(dataDir, { recursive: true });
-    }
-
-    if (!fs.existsSync(this.eventsFilePath)) {
-      this.saveEvents({ contacts: [] });
-    } else {
-      try {
-        const content = fs.readFileSync(this.eventsFilePath, 'utf8');
-        JSON.parse(content);
-      } catch (error) {
-        console.error('Error reading events file, reinitializing:', error);
-        this.saveEvents({ contacts: [] });
-      }
-    }
-  }
-  async updateRemoteEvent(contact){
-    try {
-      const response = await axios.post(this.remoteApiUpdateUrl, contact);
-      const remoteEvents = response.data;
-      console.log(`Updated ${remoteEvents.length} events from remote successfully`);
-      return true;
-    } catch (error) {
-      console.error('Error updating remote events:', error);
-      return false;
-    }
-  }
-  async syncWithRemote() {
-    try {
-      
-      const response = await axios.get(this.remoteApiGetUrl);
-      const remoteEvents = response.data;
-
-      
-      let localEvents = this.loadEvents();
-
-      
-      const localEventsMap = new Map(localEvents.map(event => [event.id, event]));
-
-      
-      remoteEvents.forEach(remoteEvent => {
-        const existingEvent = localEventsMap.get(remoteEvent.id);
-
-        if (existingEvent) {
-          
-          
-          localEventsMap.set(remoteEvent.id, { ...existingEvent, ...remoteEvent });
-        } else {
-          
-          localEventsMap.set(remoteEvent.id, remoteEvent);
-        }
-      });
-
-      
-      const mergedEvents = Array.from(localEventsMap.values());
-      this.saveEvents(mergedEvents);
-
-      console.log(`Synced ${mergedEvents.length} events successfully`);
-      return true;
-    } catch (error) {
-      console.error('Error syncing with remote:', error);
-      return false;
-    }
-  }
-
-  loadEvents() {
-    try {
-      const data = fs.readFileSync(this.eventsFilePath, 'utf8');
-      const events = JSON.parse(data);
-      return events.contacts || [];
-    } catch (error) {
-      console.error('Error loading events:', error);
-      return [];
-    }
-  }
-
-  saveEvents(events) {
-    try {
-      
-      const dataToSave = Array.isArray(events) ? { contacts: events } : events;
-      fs.writeFileSync(this.eventsFilePath, JSON.stringify(dataToSave, null, 2), 'utf8');
-      return true;
-    } catch (error) {
-      console.error('Error saving events:', error);
-      return false;
-    }
-  }
-
-  getEvent(id) {
-    try {
-      const events = this.loadEvents();
-      return events.find(event => event.id === parseInt(id)) || null;
-    } catch (error) {
-      console.error('Error getting event:', error);
-      return null;
-    }
-  }
-
-  createEvent(eventData) {
-    try {
-      const events = this.loadEvents();
-
-      
-      let newId;
-      if (eventData.id !== undefined && eventData.id !== null) {
-        newId = parseInt(eventData.id);
-        const existingEvent = events.find(event => event.id === newId);
-        if (existingEvent) {
-          throw new Error('Event with this ID already exists');
-        }
-      } else {
-        
-        newId = events.length > 0 ? Math.max(...events.map(e => e.id)) + 1 : 0;
-      }
-
-      const newEvent = {
-        id: newId,
-        name: eventData.name,
-        email: eventData.email,
-        phone: eventData.phone || '',
-        startTime: eventData.startTime,
-        endTime: eventData.endTime,
-        status: Array.isArray(eventData.status) ? eventData.status.join(';') : (eventData.status || ''),
-        services: Array.isArray(eventData.services) ? eventData.services.join(';') : (eventData.services || ''),
-        room: Array.isArray(eventData.room) ? eventData.room.join(';') : (eventData.room || ''),
-        rentalRate: eventData.rentalRate || '',
-        partyType: eventData.partyType || '',
-        attendance: eventData.attendance || '',
-        notes: eventData.notes || ''
-      };
-
-      events.push(newEvent);
-      this.saveEvents(events);
-      return newEvent;
-    } catch (error) {
-      console.error('Error creating event:', error);
-      return null;
-    }
-  }
-
-
-  updateEvent(id, eventData) {
-    try {
-      const events = this.loadEvents();
-      const index = events.findIndex(event => event.id === parseInt(id));
-
-      if (index === -1) {
-        
-        const newEvent = { ...eventData, id: parseInt(id) };
-        events.push(newEvent);
-        this.saveEvents(events);
-        return newEvent;
-      }
-
-      
-      events[index] = {
-        ...events[index],
-        ...eventData,
-        id: parseInt(id), 
-        status: Array.isArray(eventData.status) ? eventData.status.join(';') : eventData.status,
-        services: Array.isArray(eventData.services) ? eventData.services.join(';') : eventData.services,
-        room: Array.isArray(eventData.room) ? eventData.room.join(';') : eventData.room
-      };
-
-      this.saveEvents(events);
-      return events[index];
-    } catch (error) {
-      console.error('Error updating or creating event:', error);
-      return null;
-    }
-  }
-
-
-  deleteEvent(id) {
-    try {
-      const events = this.loadEvents();
-      const filteredEvents = events.filter(event => event.id !== parseInt(id));
-      return this.saveEvents(filteredEvents);
-    } catch (error) {
-      console.error('Error deleting event:', error);
-      return false;
-    }
-  }
-}
-
-module.exports = new EventService();
-
-//--- File: /home/luan_ngo/web/events/routes/gmail.js ---
-const express = require('express');
-const router = express.Router();
-const gmailService = require('../services/gmailService');
-
-module.exports = (googleAuth) => {
-    const gmail = new gmailService(googleAuth);
-    router.post('/archiveEmail/:id', async (req, res) => {
-        try {
-            const messageId = req.params.id;
-            await gmail.archiveEmail(messageId);
-            res.json({ success: true });
-        } catch (error) {
-            console.error('Error archiving email:', error);
-            res.status(500).json({
-                error: 'Error archiving email',
-                details: error.message
-            });
-        }
-    });
-
-    
-    router.get('/readGmail', async (req, res) => {
-        try {
-            const type = req.query.type || 'all';
-            const email = req.query.email;
-            const forceRefresh = req.query.forceRefresh === 'true';
-
-            let emails;
-            if (forceRefresh) {
-                emails = await gmail.forceFullRefresh();
-            } else if (type === 'contact' && email) {
-                emails = await gmail.getEmailsForContact(email);
-            } else {
-                emails = await gmail.getAllEmails();
-            }
-
-            
-            emails = emails.filter(email => email.labels.includes('INBOX'));
-
-            res.json(emails);
-        } catch (error) {
-            console.error('Error reading Gmail:', error);
-            res.status(500).json({
-                error: 'Error reading Gmail',
-                details: error.message,
-            });
-        }
-    });
-
-    router.get('/messages/:id', async (req, res) => {
-        try {
-            const message = await gmail.getMessage(req.params.id);
-            const content = await gmail.parseEmailContent(message);
-            res.json({
-                id: message.id,
-                from: message.payload.headers.find(h => h.name === 'From')?.value || '',
-                to: message.payload.headers.find(h => h.name === 'To')?.value || '',
-                subject: message.payload.headers.find(h => h.name === 'Subject')?.value || '',
-                timestamp: message.payload.headers.find(h => h.name === 'Date')?.value || '',
-                text: content,
-                labels: message.labelIds || []
-            });
-        } catch (error) {
-            console.error('Error retrieving message:', error);
-            res.status(500).json({
-                error: 'Error retrieving message',
-                details: error.message
-            });
-        }
-    });
-
-    async function checkForReplies(emails, cachedEmailMap) {
-        
-        const threadGroups = new Map();
-        emails.forEach(email => {
-            if (!email.labels.includes('SENT')) { 
-                if (!threadGroups.has(email.threadId)) {
-                    threadGroups.set(email.threadId, []);
-                }
-                threadGroups.set(email.threadId, [...threadGroups.get(email.threadId), email]);
-            }
-        });
-
-        for (const [threadId, threadEmails] of threadGroups) {
-            try {
-                const threadMessages = await gmail.getThreadMessages(threadId);
-
-                
-                const sentMessages = threadMessages.filter(msg => msg.labelIds.includes('SENT'));
-
-                
-                threadEmails.forEach(inboxEmail => {
-                    const replied = sentMessages.some(sentMsg =>
-                        parseInt(sentMsg.internalDate) > parseInt(inboxEmail.internalDate)
-                    );
-
-                    if (cachedEmailMap[inboxEmail.id]) {
-                        cachedEmailMap[inboxEmail.id].replied = replied;
-                    }
-                });
-            } catch (err) {
-                console.error(`Error checking replies for thread ${threadId}:`, err);
-            }
-        }
-    }
-
-    return router;
-};
-
-//--- File: /home/luan_ngo/web/events/routes/events.js ---
-
-
-const express = require('express');
-const router = express.Router();
-const eventService = require('../services/eventService');
-const pdfService = require('../services/pdfService');
-
-router.post('/api/createEventContract', async (req, res) => {
-  const data = req.body
-  const contractData = await pdfService.createEventContract(data,res);
-});
-
-
-
-router.get('/api/events', (req, res) => {
-  try {
-    const events = eventService.loadEvents();
-    res.json(events);
-  } catch (error) {
-    console.error('Error getting events:', error);
-    res.status(500).json({ error: 'Failed to get events' });
-  }
-});
-
-
-router.get('/api/events/:id', (req, res) => {
-  try {
-    const event = eventService.getEvent(req.params.id);
-    if (event) {
-      res.json(event);
-    } else {
-      res.status(404).json({ error: 'Event not found' });
-    }
-  } catch (error) {
-    console.error('Error getting event:', error);
-    res.status(500).json({ error: 'Failed to get event' });
-  }
-});
-
-
-router.post('/api/events/sync', async (req, res) => {
-  try {
-    const success = await eventService.syncWithRemote();
-    if (success) {
-      res.json({ message: 'Sync completed successfully' });
-    } else {
-      res.status(500).json({ error: 'Sync failed' });
-    }
-  } catch (error) {
-    console.error('Error during sync:', error);
-    res.status(500).json({ error: 'Sync failed' });
-  }
-});
-
-
-router.put('/api/events/:id',async  (req, res) => {
-  try {
-    
-    const requiredFields = ['name', 'email', 'startTime', 'endTime'];
-    for (const field of requiredFields) {
-      if (!req.body[field]) {
-        return res.status(400).json({ error: `Missing required field: ${field}` });
-      }
-    }
-
-    let updatedEvent = eventService.updateEvent(req.params.id, req.body);
-
-    if (updatedEvent) {
-      await eventService.updateRemoteEvent(updatedEvent,req.body);
-      res.json(updatedEvent);
-    } else {
-      
-      const newEventData = { ...req.body, id: parseInt(req.params.id) };
-      const newEvent = eventService.createEvent(newEventData);
-
-      if (newEvent) {
-        res.status(201).json(newEvent);
-      } else {
-        res.status(500).json({ error: 'Failed to create event' });
-      }
-    }
-  } catch (error) {
-    console.error('Error updating or creating event:', error);
-    res.status(500).json({ error: 'Failed to update or create event' });
-  }
-});
-
-
-router.post('/api/events', (req, res) => {
-  try {
-    
-    const requiredFields = ['name', 'email', 'startTime', 'endTime'];
-    for (const field of requiredFields) {
-      if (!req.body[field]) {
-        return res.status(400).json({ error: `Missing required field: ${field}` });
-      }
-    }
-
-    const newEvent = eventService.createEvent(req.body);
-    if (newEvent) {
-      res.status(201).json(newEvent);
-    } else {
-      res.status(500).json({ error: 'Failed to create event' });
-    }
-  } catch (error) {
-    console.error('Error creating event:', error);
-    res.status(500).json({ error: 'Failed to create event' });
-  }
-});
-
-
-router.delete('/api/events/:id', (req, res) => {
-  try {
-    const success = eventService.deleteEvent(req.params.id);
-    if (success) {
-      res.status(204).send();
-    } else {
-      res.status(404).json({ error: 'Event not found' });
-    }
-  } catch (error) {
-    console.error('Error deleting event:', error);
-    res.status(500).json({ error: 'Failed to delete event' });
-  }
-});
-
-module.exports = router;
-
-
-//--- File: /home/luan_ngo/web/events/routes/calendar.js ---
-
-const express = require('express');
-const router = express.Router();
-const googleCalendarService = require('../services/googleCalendarService');
-
-module.exports = (googleAuth) => {
-  
-  const calendarService = new googleCalendarService(googleAuth);
-
-  router.get('/getEventCalendar', async (req, res) => {
-    try {
-      const events = await calendarService.listEvents();
-      res.json(events);
-    } catch (error) {
-      console.error('Error fetching events from Google Calendar:', error);
-      res.status(500).send('Error fetching events from Google Calendar');
-    }
-  });
-
-  router.post('/calendar/events', async (req, res) => {
-    const eventData = req.body;
-    try {
-      const event = await calendarService.addEvent(eventData);
-      res.json(event);
-    } catch (error) {
-      console.error('Error adding event to calendar:', error);
-      res.status(500).send('Error adding event to calendar');
-    }
-  });
-
-  return router;
-};
-
-
-//--- File: /home/luan_ngo/web/events/routes/ai.js ---
-
-const express = require('express');
-const router = express.Router();
-const aiService = require('../services/aiService');
-
-
-router.post('/chat', async (req, res) => {
-  const { messages, provider } = req.body;
-  try {
-    
-    if (provider) {
-      aiService.setProvider(provider);
-    }
-
-    
-    let conversationHistory = aiService.loadConversationHistory();
-
-    
-    conversationHistory.push(...messages);
-
-    
-    const aiResponse = await aiService.generateResponse(conversationHistory);
-
-    
-    conversationHistory.push({ role: 'assistant', content: aiResponse });
-
-    
-    aiService.saveConversationHistory(conversationHistory);
-
-    res.json({ response: aiResponse });
-  } catch (error) {
-    res.status(500).json({ error: 'AI service error' });
-  }
-});
-
-
-router.post('/reset', (req, res) => {
-  aiService.saveConversationHistory([]);
-  res.json({ message: 'Conversation history reset' });
-});
-
-module.exports = router;
-
-
 //--- File: /home/luan_ngo/web/events/public/scripts.js ---
 
 
 
 export class EventManageApp {
     constructor() {
-        
+        this.calendarEvents = [];
         this.mainCalendar = null;
         this.contacts = [];
         this.currentId = -1;
         this.emailProcessor = new EmailProcessor();
-
-        
         this.templates = {};
         this.userEmail = '';
-
-        
         const showRepliedSetting = localStorage.getItem('showRepliedEmails');
         this.emailFilters = {
             showReplied: showRepliedSetting === null ? true : showRepliedSetting === 'true'
         };
-
         this.backgroundInfo = {};
         this.emailsLoaded = false;
-
         this.initializeToastContainer();
     }
+
     async init() {
         
         this.sounds = {
@@ -1312,7 +61,22 @@ export class EventManageApp {
 
         this.initializeBackgroundInfo();
     }
-
+    showReceiptManager() {
+        if (this.currentId === -1) {
+            this.showToast("Error: No contact selected.", "error");
+            return;
+        }
+    
+        const contact = _.find(this.contacts, ["id", this.currentId]);
+        if (!contact) {
+            this.showToast("Error: Contact not found.", "error");
+            return;
+        }
+    
+        const rentalFee = parseFloat($("#infoRentalRate").val()) || 0;
+        window.currentReceipt = new ReceiptManager(rentalFee);
+    }
+    
     initializeToastContainer() {
         
         if (!document.getElementById('toast-container')) {
@@ -1456,11 +220,8 @@ export class EventManageApp {
             this.myReceipt.setDeposit(event.target.checked);
         });
 
-        
 
     }
-
-    
 
     async loadTemplates() {
         try {
@@ -1592,7 +353,15 @@ export class EventManageApp {
         this.refreshEmails();
     }
     registerEvents() {
-        
+        $("#receipt").on("click", (e) => {
+            e.preventDefault();
+            this.showReceiptManager();
+        });
+        $('#refreshCalendarSync').on('click', (e) => {
+            e.preventDefault();
+            this.refreshCalendarSync();
+        });
+
         $('#toggleRepliedEmails').on('click', (e) => {
             e.preventDefault();
             this.toggleRepliedEmails(e);
@@ -1700,7 +469,7 @@ export class EventManageApp {
         $(document).on("click", ".contactBtn", (e) => {
             e.preventDefault();
             $('html, body').animate({ scrollTop: $('#info').offset().top }, 500);
-            this.loadContact($(e.target).data("id"));
+            this.loadContact($(e.target).parent().data("id"));
         });
 
         $(document).on("click", ".sendToAiFromResult", (e) => {
@@ -1790,7 +559,7 @@ export class EventManageApp {
         const subject = $("#sendMailSubject").val(); 
         if (!confirm("Are you sure you want to send this email?")) return;
         try {
-            const data = await $.post("/api/sendEmail", { html: aiText, to: to, subject: subject });
+            const data = await $.post("/gmail/sendEmail", { html: aiText, to: to, subject: subject });
             console.log(data);
             this.showToast("Email sent successfully.", "success");
         } catch (error) {
@@ -1868,7 +637,15 @@ export class EventManageApp {
             throw error;
         }
     }
-
+    async refreshCalendarSync() {
+        try {
+            await this.createCalendar();
+            this.showToast("Calendar sync refreshed", "success");
+        } catch (error) {
+            console.error('Error refreshing calendar sync:', error);
+            this.showToast("Failed to refresh calendar sync", "error");
+        }
+    }
     refreshEmails() {
         const messagesContainer = $("#messages .messages-container");
         const loadingHtml = `
@@ -2073,36 +850,74 @@ export class EventManageApp {
             .then(response => response.json())
             .then(contacts => {
                 this.contacts = contacts;
-                const $contactsContent = $("#contacts");
-                $contactsContent.empty();
-                let html = '';
-
-                contacts.slice().reverse().forEach(contact => {
-                    if (!contact || !contact.startTime) return;
-
-                    const date = moment.tz(contact.startTime, 'America/New_York').format("MM/DD/YYYY");
-                    let colour = "blue";
-                    if (contact.status) {
-                        if (contact.status.includes("depositPaid")) colour = "black";
-                        if (contact.status.includes("reserved")) colour = "green";
-                    }
-                    if (moment.tz(contact.startTime, 'America/New_York').isBefore(moment().subtract(2, "days"))) {
-                        colour = "lightgrey";
-                    }
-                    if (!contact.name) return;
-                    html += `
-            <div class="contactCont" data-id="${_.escape(contact.id)}" data-date="${_.escape(date)}">
-              <a href="#" class="contactBtn" style="color:${_.escape(colour)};" data-id="${_.escape(contact.id)}">${_.escape(contact.name)} (${_.escape(date)})</a>
-            </div>`;
-                });
-
-                $contactsContent.append(html);
+                this.renderContactsWithCalendarSync();
             })
             .catch(error => {
                 console.error("Error getting contacts:", error);
                 this.showToast('Failed to load contacts', 'error');
             });
     }
+    renderContactsWithCalendarSync() {
+        
+        const eventMap = new Map();
+        this.calendarEvents.forEach(event => {
+            const eventDate = moment.tz(event.startTime, 'America/New_York').format('YYYY-MM-DD');
+            const eventKey = `${event.title.toLowerCase()}_${eventDate}`;
+            eventMap.set(eventKey, event);
+        });
+
+        
+        const $contactsContent = $("#contacts");
+        $contactsContent.empty();
+        let html = '';
+
+        this.contacts.slice().reverse().forEach(contact => {
+            if (!contact || !contact.startTime || !contact.name) return;
+
+            const contactDate = moment.tz(contact.startTime, 'America/New_York');
+            const formattedDate = contactDate.format("MM/DD/YYYY");
+            const lookupKey = `${contact.name.toLowerCase()}_${contactDate.format('YYYY-MM-DD')}`;
+
+            
+            let colour = "blue"; 
+            let statusIcons = '';
+
+            
+            const hasCalendarEntry = eventMap.has(lookupKey);
+
+            if (hasCalendarEntry) {
+                statusIcons += '<i class="bi bi-calendar-check-fill text-success ml-2"></i>';
+            } else {
+                
+                if (contact.status) {
+                    if (contact.status.includes("depositPaid")) {
+                        statusIcons += '<i class="bi bi-cash text-success ml-2"></i>';
+                    }
+                    if (contact.status.includes("reserved")) {
+                        statusIcons += '<i class="bi bi-bookmark-check text-primary ml-2"></i>';
+                    }
+                }
+                if (contactDate.isBefore(moment().subtract(2, "days"))) {
+                    colour = "lightgrey";
+                }
+            }
+
+            html += `
+                <div class="contactCont hover:bg-base-200 transition-colors" 
+                     data-id="${_.escape(contact.id)}" 
+                     data-date="${_.escape(formattedDate)}">
+                    <a href="#" class="contactBtn flex items-center justify-between p-2" 
+                       style="color:${_.escape(colour)};" 
+                       data-id="${_.escape(contact.id)}">
+                        <span class="flex-1">${_.escape(contact.name)} (${_.escape(formattedDate)})</span>
+                        <span class="flex items-center">${statusIcons}</span>
+                    </a>
+                </div>`;
+        });
+
+        $contactsContent.append(html);
+    }
+
 
     loadContact(id) {
         const contact = _.find(this.contacts, ["id", id]);
@@ -2205,33 +1020,48 @@ export class EventManageApp {
             $saveStatus.addClass('hidden');
         }, 3000);
     }
-
     async createCalendar() {
         this.mainCalendar = new Calendar('calendar');
         try {
             const data = await $.get("/calendar/getEventCalendar");
 
             
-            const eventData = data.map((event, index) => {
+            this.calendarEvents = data.map((event, index) => {
                 const timezone = 'America/New_York';
                 const startTime = moment.tz(event.start.dateTime || event.start.date, timezone);
                 const endTime = moment.tz(event.end.dateTime || event.end.date, timezone);
+
+                event.summary = `${event.summary} <br>${startTime.format("HHmm")}-${endTime.format("HHmm")}`;
+
+                let calendarEnd = endTime.clone();
+                if (endTime.isAfter(startTime.clone().hour(23).minute(59))) {
+                    calendarEnd = startTime.clone().hour(23).minute(59);
+                }
 
                 return {
                     id: index,
                     title: event.summary || 'No Title',
                     startTime: startTime.format(),
-                    endTime: endTime.format(),
+                    endTime: calendarEnd.format(),
                     description: event.description || '',
                     room: event.location || ''
                 };
             });
 
-            this.mainCalendar.loadEvents(eventData);
+            
+            this.mainCalendar.loadEvents(this.calendarEvents);
+
+            
+            if (this.contacts.length > 0) {
+                this.getAllContacts();
+            }
+
         } catch (error) {
             console.error('Error loading calendar events:', error);
+            this.showToast('Failed to load calendar events', 'error');
         }
     }
+
 
     
 
@@ -2347,16 +1177,81 @@ export class EventManageApp {
     }
     async createBooking() {
         if (this.currentId === -1) {
-            alert("Error: No contact selected.");
+            this.showToast("Error: No contact selected.", "error");
             return;
         }
+
         const contact = _.find(this.contacts, ["id", this.currentId]);
-        this.openGoogleCalendar(contact);
-        
-        contact.status.push("reserved");
-        contact.status = contact.status.join(";");
-        contact.services = contact.services.join(";");
-        contact.room = contact.room.join(";");
+        if (!contact) {
+            this.showToast("Error: Contact not found.", "error");
+            return;
+        }
+
+        try {
+            
+            await this.openGoogleCalendar(contact);
+
+            
+            if (typeof contact.status === 'string') {
+                contact.status = contact.status.split(';');
+            } else if (!Array.isArray(contact.status)) {
+                contact.status = [];
+            }
+
+            if (!contact.status.includes("reserved")) {
+                contact.status.push("reserved");
+            }
+
+            
+            await this.saveContactInfo();
+
+            
+            await this.createCalendar();
+
+            this.showToast("Booking created successfully", "success");
+
+            
+            const sendEmail = confirm("Would you like to send a confirmation email to the event organizer?");
+
+            if (sendEmail) {
+                const eventDate = moment(contact.startTime).format('MMMM Do');
+                const eventTime = `${moment(contact.startTime).format('h:mm A')} - ${moment(contact.endTime).format('h:mm A')}`;
+
+                const emailSubject = "You're all set for " + eventDate + "";
+                const emailBody = `
+    Hi ${contact.name}!
+    
+    Great news - you're officially booked in for ${eventDate} from ${eventTime}! 
+    
+    We've received your contract and deposit, and I've just sent you a calendar invite. You'll have access to ${contact.room} for your event.
+    
+    Quick reminder: Three days before the big day, could you let us know:
+    - Final guest count
+    - Catering preferences (if you'd like our food & beverage service)
+    
+    Can't wait to help make your event amazing! Let me know if you need anything before then.
+    
+    Cheers,
+    TacoTaco Events Team'
+                `.trim();
+
+                try {
+                    await $.post("/gmail/sendEmail", {
+                        html: emailBody.replace(/\n/g, '<br>'),
+                        to: contact.email,
+                        subject: emailSubject
+                    });
+                    this.showToast("Confirmation email sent successfully", "success");
+                } catch (error) {
+                    console.error("Failed to send confirmation email:", error);
+                    this.showToast("Failed to send confirmation email", "error");
+                }
+            }
+
+        } catch (error) {
+            console.error('Error creating booking:', error);
+            this.showToast("Failed to create booking", "error");
+        }
     }
 
     openGoogleCalendar(contact) {
@@ -2970,7 +1865,9 @@ export class EventManageApp {
         integrity="sha512-s932Fui209TZcBY5LqdHKbANLKNneRzBib2GE3HkZUQtoWY3LBUN2kaaZDK7+8z8WnFY23TPUNsDmIAY1AplPg=="
         crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="https:
+    <script src="https:
     <script src="/EmailProcessor.js"></script>
+    <script src="/ReceiptManager.js"></script>
     <script src="/calendar.js"></script>
     <script type="module">
         import { EventManageApp } from '/scripts.js';

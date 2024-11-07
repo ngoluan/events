@@ -17,7 +17,28 @@ module.exports = (googleAuth) => {
             });
         }
     });
+    // In gmail.js routes
+    router.post('/sendEmail', async (req, res) => {
+        try {
+            const { html, to, subject } = req.body;
 
+            if (!html || !to || !subject) {
+                return res.status(400).json({
+                    error: 'Missing required fields',
+                    details: 'html, to, and subject are required'
+                });
+            }
+
+            const result = await gmail.sendEmail(to, subject, html);
+            res.json({ success: true, messageId: result.id });
+        } catch (error) {
+            console.error('Error in send email route:', error);
+            res.status(500).json({
+                error: 'Failed to send email',
+                details: error.message
+            });
+        }
+    });
     // In your Express routes (gmail.js)
     router.get('/readGmail', async (req, res) => {
         try {
