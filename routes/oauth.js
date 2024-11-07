@@ -6,7 +6,7 @@ module.exports = (googleAuth) => {
   const router = express.Router();
 
   router.use(cors({
-    origin: process.env.FRONTEND_URL || 'https://your-frontend-url.com',
+    origin: process.env.GOOGLE_REDIRECT_URI || 'https://your-frontend-url.com',
     credentials: true
   }));
 
@@ -16,13 +16,13 @@ module.exports = (googleAuth) => {
       res.json({ authUrl });
     } catch (error) {
       console.error('Error generating auth URL:', error);
-      res.redirect(`${process.env.FRONTEND_URL || 'https://your-frontend-url.com'}?oauth=error`);
+      res.redirect(`${process.env.GOOGLE_REDIRECT_URI || 'https://your-frontend-url.com'}?oauth=error`);
     }
   });
 
   router.get('/google/callback', async (req, res) => {
     const code = req.query.code;
-    const frontendUrl = process.env.FRONTEND_URL || 'https://your-frontend-url.com';
+    const frontendUrl = process.env.GOOGLE_REDIRECT_URI || 'https://your-frontend-url.com';
 
     if (!code) {
       return res.redirect(`${frontendUrl}?oauth=error&message=No_authorization_code`);
@@ -32,7 +32,7 @@ module.exports = (googleAuth) => {
       const result = await googleAuth.handleCallback(code);
       if (result.success) {
         req.session.userEmail = result.email;
-        res.redirect(`${frontendUrl}?oauth=success`);
+        res.redirect(`https://events.luanngo.ca`);
       } else {
         throw new Error(result.error || 'Authentication failed');
       }

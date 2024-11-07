@@ -11,19 +11,19 @@ export class EventManageApp {
 
         // AI-related properties
         this.templates = {};
-        this.userEmail = ''; // To store the authenticated user's email
+        this.userEmail = '';
 
+        // Initialize emailFilters with proper boolean value
+        const showRepliedSetting = localStorage.getItem('showRepliedEmails');
         this.emailFilters = {
-            showReplied: localStorage.getItem('showRepliedEmails') !== 'false'
+            showReplied: showRepliedSetting === null ? true : showRepliedSetting === 'true'
         };
+
         this.backgroundInfo = {};
         this.emailsLoaded = false;
 
         this.initializeToastContainer();
-
-
     }
-
     async init() {
         // Initialize utilities
         this.sounds = {
@@ -167,7 +167,7 @@ export class EventManageApp {
 
     async initiateGoogleOAuth() {
         try {
-            const response = await $.get('/oauth/google');
+            const response = await $.get('/auth/google');
             if (response.authUrl) {
                 window.location.href = response.authUrl;
             } else {
@@ -288,26 +288,36 @@ export class EventManageApp {
         $("#aiResult").html(response);
     }
 
-    copyAIResponseToClipboard(e) {
-        const aiChatResponse = $(e.target).closest(".aiChatReponse");
-        let aiContent = aiChatResponse.find(".aiChatReponseContent").text();
-        aiContent = aiContent.replace(/:\[Specific Instructions:.*?\]/g, "");
 
-        if (navigator.clipboard && aiContent) {
-            navigator.clipboard.writeText(aiContent)
-                .then(() => {
-                    console.log('AI response copied to clipboard');
-                    alert('AI response has been copied to clipboard');
-                })
-                .catch((err) => {
-                    console.error('Could not copy AI response to clipboard: ', err);
-                    alert('Failed to copy AI response.');
-                });
+    toggleRepliedEmails(e) {
+        // Toggle the filter state
+        this.emailFilters.showReplied = !this.emailFilters.showReplied;
+
+        // Save to localStorage
+        localStorage.setItem('showRepliedEmails', this.emailFilters.showReplied);
+
+        // Update button text and icon
+        const $button = $(e.currentTarget);
+        if (this.emailFilters.showReplied) {
+            $button.html('<i class="bi bi-eye-slash"></i> Hide Replied');
+            $button.attr('data-tip', 'Hide Replied Emails');
         } else {
-            console.error('Clipboard API not available or AI content is missing');
-            alert('Failed to copy AI response.');
+            $button.html('<i class="bi bi-eye"></i> Show All');
+            $button.attr('data-tip', 'Show All Emails');
         }
+
+        // Add a brief animation
+        $button.addClass('animate-press');
+        setTimeout(() => $button.removeClass('animate-press'), 200);
+
+        // Instead of just refreshEmails(), get fresh data
+        this.readGmail("all", false).then(() => {
+            console.log("Emails refreshed. Show replied:", this.emailFilters.showReplied);
+        }).catch(error => {
+            console.error("Error refreshing emails:", error);
+        });
     }
+
 
     toggleRepliedEmails(e) {
         // Toggle the filter state
@@ -575,24 +585,24 @@ export class EventManageApp {
         try {
             let response;
             if (email) {
-                // Loading emails for specific contact
                 response = await $.get("/gmail/readGmail", {
                     email: email,
                     type: 'contact',
                     orderBy: 'timestamp',
-                    order: 'desc'  // Explicitly request descending order
+                    order: 'desc'
                 });
             } else {
-                // Loading all emails
                 response = await $.get("/gmail/readGmail", {
                     type: 'all',
                     forceRefresh: false,
                     orderBy: 'timestamp',
-                    order: 'desc'  // Explicitly request descending order
+                    order: 'desc',
+                    showReplied: this.emailFilters.showReplied // Add this parameter
                 });
             }
 
             if (Array.isArray(response)) {
+                console.log(`Processing ${response.length} emails. Show replied: ${this.emailFilters.showReplied}`);
                 this.processEmails(response);
             } else {
                 throw new Error("Invalid response format");
@@ -658,12 +668,9 @@ export class EventManageApp {
             console.error("Invalid data format:", data);
             return;
         }
-
         const filteredEmails = data
-            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-            .filter(email => {
-                return this.emailFilters.showReplied ? true : !email.replied;
-            });
+            .filter(email => this.emailFilters.showReplied || !email.replied)
+            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
         const exclusionArray = ["calendar-notification", "accepted this invitation", "peerspace", "tagvenue"];
         let html = '';
@@ -677,31 +684,27 @@ export class EventManageApp {
             // Process email content with proper newline handling
             let emailContent = '';
             if (email.text) {
-                // For text emails, replace multiple newlines with proper spacing
                 emailContent = email.text
-                    .replace(/\r\n/g, '\n') // Normalize Windows-style newlines
-                    .replace(/\r/g, '\n')   // Normalize old Mac-style newlines
-                    .replace(/\n{3,}/g, '\n\n') // Replace excessive newlines with double newlines
-                    .replace(/\n/g, '<br>'); // Convert remaining newlines to <br>
+                    .replace(/\r\n/g, '\n')
+                    .replace(/\r/g, '\n')
+                    .replace(/\n{3,}/g, '\n\n')
+                    .replace(/\n/g, '<br>');
             } else if (email.html) {
-                // For HTML emails, use a temporary div to parse and preserve formatting
                 const tempDiv = document.createElement('div');
                 tempDiv.innerHTML = email.html;
 
-                // Remove script and style tags
                 const scripts = tempDiv.getElementsByTagName('script');
                 const styles = tempDiv.getElementsByTagName('style');
                 for (let i = scripts.length - 1; i >= 0; i--) scripts[i].remove();
                 for (let i = styles.length - 1; i >= 0; i--) styles[i].remove();
 
-                // Get text content and preserve some HTML formatting
                 emailContent = tempDiv.innerHTML
                     .replace(/<div[^>]*>/gi, '')
                     .replace(/<\/div>/gi, '<br>')
                     .replace(/<p[^>]*>/gi, '')
                     .replace(/<\/p>/gi, '<br><br>')
-                    .replace(/<br\s*\/?>\s*<br\s*\/?>/gi, '<br><br>') // Normalize multiple breaks
-                    .replace(/(<br\s*\/?>\s*){3,}/gi, '<br><br>'); // Remove excessive breaks
+                    .replace(/<br\s*\/?>\s*<br\s*\/?>/gi, '<br><br>')
+                    .replace(/(<br\s*\/?>\s*){3,}/gi, '<br><br>');
             } else {
                 console.warn("Email has no content:", email);
                 return;
@@ -710,7 +713,6 @@ export class EventManageApp {
             const emailAddressMatch = email.from.match(/<([^>]+)>/);
             const emailAddress = emailAddressMatch ? emailAddressMatch[1] : email.from;
 
-            // Skip emails based on exclusion criteria
             if (exclusionArray.some((exclusion) =>
                 email.subject.toLowerCase().includes(exclusion) ||
                 emailContent.toLowerCase().includes(exclusion)
@@ -722,21 +724,29 @@ export class EventManageApp {
             const isImportant = email.labels && email.labels.includes("IMPORTANT");
 
             const unreadIcon = isUnread
-                ? `<i class="bi bi-envelope-open-text text-warning" title="Unread"></i> `
-                : `<i class="bi bi-envelope text-secondary" title="Read"></i> `;
+                ? `<button class="icon-btn tooltip" data-tip="Unread"><i class="bi bi-envelope-open-text text-warning"></i></button>`
+                : `<button class="icon-btn tooltip" data-tip="Read"><i class="bi bi-envelope text-secondary"></i></button>`;
+
             const importantIcon = isImportant
-                ? `<i class="bi bi-star-fill text-danger" title="Important"></i> `
-                : "";
-            const repliedIcon = email.replied
-                ? `<i class="bi bi-reply-fill text-success" title="Replied"></i> `
-                : "";
+                ? `<button class="icon-btn tooltip" data-tip="Important"><i class="bi bi-star-fill text-warning"></i></button>`
+                : '';
+
+            // Only show icon if replied
+            const replyIcon = email.replied
+                ? `<button class="icon-btn tooltip" data-tip="Replied">
+                     <i class="bi bi-reply-fill text-success"></i>
+                   </button>`
+                : '';
 
             const timestamp = moment.tz(email.timestamp, 'America/New_York');
             const timeDisplay = timestamp.format("MM/DD/YYYY HH:mm");
             const timeAgo = timestamp.fromNow();
 
             html += `
-                <div class="sms ${email.replied ? 'replied' : ''}" subject="${_.escape(email.subject)}" to="${_.escape(emailAddress)}" data-id="${_.escape(email.id)}">
+                <div class="sms ${email.replied ? 'replied' : ''}" 
+                     subject="${_.escape(email.subject)}" 
+                     to="${_.escape(emailAddress)}" 
+                     data-id="${_.escape(email.id)}">
                     <div class="flex items-center justify-between mb-2">
                         <button class="icon-btn toggle-button tooltip" data-tip="Toggle Content">
                             <i class="bi bi-chevron-down"></i>
@@ -744,24 +754,23 @@ export class EventManageApp {
                         <div class="flex gap-2">
                             ${unreadIcon}
                             ${importantIcon}
-                            ${repliedIcon}
+                            ${replyIcon}
                         </div>
                     </div>
                     
                     <div class="email collapsed">
-                        <div class="email-header">
+                        <div class="email-header text-sm space-y-1">
                             <div><strong>From:</strong> ${_.escape(email.from)}</div>
                             <div><strong>To:</strong> ${_.escape(email.to)}</div>
                             <div><strong>Subject:</strong> ${_.escape(email.subject)}</div>
                             <div><strong>Time:</strong> ${timeDisplay} (${timeAgo})</div>
-                            ${email.replied ? '<div class="text-success"><strong>Status:</strong> Replied</div>' : ''}
                         </div>
-                        <div class="email-body">
+                        <div class="email-body mt-3">
                             ${emailContent}
                         </div>
                     </div>
     
-                    <div class="action-buttons flex gap-2 mt-2">
+                    <div class="action-buttons flex flex-wrap gap-2 mt-2">
                         <button class="icon-btn summarizeEmailAI tooltip tooltip-top" data-tip="Summarize Email">
                             <i class="bi bi-list-task"></i>
                         </button>
@@ -776,6 +785,9 @@ export class EventManageApp {
                         </button>
                         <button class="icon-btn sendToAiTextArea tooltip tooltip-top" subject="${_.escape(email.subject)}" to="${_.escape(emailAddress)}" data-id="${_.escape(email.id)}" data-tip="Send to AI">
                             <i class="bi bi-send"></i>
+                        </button>
+                        <button class="icon-btn archiveEmail tooltip tooltip-top" data-tip="Archive Email">
+                            <i class="bi bi-archive"></i>
                         </button>
                     </div>
                 </div>`;
@@ -793,7 +805,6 @@ export class EventManageApp {
             `);
         }
     }
-    // Add this new method to initialize tooltips
     initializeTooltips() {
         // Remove any existing tooltip initialization
         $('.icon-btn[data-tooltip]').tooltip('dispose');

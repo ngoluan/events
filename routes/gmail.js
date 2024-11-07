@@ -4,7 +4,19 @@ const gmailService = require('../services/gmailService');
 
 module.exports = (googleAuth) => {
     const gmail = new gmailService(googleAuth);
-
+    router.post('/archiveEmail/:id', async (req, res) => {
+        try {
+            const messageId = req.params.id;
+            await gmail.archiveEmail(messageId);
+            res.json({ success: true });
+        } catch (error) {
+            console.error('Error archiving email:', error);
+            res.status(500).json({
+                error: 'Error archiving email',
+                details: error.message
+            });
+        }
+    });
 
     // In your Express routes (gmail.js)
     router.get('/readGmail', async (req, res) => {

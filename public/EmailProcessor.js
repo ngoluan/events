@@ -15,18 +15,34 @@ class EmailProcessor {
         // Handle draft event email
         $(document).on('click', '.draftEventSpecificEmail', async (e) => {
             e.preventDefault();
+            const $emailContainer = $(e.target).closest('.sms');
+
             const emailContent = $(e.target).closest('.sms').find('.email').text();
-            await this.handleDraftEventEmail(emailContent);
+            const subject = $emailContainer.attr('subject') || '';
+            await this.handleDraftEventEmail(emailContent, subject);
         });
 
         // Handle send to textarea
         $(document).on('click', '.sendToAiTextArea', async (e) => {
             e.preventDefault();
             const $emailContainer = $(e.target).closest('.sms');
-            const emailContent = $emailContainer.find('.email').text();
-            this.sendToAiTextArea(emailContent);
-        });
 
+            const emailContent = $emailContainer.find('.email').text();
+            const subject = $emailContainer.attr('subject') || '';
+            this.sendToAiTextArea(emailContent, subject);
+        });
+        $(document).on('click', '.archiveEmail', async (e) => {
+            e.preventDefault();
+            const $emailContainer = $(e.target).closest('.sms');
+            const messageId = $emailContainer.data('id');
+
+            const success = await this.archiveEmail(messageId);
+            if (success) {
+                window.app.showToast('Email archived successfully', 'success');
+            } else {
+                window.app.showToast('Failed to archive email', 'error');
+            }
+        });
         // Handle new conversation button
         $(document).on('click', '#newConversation', () => {
             this.startNewConversation();
@@ -37,6 +53,8 @@ class EmailProcessor {
         this.currentConversationId = null;
         $('#aiText').html('');
         $('#aiResult').html('');
+        $('#sendMailSubject').val(''); // Clear subject when starting new conversation
+
     }
 
     async handleSummarizeEmail(emailContent) {
@@ -47,7 +65,7 @@ class EmailProcessor {
                 .replace(/^Sent:.*$/gm, '')
                 .substring(0, 11000);
 
-            const response = await $.post('/api/summarizeAI', { 
+            const response = await $.post('/api/summarizeAI', {
                 text: cleanedText,
                 conversationId: this.currentConversationId
             });
@@ -68,7 +86,7 @@ class EmailProcessor {
         }
     }
 
-    async handleDraftEventEmail(emailContent) {
+    async handleDraftEventEmail(emailContent, subject) {
         try {
             const instructions = prompt('Enter any specific instructions for the email draft:');
             const combinedText = `${emailContent}\n\n[Specific Instructions: ${instructions}]`;
@@ -86,12 +104,19 @@ class EmailProcessor {
             // Update the AI text area with the draft
             const existingContent = $('#aiText').html();
             const newContent = response.response.replace(/\n/g, '<br>');
-            
+
             $('#aiText').html(
                 newContent +
                 (existingContent ? '<br><br> ---------------- <br><br>' + existingContent : '')
             );
-
+            // Set the subject if it exists
+            if (subject) {
+                if (subject.toLowerCase().startsWith('re:')) {
+                    $('#sendMailSubject').val(subject);
+                } else {
+                    $('#sendMailSubject').val(`Re: ${subject}`);
+                }
+            }
             // If no email is set, use the one from the response
             if ($('#sendMailEmail').val() === '' && response.fromEmail) {
                 $('#sendMailEmail').val(response.fromEmail);
@@ -106,6 +131,22 @@ class EmailProcessor {
         }
     }
 
+    async archiveEmail(messageId) {
+        try {
+            const response = await $.post(`/gmail/archiveEmail/${messageId}`);
+            if (response.success) {
+                // Remove the email from the UI
+                $(`.sms[data-id="${messageId}"]`).fadeOut(300, function () {
+                    $(this).remove();
+                });
+                return true;
+            }
+            return false;
+        } catch (error) {
+            console.error('Error archiving email:', error);
+            return false;
+        }
+    }
     async handleGetEventInformation(emailContent, senderEmail) {
         try {
             const response = await $.post('/api/sendAIEventInformation', {
@@ -120,7 +161,7 @@ class EmailProcessor {
             if (response && Object.keys(response).length > 0) {
                 // Trigger event to update the events list
                 $(document).trigger('eventDetailsReceived', [response]);
-                
+
                 // Show the extracted information in the AI result area
                 this.writeToAIResult({
                     content: `Event Details Extracted:<br>${JSON.stringify(response, null, 2)}`,
@@ -137,12 +178,18 @@ class EmailProcessor {
         }
     }
 
-    sendToAiTextArea(emailContent) {
+    sendToAiTextArea(emailContent, subject) {
         // Clear existing content if it's a new conversation
         if (!this.currentConversationId) {
             $('#aiText').html('');
         }
-
+        if (subject) {
+            if (subject.toLowerCase().startsWith('re:')) {
+                $('#sendMailSubject').val(subject);
+            } else {
+                $('#sendMailSubject').val(`Re: ${subject}`);
+            }
+        }
         // Format and append the email content
         const formattedContent = emailContent.replace(/\n/g, '<br>');
         $('#aiText').html(
@@ -159,11 +206,11 @@ class EmailProcessor {
         $('#aiText').focus();
     }
 
-    writeToAIResult({content, messageCount, isNewConversation}) {
+    writeToAIResult({ content, messageCount, isNewConversation }) {
         // Remove any specific instructions from the response
         content = content.replace(/:\[Specific Instructions:.*?\]/g, '');
 
-        const conversationStatus = messageCount ? 
+        const conversationStatus = messageCount ?
             `<div class="text-muted small">Conversation messages: ${messageCount}</div>` : '';
 
         const responseHTML = `

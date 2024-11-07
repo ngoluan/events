@@ -74,82 +74,114 @@ class GmailService {
         }
         return [];
     }
-
     async listMessages(options = {}) {
         try {
             const authClient = await this.auth.getOAuth2Client();
             const gmail = google.gmail({ version: 'v1', auth: authClient });
 
-            // Get messages from both inbox and sent folders
-            const inboxQuery = options.email ?
-                `{to:${options.email} from:${options.email}}` :
-                'in:inbox';
+            // Get sent messages first
+            const sentResponse = await gmail.users.messages.list({
+                userId: 'me',
+                maxResults: options.maxResults || 100,
+                q: options.email ? `from:me to:${options.email}` : 'in:sent',
+                orderBy: 'internalDate desc'
+            });
 
-            const sentQuery = options.email ?
-                `from:me to:${options.email}` :
-                'in:sent';
-
-            // Fetch both inbox and sent messages
-            const [inboxResponse, sentResponse] = await Promise.all([
-                gmail.users.messages.list({
-                    userId: 'me',
-                    maxResults: options.maxResults || 100,
-                    q: inboxQuery,
-                    orderBy: 'internalDate desc'
-                }),
-                gmail.users.messages.list({
-                    userId: 'me',
-                    maxResults: options.maxResults || 100,
-                    q: sentQuery,
-                    orderBy: 'internalDate desc'
-                })
-            ]);
-
-            // Combine messages and get unique thread IDs
-            const inboxMessages = inboxResponse.data.messages || [];
             const sentMessages = sentResponse.data.messages || [];
 
-            // Create a map of threads and their messages
-            const threadMap = new Map();
+            // Get full details of sent messages first
+            const fullSentMessages = await Promise.all(
+                sentMessages.map(async msg => {
+                    try {
+                        return await this.getMessage(msg.id);
+                    } catch (err) {
+                        console.error(`Error getting sent message ${msg.id}:`, err);
+                        return null;
+                    }
+                })
+            ).then(messages => messages.filter(msg => msg !== null));
 
-            // Process inbox messages
-            for (const message of inboxMessages) {
-                if (!threadMap.has(message.threadId)) {
-                    threadMap.set(message.threadId, {
-                        messages: [message],
-                        hasReplies: false
-                    });
-                } else {
-                    threadMap.get(message.threadId).messages.push(message);
-                }
-            }
+            // Now get inbox messages
+            const inboxResponse = await gmail.users.messages.list({
+                userId: 'me',
+                maxResults: options.maxResults || 100,
+                q: options.email ? `{to:${options.email} from:${options.email}}` : 'in:inbox',
+                orderBy: 'internalDate desc'
+            });
 
-            // Process sent messages and mark threads as replied
-            for (const message of sentMessages) {
-                if (threadMap.has(message.threadId)) {
-                    threadMap.get(message.threadId).hasReplies = true;
-                }
-            }
+            const inboxMessages = inboxResponse.data.messages || [];
 
-            // Get full message details for inbox messages with reply status
+            // Process inbox messages with the already-loaded sent messages
             const processedMessages = await this.processMessageBatch(
                 inboxMessages,
-                threadMap
+                fullSentMessages
             );
 
-            // If this was a full inbox retrieval (not contact-specific),
-            // update the last retrieval date
             if (!options.email) {
                 this.saveLastRetrievalDate();
             }
 
             return processedMessages;
+
         } catch (error) {
             console.error('Error listing messages:', error);
             throw error;
         }
     }
 
+    checkIfReplied(inboxMessage, sentMessages) {
+        try {
+            if (!inboxMessage?.payload?.headers) {
+                console.log('No headers found for inbox message:', inboxMessage?.id);
+                return false;
+            }
+
+            // Get Message-ID of the inbox email
+            const messageId = inboxMessage.payload.headers.find(h => h.name === 'Message-ID')?.value || '';
+            const threadId = inboxMessage.threadId;
+
+
+            const hasReply = sentMessages.some(sentMessage => {
+                if (!sentMessage?.payload?.headers) {
+                    console.log('No headers found for sent message:', sentMessage?.id);
+                    return false;
+                }
+
+                // Check if the sent message is in the same thread
+                if (sentMessage.threadId !== threadId) {
+                    return false;
+                }
+
+                // Get References and In-Reply-To headers
+                const inReplyTo = sentMessage.payload.headers.find(h => h.name === 'In-Reply-To')?.value || '';
+                const references = sentMessage.payload.headers.find(h => h.name === 'References')?.value || '';
+
+
+
+                // Check message header references
+                if (messageId && (inReplyTo.includes(messageId) || references.includes(messageId))) {
+                    return true;
+                }
+
+                // Check if sent message is newer than inbox message
+                const sentDate = new Date(sentMessage.internalDate);
+                const inboxDate = new Date(inboxMessage.internalDate);
+
+                // If in same thread and sent message is newer, consider it a reply
+                const isNewerInThread = sentDate > inboxDate;
+                if (isNewerInThread) {
+                    console.log('Found reply through date comparison');
+                }
+                return isNewerInThread;
+            });
+
+            return hasReply;
+
+        } catch (error) {
+            console.error('Error checking if replied:', error);
+            return false;
+        }
+    }
     async getMessage(messageId) {
         try {
             // First check cache
@@ -229,7 +261,7 @@ class GmailService {
         }
         return { html: htmlContent, text: textContent };
     }
-    async processMessageBatch(messages, threadMap) {
+    async processMessageBatch(messages, sentMessages) {
         if (!messages || !messages.length) return [];
 
         const asyncLib = require('async');
@@ -237,32 +269,33 @@ class GmailService {
 
         await asyncLib.eachLimit(messages, 5, async (message) => {
             try {
-                // Check cache first
-                if (this.emailCache.has(message.id)) {
-                    const cachedEmail = this.emailCache.get(message.id);
-                    // Update replied status even for cached emails
-                    cachedEmail.replied = threadMap.get(message.threadId)?.hasReplies || false;
-                    processedEmails.push(cachedEmail);
-                    return;
+                const fullMessage = await this.getMessage(message.id);
+                let replied = false;
+                if (!fullMessage?.payload?.headers) {
+                    console.error(`Invalid message structure for ID ${message.id}`);
+                }
+                else {
+                    replied = this.checkIfReplied(fullMessage, sentMessages);
                 }
 
-                const fullMessage = await this.getMessage(message.id);
 
+                const headers = fullMessage.payload.headers;
                 const emailData = {
                     id: message.id,
                     threadId: fullMessage.threadId,
-                    from: fullMessage.payload.headers.find(h => h.name === 'From')?.value || '',
-                    to: fullMessage.payload.headers.find(h => h.name === 'To')?.value || '',
-                    subject: fullMessage.payload.headers.find(h => h.name === 'Subject')?.value || '',
-                    timestamp: fullMessage.payload.headers.find(h => h.name === 'Date')?.value || '',
+                    from: headers.find(h => h.name === 'From')?.value || '',
+                    to: headers.find(h => h.name === 'To')?.value || '',
+                    subject: headers.find(h => h.name === 'Subject')?.value || '',
+                    timestamp: headers.find(h => h.name === 'Date')?.value || '',
                     internalDate: fullMessage.internalDate,
-                    text: fullMessage.parsedContent.text,
-                    html: fullMessage.parsedContent.html,
+                    text: fullMessage.parsedContent?.text || '',
+                    html: fullMessage.parsedContent?.html || '',
                     labels: fullMessage.labelIds || [],
-                    snippet: fullMessage.snippet,
-                    replied: threadMap.get(message.threadId)?.hasReplies || false
+                    snippet: fullMessage.snippet || '',
+                    replied
                 };
 
+                // Update cache after checking reply status
                 this.emailCache.set(message.id, emailData);
                 processedEmails.push(emailData);
 
@@ -271,14 +304,12 @@ class GmailService {
             }
         });
 
-        // Sort by internalDate (newest first)
         return processedEmails.sort((a, b) => {
             const dateA = Number(a.internalDate);
             const dateB = Number(b.internalDate);
             return dateB - dateA;
         });
     }
-
 
     extractPlainTextFromHtml(html) {
         let plainText = "";
@@ -314,48 +345,177 @@ class GmailService {
             return '';
         }
     }
-    async processMessageBatch(messages) {
-        if (!messages || !messages.length) return [];
+    mergeEmails(cachedEmails, newEmails) {
+        // Create a map of existing email IDs
+        const emailMap = new Map();
 
-        const asyncLib = require('async');
-        let processedEmails = [];
+        // Add cached emails to map
+        cachedEmails.forEach(email => emailMap.set(email.id, email));
 
-        await asyncLib.eachLimit(messages, 10, async (message) => {
-            try {
-                // Check cache first
-                if (this.emailCache.has(message.id)) {
-                    processedEmails.push(this.emailCache.get(message.id));
-                    return;
-                }
+        // Add or update with new emails
+        newEmails.forEach(email => emailMap.set(email.id, {
+            ...email,
+            replied: email.replied || false // Ensure replied property exists
+        }));
 
-                const fullMessage = await this.getMessage(message.id);
-
-                const emailData = {
-                    id: message.id,
-                    threadId: message.threadId,
-                    from: fullMessage.payload.headers.find(h => h.name === 'From')?.value || '',
-                    to: fullMessage.payload.headers.find(h => h.name === 'To')?.value || '',
-                    subject: fullMessage.payload.headers.find(h => h.name === 'Subject')?.value || '',
-                    timestamp: fullMessage.payload.headers.find(h => h.name === 'Date')?.value || '',
-                    internalDate: fullMessage.internalDate,
-                    text: fullMessage.parsedContent.text,
-                    html: fullMessage.parsedContent.html,
-                    labels: fullMessage.labelIds || []
-                };
-
-
-                this.emailCache.set(message.id, emailData);
-                processedEmails.push(emailData);
-
-            } catch (err) {
-                console.error(`Error processing message ID ${message.id}:`, err);
-            }
-        });
-
-        return processedEmails.sort((a, b) => {
-            return new Date(b.internalDate) - new Date(a.internalDate);
+        // Convert back to array and ensure newest first
+        const mergedEmails = Array.from(emailMap.values());
+        return mergedEmails.sort((a, b) => {
+            const dateA = Number(a.internalDate);
+            const dateB = Number(b.internalDate);
+            return dateB - dateA;
         });
     }
+    async listAllLabels() {
+        try {
+            const auth = await this.auth.getOAuth2Client();
+            const gmail = google.gmail({ version: 'v1', auth });
+
+            const response = await gmail.users.labels.list({
+                userId: 'me'
+            });
+
+            // Return formatted list of labels with their IDs
+            return response.data.labels.map(label => ({
+                id: label.id,
+                name: label.name,
+                type: label.type,
+                messageListVisibility: label.messageListVisibility,
+                labelListVisibility: label.labelListVisibility
+            }));
+        } catch (error) {
+            console.error('Error listing labels:', error);
+            throw error;
+        }
+    }
+    async archiveEmail(messageId) {
+        try {
+            const auth = await this.auth.getOAuth2Client();
+            const gmail = google.gmail({ version: 'v1', auth });
+
+            // Modify message labels in Gmail
+            await gmail.users.messages.modify({
+                userId: 'me',
+                id: messageId,
+                requestBody: {
+                    removeLabelIds: ['INBOX'],
+                    addLabelIds: ["Label_6"]
+                }
+            });
+
+            // Update cache in memory and file
+            if (this.emailCache.has(messageId)) {
+                const emailData = this.emailCache.get(messageId);
+
+                // Update labels in the cached email data
+                emailData.labels = emailData.labels || [];
+                emailData.labels = emailData.labels.filter(label => label !== 'INBOX');
+                if (!emailData.labels.includes('Label_6')) {
+                    emailData.labels.push('Label_6');
+                }
+
+                // Update the in-memory cache
+                this.emailCache.set(messageId, emailData);
+
+                // Update the file cache
+                try {
+                    let cachedEmails = [];
+                    if (fs.existsSync(this.cacheFilePath)) {
+                        cachedEmails = JSON.parse(fs.readFileSync(this.cacheFilePath, 'utf8'));
+                    }
+
+                    // Find and update the email in the cached array
+                    const emailIndex = cachedEmails.findIndex(email => email.id === messageId);
+                    if (emailIndex !== -1) {
+                        cachedEmails[emailIndex] = emailData;
+                    }
+
+                    // Save back to file
+                    fs.writeFileSync(this.cacheFilePath, JSON.stringify(cachedEmails, null, 2), 'utf8');
+                } catch (cacheError) {
+                    console.error('Error updating cache file:', cacheError);
+                    // Continue even if cache update fails
+                }
+            }
+
+            return true;
+        } catch (error) {
+            console.error('Error archiving email:', error);
+            // Try simple archive if label operations fail
+            try {
+                const auth = await this.auth.getOAuth2Client();
+                const gmail = google.gmail({ version: 'v1', auth });
+
+                await gmail.users.messages.modify({
+                    userId: 'me',
+                    id: messageId,
+                    requestBody: {
+                        removeLabelIds: ['INBOX'],
+                        addLabelIds: ['Label_6']
+                    }
+                });
+
+                // Also update cache for simple archive
+                if (this.emailCache.has(messageId)) {
+                    const emailData = this.emailCache.get(messageId);
+                    emailData.labels = emailData.labels.filter(label => label !== 'INBOX');
+                    this.emailCache.set(messageId, emailData);
+
+                    // Update file cache
+                    try {
+                        let cachedEmails = [];
+                        if (fs.existsSync(this.cacheFilePath)) {
+                            cachedEmails = JSON.parse(fs.readFileSync(this.cacheFilePath, 'utf8'));
+                        }
+                        const emailIndex = cachedEmails.findIndex(email => email.id === messageId);
+                        if (emailIndex !== -1) {
+                            cachedEmails[emailIndex] = emailData;
+                        }
+                        fs.writeFileSync(this.cacheFilePath, JSON.stringify(cachedEmails, null, 2), 'utf8');
+                    } catch (cacheError) {
+                        console.error('Error updating cache file:', cacheError);
+                    }
+                }
+
+                return true;
+            } catch (fallbackError) {
+                console.error('Fallback archive failed:', fallbackError);
+                throw fallbackError;
+            }
+        }
+    }
+    // Helper method to update a single email in cache
+    updateEmailInCache(emailData) {
+        // Update in-memory cache
+        this.emailCache.set(emailData.id, emailData);
+
+        // Update file cache
+        try {
+            let cachedEmails = [];
+            if (fs.existsSync(this.cacheFilePath)) {
+                cachedEmails = JSON.parse(fs.readFileSync(this.cacheFilePath, 'utf8'));
+            }
+
+            const emailIndex = cachedEmails.findIndex(email => email.id === emailData.id);
+            if (emailIndex !== -1) {
+                cachedEmails[emailIndex] = emailData;
+            } else {
+                cachedEmails.push(emailData);
+            }
+
+            // Sort by date before saving
+            cachedEmails.sort((a, b) => {
+                const dateA = Number(a.internalDate);
+                const dateB = Number(b.internalDate);
+                return dateB - dateA;
+            });
+
+            fs.writeFileSync(this.cacheFilePath, JSON.stringify(cachedEmails, null, 2), 'utf8');
+        } catch (error) {
+            console.error('Error updating email in cache:', error);
+        }
+    }
+
     async getAllEmails(maxResults = 100, onlyImportant = false) {
         try {
             // First load from cache
@@ -367,24 +527,14 @@ class GmailService {
             const needsUpdate = !cachedEmails.length || lastRetrievalDate.isBefore(now, 'day');
 
             if (needsUpdate) {
-                // Fetch new emails first
-                const messages = await this.listMessages({
+                // listMessages now returns fully processed messages
+                const processedMessages = await this.listMessages({
                     maxResults,
                     onlyImportant
                 });
 
-                // Process new messages in smaller batches for better performance
-                const batchSize = 20;
-                let newEmails = [];
-
-                for (let i = 0; i < messages.length; i += batchSize) {
-                    const batch = messages.slice(i, i + batchSize);
-                    const processedBatch = await this.processMessageBatch(batch);
-                    newEmails = newEmails.concat(processedBatch);
-                }
-
                 // Merge new emails with cached ones, maintaining order
-                const allEmails = this.mergeEmails(cachedEmails, newEmails);
+                const allEmails = this.mergeEmails(cachedEmails, processedMessages);
 
                 // Save updated cache
                 this.saveEmailsToCache(allEmails);
@@ -433,26 +583,38 @@ class GmailService {
             });
         }
     }
-    mergeEmails(cachedEmails, newEmails) {
-        // Create a map of existing email IDs
-        const emailMap = new Map();
+    async getAllEmails(maxResults = 100, onlyImportant = false) {
+        try {
+            // First load from cache
+            let cachedEmails = this.loadEmailsFromCache();
 
-        // Add cached emails to map
-        cachedEmails.forEach(email => emailMap.set(email.id, email));
+            // Check if we need to fetch new emails
+            const lastRetrievalDate = moment(this.loadLastRetrievalDate(), "YYYY/MM/DD");
+            const now = moment();
+            const needsUpdate = !cachedEmails.length || lastRetrievalDate.isBefore(now, 'day');
 
-        // Add or update with new emails
-        newEmails.forEach(email => emailMap.set(email.id, {
-            ...email,
-            replied: email.replied || false // Ensure replied property exists
-        }));
+            if (needsUpdate) {
+                // listMessages now returns fully processed messages
+                const processedMessages = await this.listMessages({
+                    maxResults,
+                    onlyImportant
+                });
 
-        // Convert back to array and ensure newest first
-        const mergedEmails = Array.from(emailMap.values());
-        return mergedEmails.sort((a, b) => {
-            const dateA = Number(a.internalDate);
-            const dateB = Number(b.internalDate);
-            return dateB - dateA;
-        });
+                // Merge new emails with cached ones, maintaining order
+                const allEmails = this.mergeEmails(cachedEmails, processedMessages);
+
+                // Save updated cache
+                this.saveEmailsToCache(allEmails);
+
+                return allEmails;
+            }
+
+            return cachedEmails;
+        } catch (error) {
+            console.error('Error getting all emails:', error);
+            // If there's an error fetching new emails, return cached emails
+            return this.loadEmailsFromCache();
+        }
     }
     updateCacheWithEmails(newEmails) {
         const cachedEmails = this.loadEmailsFromCache();
