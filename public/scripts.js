@@ -7,7 +7,7 @@ export class EventManageApp {
         this.mainCalendar = null;
         this.contacts = [];
         this.currentId = -1;
-        this.emailProcessor = new EmailProcessor();
+        this.emailProcessor = new EmailProcessor(this);
         this.templates = {};
         this.userEmail = '';
         const showRepliedSetting = localStorage.getItem('showRepliedEmails');
@@ -25,6 +25,7 @@ export class EventManageApp {
             orderUp: new Howl({ src: ['./orderup.m4a'] })
         };
         this.syncEvents();
+        this.initializeMaximizeButtons();
 
 
 
@@ -64,17 +65,17 @@ export class EventManageApp {
             this.showToast("Error: No contact selected.", "error");
             return;
         }
-    
+
         const contact = _.find(this.contacts, ["id", this.currentId]);
         if (!contact) {
             this.showToast("Error: Contact not found.", "error");
             return;
         }
-    
+
         const rentalFee = parseFloat($("#infoRentalRate").val()) || 0;
         window.currentReceipt = new ReceiptManager(rentalFee);
     }
-    
+
     initializeToastContainer() {
         // Create a container for toasts if it doesn't exist
         if (!document.getElementById('toast-container')) {
@@ -272,21 +273,29 @@ export class EventManageApp {
         this.writeToAIResult(data.replace(/\n/g, "<br>"));
     }
 
-
     writeToAIResult(data) {
         data = data.replace(/\n/g, "<br>");
         data = data.replace(/:\[Specific Instructions:.*?\]/g, "");
 
         const response = `
             <div class="p-2 aiChatReponse">
-                <div class="aiChatReponseContent">
-                    ${data}
+                <div class="flex justify-between items-center mb-2">
+                    <div class="aiChatReponseContent">
+                        ${data}
+                    </div>
+                    <button class="btn btn-ghost btn-xs btn-square maximize-ai-result tooltip" 
+                            data-tip="Maximize">
+                        <i class="bi bi-arrows-fullscreen"></i>
+                    </button>
                 </div>
                 <div class="mt-2">
                     <a href="#" class="btn btn-primary sendToAiFromResult" title="Send to AI from Result">
                         <i class="bi bi-send"></i> Send to AI
                     </a>
-                    <button class="btn btn-secondary copyToClipboard ml-2" title="Copy to Clipboard">
+                    <button class="btn btn-secondary copyToClipboard ml-2" 
+                            title="Copy to Clipboard"
+                            type="button"
+                            onclick="navigator.clipboard.writeText(this.closest('.aiChatReponse').querySelector('.aiChatReponseContent').innerText).then(() => window.app.showToast('Copied to clipboard', 'success')).catch(() => window.app.showToast('Failed to copy', 'error'))">
                         <i class="bi bi-clipboard"></i> Copy
                     </button>
                 </div>
@@ -294,8 +303,29 @@ export class EventManageApp {
         `;
         $("#aiResult").html(response);
     }
+    initializeMaximizeButtons() {
+        // For AI Result maximize button
+        $('#maximizeAiResult').on('click', (e) => {
+            e.preventDefault();
+            const content = $('#aiResult').html();
+            $('#maximizeModalTitle').text('AI Conversation');
+            $('#maximizedContent').html(content);
+            document.getElementById('maximize_content_modal').showModal();
+        });
+        // For AI Text maximize button
+        $('#toggleButton').off('click').on('click', (e) => {
+            e.preventDefault();
+            const content = $('#aiText').html();
+            $('#maximizeModalTitle').text('Message');
+            $('#maximizedContent').attr('contenteditable', 'true').html(content);
+            document.getElementById('maximize_content_modal').showModal();
 
-
+            // Sync content back to aiText when editing in modal
+            $('#maximizedContent').off('input').on('input', function () {
+                $('#aiText').html($(this).html());
+            });
+        });
+    }
     toggleRepliedEmails(e) {
         // Toggle the filter state
         this.emailFilters.showReplied = !this.emailFilters.showReplied;
@@ -350,7 +380,135 @@ export class EventManageApp {
         // Refresh the emails display
         this.refreshEmails();
     }
+    sortContacts(criteria) {
+        switch (criteria) {
+            case 'name':
+                this.contacts.sort((a, b) => {
+                    return (a.name || '').localeCompare(b.name || '');
+                });
+                break;
+
+            case 'dateBooked':
+                this.contacts.sort((a, b) => {
+                    const dateA = new Date(a.createdAt || 0);
+                    const dateB = new Date(b.createdAt || 0);
+                    return dateB - dateA;
+                });
+                break;
+
+            case 'eventDate':
+                const now = moment().startOf('day');
+
+                // First, separate future and past events
+                const futureEvents = this.contacts.filter(contact =>
+                    moment(contact.startTime).isSameOrAfter(now)
+                );
+
+                const pastEvents = this.contacts.filter(contact =>
+                    moment(contact.startTime).isBefore(now)
+                );
+
+                // Sort future events by closest date first
+                futureEvents.sort((a, b) => {
+                    const daysToA = moment(a.startTime).diff(now, 'days');
+                    const daysToB = moment(b.startTime).diff(now, 'days');
+                    return daysToA - daysToB;
+                });
+
+                // Sort past events by most recent
+                pastEvents.sort((a, b) => {
+                    const daysAgoA = moment(a.startTime).diff(now, 'days');
+                    const daysAgoB = moment(b.startTime).diff(now, 'days');
+                    return daysAgoB - daysAgoA; // Reverse sort for past events
+                });
+
+                // Combine the arrays with future events first
+                this.contacts = [...futureEvents, ...pastEvents];
+                this.contacts.reverse();
+                break;
+
+            default:
+                return 0;
+        }
+
+        // Re-render the contacts list
+        this.renderContactsWithCalendarSync();
+        this.showToast(`Sorted by ${criteria.replace(/([A-Z])/g, ' $1').toLowerCase()}`, 'success');
+    }
+    filterContacts(searchTerm) {
+        const $contacts = $('#contacts .contactCont');
+
+        if (!searchTerm) {
+            $contacts.show();
+            return;
+        }
+
+        $contacts.each((_, contact) => {
+            const $contact = $(contact);
+            const contactData = this.contacts.find(c => c.id === parseInt($contact.data('id')));
+
+            if (!contactData) {
+                $contact.hide();
+                return;
+            }
+
+            // Search across multiple fields
+            const searchableText = [
+                contactData.name,
+                contactData.email,
+                contactData.phone,
+                contactData.partyType,
+                contactData.notes,
+                moment(contactData.startTime).format('MM/DD/YYYY')
+            ].filter(Boolean).join(' ').toLowerCase();
+
+            const isMatch = searchableText.includes(searchTerm);
+            $contact.toggle(isMatch);
+        });
+
+        // Show a message if no results
+        const visibleContacts = $contacts.filter(':visible').length;
+        const noResultsMessage = $('#noSearchResults');
+
+        if (visibleContacts === 0) {
+            if (!noResultsMessage.length) {
+                $('#contacts').append(`
+                    <div id="noSearchResults" class="text-center p-4 text-base-content/70">
+                        No contacts found matching "${searchTerm}"
+                    </div>
+                `);
+            }
+        } else {
+            noResultsMessage.remove();
+        }
+    }
     registerEvents() {
+        // Add these new handlers
+        $('#sortByName').on('click', (e) => {
+            e.preventDefault();
+            this.sortContacts('name');
+        });
+
+        $('#sortByDateBooked').on('click', (e) => {
+            e.preventDefault();
+            this.sortContacts('dateBooked');
+        });
+
+        $('#sortByEventDate').on('click', (e) => {
+            e.preventDefault();
+            this.sortContacts('eventDate');
+        });
+
+        // Update the existing searchInput handler to be more robust
+        $('#searchInput').on('input', (e) => {
+            const searchTerm = e.target.value.toLowerCase().trim();
+            this.filterContacts(searchTerm);
+        });
+        $('#clearAiText').on('click', (e) => {
+            e.preventDefault();
+            $("#aiText").html('');
+            this.showToast("Message cleared", "success");
+        });
         $("#receipt").on("click", (e) => {
             e.preventDefault();
             this.showReceiptManager();
@@ -369,12 +527,35 @@ export class EventManageApp {
             this.actionsEmailContract();
         });
 
-        // AI-related events
         $(document).on("click", ".copyToClipboard", (e) => {
             e.preventDefault();
-            this.copyAIResponseToClipboard(e);
-        });
+            const container = $(e.currentTarget).closest('.aiChatReponse').find('.aiChatReponseContent');
 
+            // Get the HTML content and replace <br> and closing tags with newlines
+            let content = container.html()
+                .replace(/<br\s*\/?>/gi, '\n')  // Replace <br> tags with newlines
+                .replace(/<\/p>\s*<p>/gi, '\n\n')  // Replace paragraph breaks with double newlines
+                .replace(/<\/div>\s*<div>/gi, '\n')  // Replace div breaks with newlines
+                .replace(/<[^>]*>/g, ''); // Remove any remaining HTML tags
+
+            // Decode HTML entities
+            content = $('<textarea>').html(content).text();
+
+            // Trim extra whitespace while preserving intentional line breaks
+            content = content.replace(/^\s+|\s+$/g, '')  // Trim start/end whitespace
+                .replace(/[\t ]+\n/g, '\n')  // Remove spaces before newlines
+                .replace(/\n[\t ]+/g, '\n')  // Remove spaces after newlines
+                .replace(/\n\n\n+/g, '\n\n'); // Collapse multiple newlines to maximum of two
+
+            navigator.clipboard.writeText(content)
+                .then(() => {
+                    this.showToast("Copied to clipboard", "success");
+                })
+                .catch(err => {
+                    console.error('Failed to copy:', err);
+                    this.showToast("Failed to copy to clipboard", "error");
+                });
+        });
         $(document).on("click", "#confirmAI", (e) => {
             e.preventDefault();
             this.appendConfirmationPrompt();
@@ -388,7 +569,8 @@ export class EventManageApp {
 
         $(document).on("click", "#emailAI", (e) => {
             e.preventDefault();
-            this.handleEventSpecificEmail();
+            const val = $("#aiText").text();
+            this.emailProcessor.handleDraftEventEmail(val, "");
         });
 
         $(document).on("click", ".generateConfirmationEmail", async (e) => {
@@ -847,7 +1029,11 @@ export class EventManageApp {
         fetch("/api/events")
             .then(response => response.json())
             .then(contacts => {
-                this.contacts = contacts;
+                // Add creation time if not present
+                this.contacts = contacts.map(contact => ({
+                    ...contact,
+                    createdAt: contact.createdAt || new Date().toISOString()
+                }));
                 this.renderContactsWithCalendarSync();
             })
             .catch(error => {

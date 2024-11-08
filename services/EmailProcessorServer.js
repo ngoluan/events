@@ -46,8 +46,6 @@ class EmailProcessorServer {
                 room: event.location || 'Unspecified'
             }));
 
-            const { backgroundInfo } = await backgroundService.getBackground();
-
             const prompt = `
                 Please analyze the availability for an event request based on the following:
 
@@ -56,13 +54,14 @@ class EmailProcessorServer {
 
                 Client Inquiry:
                 ${emailText}
+
+                You are a event venue coordinator. Draft a response to the client inquiry. If they dont specify a room, suggest the room most appropriate for their party size. If they are interested in booking, tell them if the venue is available 
+                the day that they want. Provide information on services if venue is available.  Provide information on catering and drink packages if they ask.
+                Be concise and semi formal. 
             `;
 
             const { response } = await aiService.generateResponse([
-                {
-                    role: 'system',
-                    content: 'You are a venue booking assistant. Provide clear, professional responses about venue availability.'
-                },
+
                 {
                     role: 'user',
                     content: prompt
@@ -72,7 +71,7 @@ class EmailProcessorServer {
                 resetHistory: true // Start fresh for availability checks
             });
 
-            return response;
+            return {response};
 
         } catch (error) {
             console.error('Error checking availability:', error);

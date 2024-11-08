@@ -17353,7 +17353,7 @@
     {
       "phone": "13433630988",
       "id": 1072,
-      "status": "contractSent;reserved;depositPaid",
+      "status": "contractSent;reserved;depositPaid;depositPaid",
       "services": "bar;lights;audio;music;kareoke",
       "room": "DiningRoom",
       "name": "Christopher Reid",
@@ -17902,7 +17902,7 @@
       "partyType": "semi-formal event",
       "attendance": "100",
       "source": "",
-      "notes": "$200 deposit to book",
+      "notes": "$200 deposit to book\nLight catering for 100 people",
       "summary": ""
     },
     {
@@ -18358,7 +18358,7 @@
     {
       "phone": "14379723717",
       "id": 1129,
-      "status": "contractSent;reserved",
+      "status": "contractSent;reserved;depositPaid",
       "services": "bar;lights;audio;music;kareoke",
       "room": "Lounge",
       "name": "Maram Elhag",
@@ -18412,7 +18412,7 @@
     {
       "phone": "\t(437) 783-5826",
       "id": 1132,
-      "status": "contractSent;reserved",
+      "status": "contractSent;reserved;depositPaid",
       "services": "bar;lights;audio;music;kareoke",
       "room": "DiningRoom",
       "name": "Natalie Turvey",
@@ -18520,7 +18520,7 @@
     {
       "phone": "14162212739",
       "id": 1138,
-      "status": "contractSent",
+      "status": "contractSent;reserved",
       "services": "bar;lights;audio;music;kareoke",
       "room": "DiningRoom",
       "name": "Miguel Luengo",
@@ -18538,7 +18538,7 @@
     {
       "phone": "14178228783",
       "id": 1139,
-      "status": "contractSent;reserved",
+      "status": "contractSent;reserved;depositPaid",
       "services": "bar;lights;audio;music;kareoke",
       "room": "DiningRoom",
       "name": "Sarah Lau",
@@ -18628,7 +18628,7 @@
     {
       "phone": "14167389954",
       "id": 1144,
-      "status": "contractSent;reserved",
+      "status": "contractSent,reserved;depositPaid",
       "services": "bar;lights;audio;music;kareoke",
       "room": "Lounge",
       "name": "J.R. Ostonal",
@@ -18641,7 +18641,15 @@
       "attendance": "60-75",
       "source": "",
       "notes": "$200 deposit to book",
-      "summary": "J.R. Ostonal is looking to book the Moonlight Lounge for a private R&B event on January 19, 2025, from 10 PM to 2 AM, with an expected attendance of 60-75 guests. The rental will cost $100 per hour with a minimum spend of $500, and he is inquiring about catering and drink options."
+      "summary": "J.R. Ostonal is looking to book the Moonlight Lounge for a private R&B event on January 19, 2025, from 10 PM to 2 AM, with an expected attendance of 60-75 guests. The rental will cost $100 per hour with a minimum spend of $500, and he is inquiring about catering and drink options.",
+      "services[]": [
+        "bar",
+        "lights",
+        "audio",
+        "music",
+        "kareoke"
+      ],
+      "room[]": "Lounge"
     },
     {
       "phone": "16476886994",
@@ -18718,7 +18726,7 @@
     {
       "phone": "14169871419",
       "id": 1149,
-      "status": "contractSent;reserved",
+      "status": "contractSent;reserved;depositPaid",
       "services": "bar;lights;audio;music;kareoke",
       "room": "Lounge",
       "name": "Samantha Galway",
@@ -18826,7 +18834,7 @@
     {
       "phone": "14166174498",
       "id": 1155,
-      "status": "contractSent",
+      "status": "contractSent;reserved",
       "services": "bar;lights;audio;music;kareoke",
       "room": "Lounge",
       "name": "Alex Thomas",
@@ -18838,8 +18846,62 @@
       "partyType": "Holiday Party",
       "attendance": "90",
       "source": "",
-      "notes": "$200 deposit to book",
+      "notes": "$200 deposit to book\nAlex wants us to not show corkage fee on the receipt and just add to drink tickets or rental fee",
       "summary": ""
+    },
+    {
+      "phone": "14168355162",
+      "id": 1156,
+      "status": "contractSent;reserved",
+      "services": "bar;lights;audio;music;kareoke",
+      "room": "DiningRoom",
+      "name": "Rose",
+      "email": "rose.faraon@roncyvillagevetclinic.com",
+      "startTime": "2024-11-30 17:00",
+      "endTime": "2024-11-30 19:30",
+      "rentalRate": "250",
+      "minSpend": "500",
+      "partyType": "Holiday Party",
+      "attendance": "30",
+      "source": "",
+      "notes": "$125 deposit to book",
+      "summary": "Inquiry for hosting a holiday party for 30 guests on November 30, 2024, including unlimited pop/water."
+    },
+    {
+      "phone": "14177468838",
+      "id": 1157,
+      "status": "contractSent",
+      "services": "bar;lights;audio;music;kareoke",
+      "room": "",
+      "name": "Samantha Bombasi",
+      "email": "sbombasi@gmail.com",
+      "startTime": "2024-12-13 17:30",
+      "endTime": "2024-12-13 21:00",
+      "rentalRate": "437.5",
+      "minSpend": "500",
+      "partyType": "Corporate Party",
+      "attendance": "30",
+      "source": "",
+      "notes": "$218.75 deposit to book",
+      "summary": "Booking for a corporate party for 30 guests in the Dining Room on December 12, 2024."
+    },
+    {
+      "phone": "14166924768",
+      "id": 1158,
+      "status": "contractSent",
+      "services": "bar;lights;audio;music;kareoke",
+      "room": "Lounge",
+      "name": "Nicole Warren",
+      "email": "nicolew5@hotmail.com",
+      "startTime": "2024-12-31 21:00",
+      "endTime": "2025-01-01 02:00",
+      "rentalRate": "500",
+      "minSpend": "3750",
+      "partyType": "NYE Party",
+      "attendance": "100",
+      "source": "",
+      "notes": "$1000 deposit to book, minimum spend portion fully refundable if min spend is reached",
+      "summary": "Booking inquiry for a corporate event in the Moonlight Lounge on November 7, 2024, from 9:00 PM to 2:00 AM."
     }
   ]
 }

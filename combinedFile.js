@@ -9,7 +9,7 @@ export class EventManageApp {
         this.mainCalendar = null;
         this.contacts = [];
         this.currentId = -1;
-        this.emailProcessor = new EmailProcessor();
+        this.emailProcessor = new EmailProcessor(this);
         this.templates = {};
         this.userEmail = '';
         const showRepliedSetting = localStorage.getItem('showRepliedEmails');
@@ -66,17 +66,17 @@ export class EventManageApp {
             this.showToast("Error: No contact selected.", "error");
             return;
         }
-    
+
         const contact = _.find(this.contacts, ["id", this.currentId]);
         if (!contact) {
             this.showToast("Error: Contact not found.", "error");
             return;
         }
-    
+
         const rentalFee = parseFloat($("#infoRentalRate").val()) || 0;
         window.currentReceipt = new ReceiptManager(rentalFee);
     }
-    
+
     initializeToastContainer() {
         
         if (!document.getElementById('toast-container')) {
@@ -274,7 +274,6 @@ export class EventManageApp {
         this.writeToAIResult(data.replace(/\n/g, "<br>"));
     }
 
-
     writeToAIResult(data) {
         data = data.replace(/\n/g, "<br>");
         data = data.replace(/:\[Specific Instructions:.*?\]/g, "");
@@ -288,7 +287,10 @@ export class EventManageApp {
                     <a href="#" class="btn btn-primary sendToAiFromResult" title="Send to AI from Result">
                         <i class="bi bi-send"></i> Send to AI
                     </a>
-                    <button class="btn btn-secondary copyToClipboard ml-2" title="Copy to Clipboard">
+                    <button class="btn btn-secondary copyToClipboard ml-2" 
+                            title="Copy to Clipboard"
+                            type="button"
+                            onclick="navigator.clipboard.writeText(this.closest('.aiChatReponse').querySelector('.aiChatReponseContent').innerText).then(() => window.app.showToast('Copied to clipboard', 'success')).catch(() => window.app.showToast('Failed to copy', 'error'))">
                         <i class="bi bi-clipboard"></i> Copy
                     </button>
                 </div>
@@ -296,8 +298,6 @@ export class EventManageApp {
         `;
         $("#aiResult").html(response);
     }
-
-
     toggleRepliedEmails(e) {
         
         this.emailFilters.showReplied = !this.emailFilters.showReplied;
@@ -352,6 +352,7 @@ export class EventManageApp {
         
         this.refreshEmails();
     }
+
     registerEvents() {
         $("#receipt").on("click", (e) => {
             e.preventDefault();
@@ -371,12 +372,35 @@ export class EventManageApp {
             this.actionsEmailContract();
         });
 
-        
         $(document).on("click", ".copyToClipboard", (e) => {
             e.preventDefault();
-            this.copyAIResponseToClipboard(e);
-        });
+            const container = $(e.currentTarget).closest('.aiChatReponse').find('.aiChatReponseContent');
 
+            
+            let content = container.html()
+                .replace(/<br\s*\/?>/gi, '\n')  
+                .replace(/<\/p>\s*<p>/gi, '\n\n')  
+                .replace(/<\/div>\s*<div>/gi, '\n')  
+                .replace(/<[^>]*>/g, ''); 
+
+            
+            content = $('<textarea>').html(content).text();
+
+            
+            content = content.replace(/^\s+|\s+$/g, '')  
+                .replace(/[\t ]+\n/g, '\n')  
+                .replace(/\n[\t ]+/g, '\n')  
+                .replace(/\n\n\n+/g, '\n\n'); 
+
+            navigator.clipboard.writeText(content)
+                .then(() => {
+                    this.showToast("Copied to clipboard", "success");
+                })
+                .catch(err => {
+                    console.error('Failed to copy:', err);
+                    this.showToast("Failed to copy to clipboard", "error");
+                });
+        });
         $(document).on("click", "#confirmAI", (e) => {
             e.preventDefault();
             this.appendConfirmationPrompt();
@@ -390,7 +414,8 @@ export class EventManageApp {
 
         $(document).on("click", "#emailAI", (e) => {
             e.preventDefault();
-            this.handleEventSpecificEmail();
+            const val = $("#aiText").text();
+            this.emailProcessor.handleDraftEventEmail(val, "");
         });
 
         $(document).on("click", ".generateConfirmationEmail", async (e) => {
@@ -1366,7 +1391,6 @@ export class EventManageApp {
     
     <link href="https:
     <link href="https:
-    <link href="/stylesheets/calendar.css" rel="stylesheet">
     <link href="/styles.css" rel="stylesheet">
 </head>
 
@@ -1726,7 +1750,7 @@ export class EventManageApp {
                                         <i class="bi bi-arrows-fullscreen"></i>
                                     </button>
                                 </div>
-                                <div contenteditable="true"
+                                <div contenteditable="true" style="max-height: 400px; overflow-y: scroll;"
                                     class="bg-base-100 rounded-lg p-2 min-h-[100px] focus:outline-none border border-base-300"
                                     id="aiText">
                                 </div>
@@ -1866,7 +1890,7 @@ export class EventManageApp {
         crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="https:
     <script src="https:
-    <script src="/EmailProcessor.js"></script>
+        <script src="/EmailProcessor.js"></script>
     <script src="/ReceiptManager.js"></script>
     <script src="/calendar.js"></script>
     <script type="module">
@@ -1893,9 +1917,10 @@ export class EventManageApp {
 
 //--- File: /home/luan_ngo/web/events/public/EmailProcessor.js ---
 class EmailProcessor {
-    constructor() {
+    constructor(parent) {
         this.currentConversationId = null;
         this.registerEvents();
+        this.parent = parent;
     }
 
     registerEvents() {
@@ -1968,7 +1993,7 @@ class EmailProcessor {
             this.currentConversationId = response.conversationId;
 
             
-            this.writeToAIResult({
+            this.parent.writeToAIResult({
                 content: response.summary,
                 messageCount: response.messageCount,
                 isNewConversation: !this.currentConversationId
@@ -1980,50 +2005,7 @@ class EmailProcessor {
         }
     }
 
-    async handleDraftEventEmail(emailContent, subject) {
-        try {
-            const instructions = prompt('Enter any specific instructions for the email draft:');
-            const combinedText = `${emailContent}\n\n[Specific Instructions: ${instructions}]`;
-
-            const response = await $.post('/api/getAIEmail', {
-                aiText: combinedText,
-                emailText: emailContent,
-                conversationId: this.currentConversationId,
-                includeBackground: true
-            });
-
-            
-            this.currentConversationId = response.conversationId;
-
-            
-            const existingContent = $('#aiText').html();
-            const newContent = response.response.replace(/\n/g, '<br>');
-
-            $('#aiText').html(
-                newContent +
-                (existingContent ? '<br><br> ---------------- <br><br>' + existingContent : '')
-            );
-            
-            if (subject) {
-                if (subject.toLowerCase().startsWith('re:')) {
-                    $('#sendMailSubject').val(subject);
-                } else {
-                    $('#sendMailSubject').val(`Re: ${subject}`);
-                }
-            }
-            
-            if ($('#sendMailEmail').val() === '' && response.fromEmail) {
-                $('#sendMailEmail').val(response.fromEmail);
-            }
-
-            
-            this.updateConversationStatus(response.messageCount);
-
-        } catch (error) {
-            console.error('Error drafting event email:', error);
-            alert('Failed to draft event email');
-        }
-    }
+   
 
     async archiveEmail(messageId) {
         try {
@@ -2041,37 +2023,57 @@ class EmailProcessor {
             return false;
         }
     }
-    async handleGetEventInformation(emailContent, senderEmail) {
+    async handleDraftEventEmail(emailContent, subject) {
         try {
-            const response = await $.post('/api/sendAIEventInformation', {
-                aiText: `${emailContent} Email: ${senderEmail}`,
-                conversationId: this.currentConversationId
+            const instructions = prompt('Enter any specific instructions for the email draft:');
+            const combinedText = `${emailContent}\n\n[Specific Instructions: ${instructions}]`;
+
+            const response = await $.post('/api/getAIEmail', {
+                aiText: combinedText,
+                emailText: emailContent,
+                conversationId: this.currentConversationId,
+                includeBackground: true
             });
 
             
             this.currentConversationId = response.conversationId;
 
             
-            if (response && Object.keys(response).length > 0) {
-                
-                $(document).trigger('eventDetailsReceived', [response]);
+            const formattedResponse = response.response ? response.response.toString().replace(/\n/g, '<br>') : '';
 
-                
-                this.writeToAIResult({
-                    content: `Event Details Extracted:<br>${JSON.stringify(response, null, 2)}`,
-                    messageCount: response.messageCount,
-                    isNewConversation: false
-                });
-            } else {
-                throw new Error('No event details found in response');
+            
+            const data = {
+                content: formattedResponse,
+                messageCount: response.messageCount || 0,
+                isNewConversation: !this.currentConversationId
+            };
+
+            this.parent.writeToAIResult(data.content);
+
+            
+            if (subject) {
+                if (subject.toLowerCase().startsWith('re:')) {
+                    $('#sendMailSubject').val(subject);
+                } else {
+                    $('#sendMailSubject').val(`Re: ${subject}`);
+                }
+            }
+
+            
+            if ($('#sendMailEmail').val() === '' && response.fromEmail) {
+                $('#sendMailEmail').val(response.fromEmail);
+            }
+
+            
+            if (window.app.sounds && window.app.sounds.orderUp) {
+                window.app.sounds.orderUp.play();
             }
 
         } catch (error) {
-            console.error('Error getting event information:', error);
-            alert('Failed to get event information');
+            console.error('Error drafting event email:', error);
+            window.app.showToast('Failed to draft event email', 'error');
         }
     }
-
     sendToAiTextArea(emailContent, subject) {
         
         if (!this.currentConversationId) {
@@ -2099,266 +2101,11 @@ class EmailProcessor {
         
         $('#aiText').focus();
     }
-
-    writeToAIResult({ content, messageCount, isNewConversation }) {
-        
-        content = content.replace(/:\[Specific Instructions:.*?\]/g, '');
-
-        const conversationStatus = messageCount ?
-            `<div class="text-muted small">Conversation messages: ${messageCount}</div>` : '';
-
-        const responseHTML = `
-            <div class="p-2 aiChatReponse">
-                <div class="aiChatReponseContent">
-                    ${content}
-                </div>
-                ${conversationStatus}
-                <div class="mt-2">
-                    <a href="#" class="btn btn-primary sendToAiFromResult" title="Send to AI from Result">
-                        <i class="bi bi-send"></i> Send to AI
-                    </a>
-                    <button class="btn btn-secondary copyToClipboard ml-2" title="Copy to Clipboard">
-                        <i class="bi bi-clipboard"></i> Copy
-                    </button>
-                    ${this.currentConversationId ? `
-                        <button class="btn btn-outline-secondary newConversation ml-2" title="Start New Conversation">
-                            <i class="bi bi-plus-circle"></i> New Conversation
-                        </button>
-                    ` : ''}
-                </div>
-            </div>
-        `;
-
-        if (isNewConversation) {
-            $('#aiResult').html(responseHTML);
-        } else {
-            $('#aiResult').prepend(responseHTML);
-        }
-    }
-
+    
     updateConversationStatus(messageCount) {
         if (messageCount) {
             const statusHtml = `<div class="text-muted small mt-2">Conversation messages: ${messageCount}</div>`;
             $('.aiChatReponse').first().find('.aiChatReponseContent').after(statusHtml);
         }
     }
-}
-
-//--- File: /home/luan_ngo/web/events/src/styles.css ---
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-@layer components {
-  
-  .card {
-    @apply bg-base-200 text-base-content border border-base-300;
-  }
-
-  
-  .form-control {
-    @apply relative space-y-1;
-  }
-
-  .form-control .label {
-    @apply pb-1;
-  }
-
-  .form-control .label-text {
-    @apply opacity-70 font-medium;
-  }
-
-  .input,
-  .select,
-  .textarea {
-    @apply bg-base-100 border-base-300 transition-all duration-200;
-    @apply focus:ring-2 focus:ring-primary/20 focus:border-primary;
-    @apply disabled:bg-base-200 disabled:cursor-not-allowed;
-  }
-
-  
-  .messages-container {
-    @apply flex-1 overflow-y-auto overflow-x-hidden space-y-4;
-    min-height: 100px;
-    padding: 1rem;
-  }
-
-  #messages, #actionss {
-    @apply flex flex-col h-full;
-    height: 75vh;
-  }
-
-  #messages .card-body {
-    @apply p-4;
-  }
-
-  #messages .card-title {
-    @apply mb-4 flex justify-between items-center;
-  }
-
-  
-  .sms {
-    @apply bg-white border border-gray-200 rounded-lg transition-all duration-200 p-4;
-  }
-
-  .toggle-button {
-    @apply inline-flex items-center justify-center w-8 h-8 rounded-full 
-           hover:bg-gray-100 transition-colors text-gray-600 hover:text-gray-800;
-  }
-
-  .email {
-    @apply transition-all duration-200 overflow-hidden;
-    max-height: 50vh;
-  }
-
-  .email.expanded {
-    max-height: none;
-  }
-
-  .email-header {
-    @apply mb-3 text-sm text-gray-600 space-y-1;
-  }
-
-  .email-body {
-    @apply text-gray-800 whitespace-pre-line mt-4;
-  }
-
-
-
-  
-  .email-filters {
-    @apply flex items-center gap-4 mb-4 px-4 py-2 bg-gray-50 rounded-lg;
-  }
-
-  .toggle {
-    @apply relative inline-flex h-6 w-11 items-center rounded-full transition-colors;
-  }
-
-  .toggle-primary {
-    @apply bg-gray-200;
-  }
-
-  .toggle-primary:checked {
-    @apply bg-primary;
-  }
-
-  
-  .email-icons {
-    @apply flex items-center gap-2 mb-2;
-  }
-
-  .status-icon {
-    @apply inline-flex items-center justify-center w-6 h-6 rounded-full;
-  }
-
-  .unread-icon {
-    @apply text-warning;
-  }
-
-  .important-icon {
-    @apply text-danger;
-  }
-
-  
-  .contactCont {
-    @apply p-2 hover:bg-base-300/50 rounded-lg transition-colors;
-  }
-
-  
-  .btn {
-    @apply transition-all duration-200;
-  }
-
-  .btn:active {
-    @apply scale-95;
-  }
-
-  
-  #aiResult {
-    @apply space-y-4 bg-base-100;
-  }
-
-  .aiChatReponse {
-    @apply bg-base-200 border border-base-300 rounded-lg p-4;
-  }
-
-  
-  .calendar {
-    @apply w-full border-collapse;
-  }
-
-  .calendar th {
-    @apply p-2 text-center border border-base-300 bg-base-300;
-  }
-
-  .calendar td {
-    @apply p-2 border border-base-300 align-top bg-base-100;
-    @apply transition-colors hover:bg-base-300/30;
-  }
-
-  .event-bar {
-    @apply text-xs p-1 mt-1 rounded cursor-pointer truncate;
-  }
-
-  .event-room-1 {
-    @apply bg-primary/30 hover:bg-primary/40;
-  }
-
-  .event-room-2 {
-    @apply bg-secondary/30 hover:bg-secondary/40;
-  }
-
-  
-  .custom-scrollbar::-webkit-scrollbar {
-    @apply w-2;
-  }
-
-  .custom-scrollbar::-webkit-scrollbar-track {
-    @apply bg-base-100;
-  }
-
-  .custom-scrollbar::-webkit-scrollbar-thumb {
-    @apply bg-base-300 rounded-full hover:bg-base-300/70;
-  }
-
-  
-  .fade-in {
-    animation: fadeIn 0.3s ease-in-out;
-  }
-
-  .slide-in {
-    animation: slideIn 0.3s ease-in-out;
-  }
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes slideIn {
-  from {
-    transform: translateX(-10px);
-    opacity: 0;
-  }
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
-}
-
-
-.hover-lift {
-  @apply transition-transform duration-200 hover:-translate-y-0.5;
-}
-
-.icon-btn {
-  @apply inline-flex items-center justify-center w-8 h-8 rounded-full;
-  @apply hover:bg-gray-100 transition-colors text-gray-600 hover:text-gray-800;
 }
