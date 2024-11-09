@@ -18576,18 +18576,19 @@
       "email": "kreativekultureto@gmail.com",
       "phone": "416-302-0581",
       "partyType": "",
-      "startTime": "2024-12-08T19:00",
-      "endTime": "2024-12-08T23:00",
+      "startTime": "2024-12-08 19:00",
+      "endTime": "2024-12-08 23:00",
       "room": "Lounge",
       "attendance": "",
       "services": "",
-      "notes": "",
-      "messageCount": 3,
-      "historyIncluded": false,
+      "notes": "$250 deposit to book",
+      "messageCount": "3",
+      "historyIncluded": "false",
       "id": 1141,
       "status": "contractSent",
       "rentalRate": "",
-      "minSpend": ""
+      "minSpend": "500",
+      "createdAt": "2024-11-09T03:19:07.987Z"
     },
     {
       "name": "Shakiba Ghaffari",
@@ -18902,6 +18903,24 @@
       "source": "",
       "notes": "$1000 deposit to book, minimum spend portion fully refundable if min spend is reached",
       "summary": "Booking inquiry for a corporate event in the Moonlight Lounge on November 7, 2024, from 9:00 PM to 2:00 AM."
+    },
+    {
+      "name": "Elvan Tayhani",
+      "email": "elvantayhani@gmail.com",
+      "phone": "14167816705",
+      "partyType": "40th birthday party",
+      "startTime": "2025-02-08T20:00",
+      "endTime": "2025-02-09T00:00",
+      "room": "DiningRoom",
+      "attendance": "",
+      "services": "bar;lights;audio;music",
+      "notes": "",
+      "messageCount": 3,
+      "historyIncluded": false,
+      "id": 1159,
+      "status": "",
+      "rentalRate": "500",
+      "minSpend": "1000"
     }
   ]
 }

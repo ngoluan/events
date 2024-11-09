@@ -75,11 +75,7 @@ class EmailProcessor {
             this.currentConversationId = response.conversationId;
 
             // Write the summary to the AI result area
-            this.parent.writeToAIResult({
-                content: response.summary,
-                messageCount: response.messageCount,
-                isNewConversation: !this.currentConversationId
-            });
+            this.parent.writeToAIResult( response.summary);
 
         } catch (error) {
             console.error('Error summarizing email:', error);

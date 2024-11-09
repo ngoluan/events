@@ -1,5 +1,5 @@
 [
-  "public/scripts.js",
-  "public/index.html",
-  "public/EmailProcessor.js"
+  "services/aiService.js",
+  "services/EmailProcessorServer.js",
+  "routes/ai.js"
 ]

@@ -15,7 +15,9 @@ const filesToCombine = [
     "./services/*.js",
     "./routes/*.js",
     "./public/*",
-    "./src/*"
+    "./src/*",
+    "./app.js"
+
 ];
 
 // Specific files to exclude (absolute paths or relative to your project)

@@ -13,7 +13,7 @@ router.post('/chat', async (req, res) => {
     }
 
     // Load existing conversation history
-    let conversationHistory = aiService.loadConversationHistory();
+    let conversationHistory = aiService.loadConversations();
 
     // Add new messages to conversation history
     conversationHistory.push(...messages);

@@ -435,6 +435,35 @@ export class EventManageApp {
         this.renderContactsWithCalendarSync();
         this.showToast(`Sorted by ${criteria.replace(/([A-Z])/g, ' $1').toLowerCase()}`, 'success');
     }
+    // In EventManageApp class
+    async summarizeEventAiHandler() {
+        // Find the first email conversation
+        const parent = $("body").find(".sms").first();
+        let emailText = ""        // Prepare the text to send to the AI service
+        if (parent.length) {
+            emailText = parent.find(".email").text();
+
+        }
+
+        // Get the current contact based on currentId
+        const contact = _.find(this.contacts, ["id", this.currentId]);
+        if (!contact) {
+            this.showToast('No contact selected.', 'error');
+            return;
+        }
+
+
+        const text = `Summarize this event. In particular, tell me the event organizer, time and date, room they have booked, event type, any catering or drink packages, and any special requests in the notes. Here are some details: ${JSON.stringify(contact)}. 
+Here is the email conversation: ${emailText}`;
+
+        // Send the text to the AI service
+        const response = await this.sendAIRequest("/api/sendAIText", {
+            aiText: text,
+            includeBackground: false
+        });
+        this.writeToAIResult(response);
+    }
+
     filterContacts(searchTerm) {
         const $contacts = $('#contacts .contactCont');
 
@@ -483,6 +512,15 @@ export class EventManageApp {
         }
     }
     registerEvents() {
+        $(document).on("click", "#generateDeposit", (e) => {
+            e.preventDefault();
+            this.generateDeposit();
+        });
+        
+        $(document).on("click", "#summarizeEvent", async (e) => {
+            e.preventDefault();
+            await this.summarizeEventAiHandler();
+        });
         // Add these new handlers
         $('#sortByName').on('click', (e) => {
             e.preventDefault();
@@ -564,7 +602,7 @@ export class EventManageApp {
         $(document).on("click", "#actionSendAI", (e) => {
             e.preventDefault();
             const val = $("#aiText").text() + `\n\nBe concise and semi-formal in the response.`;
-            this.sendAIText(val);
+            this.sendAIRequest(val);
         });
 
         $(document).on("click", "#emailAI", (e) => {
@@ -707,14 +745,6 @@ export class EventManageApp {
         $("#aiText").prepend("Write an email to confirm that the event is tomorrow and some of the key details. Also, ask if they have an updated attendance count and ask about catering choices. Be semi-formal.");
     }
 
-    async sendAIText(val) {
-        try {
-            const data = await $.post("/api/sendAIText", { aiText: val });
-            this.writeToAIResult(data);
-        } catch (error) {
-            console.error("Failed to send AI text:", error);
-        }
-    }
 
     async handleGetEventDetailsFromEvent(text, email) {
         const newId = await this.getEventDetailsFromEmail(text, email);
@@ -1505,10 +1535,35 @@ export class EventManageApp {
 
         $.post("/api/createEventContract", data, (res) => {
             if (res === true) {
-                window.open(`/files/EventContract_${data.reservationDate.replace(/\//g, '')}_${data.contactName.replace(/ /g, "")}.pdf`);
+                const sanitizedDate = data.reservationDate.replace(/[\/-]/g, "_");
+                const sanitizedName = data.contactName.replace(/ /g, "");
+                window.open(`/files/EventContract_${sanitizedDate}_${sanitizedName}.pdf`);
             }
         });
     }
+    generateDeposit() {
+        const rentalFee = parseFloat($("#infoRentalRate").val()) || 0;
+        const minSpend = parseFloat($("#infoMinSpend").val()) || 0;
+        
+        if (!rentalFee && !minSpend) {
+            this.showToast("Please set either a rental fee or minimum spend first", "warning");
+            return;
+        }
+        
+        let depositText;
+        if (rentalFee > 0) {
+            depositText = `$${(rentalFee/2).toFixed(2)} deposit to book.`;
+        } else {
+            const deposit = Math.min(minSpend/2, 1200);
+            depositText = `To host an event, a deposit of $${deposit.toFixed(2)} is required along with a minimum spend of $${minSpend.toFixed(2)} for the night. If the minimum spend requirement is met, the full deposit amount will be refunded. However, if the spend falls below the minimum requirement, the deposit will be forfeited in proportion to the amount by which the spend falls short.`;
+        }
+        
+        const currentNotes = $("#infoNotes").val();
+        const updatedNotes = currentNotes ? `${currentNotes}\n\n${depositText}` : depositText;
+        $("#infoNotes").val(updatedNotes);
+        this.showToast("Deposit information added to notes", "success");
+    }
+    
 
     async summarizeLastEmails() {
         try {

@@ -295,20 +295,25 @@
                                     <button class="btn btn-accent tooltip" data-tip="Summarize" id="summarizeEvent">
                                         <i class="bi bi-file-earmark-text"></i>
                                     </button>
+                                    <button class="btn btn-accent tooltip" data-tip="Add Deposit Info"
+                                        id="generateDeposit">
+                                        <i class="bi bi-cash"></i>
+                                    </button>
+                                    <button class="btn btn-primary tooltip" data-tip="Create Contract"
+                                        id="actionsCreateContract">
+                                        <i class="bi bi-file-text"></i>
+                                    </button>
+                                    <button class="btn btn-primary tooltip" data-tip="Email Contract"
+                                        id="actionsEmailContract">
+                                        <i class="bi bi-envelope"></i>
+                                    </button>
+                                    <button class="btn btn-primary tooltip" data-tip="Book Calendar"
+                                        id="actionsBookCalendar">
+                                        <i class="bi bi-calendar-check"></i>
+                                    </button>
                                 </div>
 
-                                <button class="btn btn-primary tooltip" data-tip="Create Contract"
-                                    id="actionsCreateContract">
-                                    <i class="bi bi-file-text"></i>
-                                </button>
-                                <button class="btn btn-primary tooltip" data-tip="Email Contract"
-                                    id="actionsEmailContract">
-                                    <i class="bi bi-envelope"></i>
-                                </button>
-                                <button class="btn btn-primary tooltip" data-tip="Book Calendar"
-                                    id="actionsBookCalendar">
-                                    <i class="bi bi-calendar-check"></i>
-                                </button>
+
                             </div>
 
                             <div id="depositPw" class="text-sm text-base-content/70"></div>
@@ -392,7 +397,8 @@
                                     <button class="btn btn-accent tooltip" data-tip="Confirm" id="confirmAI">
                                         <i class="bi bi-check-circle"></i>
                                     </button>
-                                    <button id="clearAiText" class="btn btn-ghost btn-xs btn-square tooltip" data-tip="Clear">
+                                    <button id="clearAiText" class="btn btn-ghost btn-xs btn-square tooltip"
+                                        data-tip="Clear">
                                         <i class="bi bi-trash"></i>
                                     </button>
                                     <div class="flex items-center gap-2 flex-1">
@@ -448,7 +454,7 @@
         </button>
     </nav>
     <dialog id="maximize_content_modal" class="modal">
-        <div class="modal-box w-11/12 max-w-7xl h-[90vh]">  <!-- Changed max-w-5xl to max-w-7xl and h-5/6 to h-[90vh] -->
+        <div class="modal-box w-11/12 max-w-7xl h-[90vh]"> <!-- Changed max-w-5xl to max-w-7xl and h-5/6 to h-[90vh] -->
             <h3 class="font-bold text-lg mb-4" id="maximizeModalTitle">Content View</h3>
             <div id="maximizedContent" class="overflow-y-auto max-h-[calc(100%-8rem)] bg-base-100 rounded-lg p-4"
                 contenteditable="false">

@@ -3,16 +3,36 @@ const fs = require('fs');
 const path = require('path');
 const backgroundService = require('./BackgroundService');
 const { zodResponseFormat } = require('openai/helpers/zod');
-const { z } = require('zod');
-
+const Groq = require("groq-sdk");
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 class AIService {
   constructor() {
-    this.provider = {
-      name: 'OpenAI',
-      apiKey: process.env.OPENAI_API_KEY,
-      model: 'gpt-4o-mini-2024-07-18',
+    // Initialize AI providers
+    this.providers = {
+      openai: new OpenAI({ apiKey: process.env.OPENAI_API_KEY }),
+      groq: new Groq({ apiKey: process.env.GROQ_API_KEY }),
+      google: new GoogleGenerativeAI(process.env.GOOGLE_API_KEY)
     };
-
+    // Default configuration
+    this.currentProvider = {
+      name: 'openai',
+      model: 'gpt-4o-mini-2024-07-18'
+    };
+    // Provider-specific model mappings
+    this.modelMappings = {
+      openai: {
+        default: 'gpt-4o-mini-2024-07-18',
+        alternative: 'gpt-4'
+      },
+      groq: {
+        default: 'mixtral-8x7b-32768',
+        alternative: 'llama2-70b-4096'
+      },
+      google: {
+        default: 'gemini-1.5-flash',
+        alternative: 'gemini-1.5-pro'
+      }
+    };
     this.dataDir = path.join(__dirname, '..', 'data');
     this.conversationsPath = path.join(this.dataDir, 'conversations.json');
 
@@ -29,11 +49,18 @@ class AIService {
     this.loadConversations();
   }
 
+  setProvider(providerName, modelName = null) {
+    if (!this.providers[providerName]) {
+      throw new Error(`Unsupported provider: ${providerName}`);
+    }
+
+    this.currentProvider.name = providerName;
+    this.currentProvider.model = modelName || this.modelMappings[providerName].default;
+  }
   loadConversations() {
     try {
       if (fs.existsSync(this.conversationsPath)) {
         const conversations = JSON.parse(fs.readFileSync(this.conversationsPath, 'utf8'));
-        // Load the last conversation's messages into memory if it exists
         if (conversations.length > 0) {
           const lastConversation = conversations[conversations.length - 1];
           this.messageHistory = lastConversation.messages;
@@ -45,6 +72,7 @@ class AIService {
       this.messageHistory = [];
     }
   }
+
 
   saveConversations() {
     try {
@@ -63,7 +91,6 @@ class AIService {
     }
   }
 
-
   async generateResponse(messages, options = {}) {
     try {
       const {
@@ -73,26 +100,23 @@ class AIService {
         includeHistory = true,
         schema = null,
         schemaName = null,
+        provider = this.currentProvider.name,
+        model = this.currentProvider.model
       } = options;
 
-      // Start a new conversation if requested or none exists
       if (resetHistory || !this.currentConversationId) {
         this.messageHistory = [];
         this.currentConversationId = Date.now().toString();
       }
 
-      // Build message array
       let contextualizedMessages = [];
 
-      // Add conversation history if needed
       if (includeHistory && !resetHistory && this.messageHistory.length > 0) {
-        contextualizedMessages.push(...this.messageHistory); 
+        contextualizedMessages.push(...this.messageHistory);
       }
 
-      // Add new messages
       contextualizedMessages.push(...messages);
 
-      // Add background information if needed
       if (includeBackground) {
         const { backgroundInfo } = backgroundService.getBackground();
         if (backgroundInfo) {
@@ -110,36 +134,54 @@ class AIService {
         }
       }
 
-      const openai = new OpenAI({ apiKey: this.provider.apiKey });
       let response;
       let parsedData;
 
-      if (schema) {
-        const result = await openai.beta.chat.completions.parse({
-          model: this.provider.model,
-          messages: contextualizedMessages,
-          response_format: zodResponseFormat(schema, schemaName),
-          ...(maxTokens && { max_tokens: maxTokens })
-        });
-        parsedData = result.choices[0].message.parsed;
-        response = parsedData
-      } else {
-        contextualizedMessages = contextualizedMessages.map(message => {
-          if (typeof message.content === 'object' && message.content !== null) {
-            message.content = JSON.stringify(message.content);
+      // Process messages based on provider
+      switch (provider) {
+        case 'openai':
+          if (schema) {
+            const result = await this.providers.openai.beta.chat.completions.parse({
+              model,
+              messages: contextualizedMessages,
+              response_format: zodResponseFormat(schema, schemaName),
+              ...(maxTokens && { max_tokens: maxTokens })
+            });
+            parsedData = result.choices[0].message.parsed;
+            response = parsedData;
+          } else {
+            const result = await this.providers.openai.chat.completions.create({
+              model,
+              messages: contextualizedMessages,
+              ...(maxTokens && { max_tokens: maxTokens })
+            });
+            response = result.choices[0].message.content;
           }
-          return message;
-        });
+          break;
 
-        const result = await openai.chat.completions.create({
-          model: this.provider.model,
-          messages: contextualizedMessages,
-          ...(maxTokens && { max_tokens: maxTokens })
-        });
-        response = result.choices[0].message.content;
+        case 'groq':
+          const groqResult = await this.providers.groq.chat.completions.create({
+            model,
+            messages: contextualizedMessages,
+            ...(maxTokens && { max_tokens: maxTokens })
+          });
+          response = groqResult.choices[0].message.content;
+          break;
+
+        case 'google':
+          const geminiModel = this.providers.google.getGenerativeModel({ model });
+          const contents = contextualizedMessages.map(msg => ({
+            role: msg.role === 'assistant' ? 'model' : (msg.role === 'system' ? 'user' : msg.role),
+            parts: [{ text: msg.content }]
+          }));
+          const geminiResult = await geminiModel.generateContent({ contents });
+          response = geminiResult.response.text();
+          break;
+
+        default:
+          throw new Error(`Unsupported provider: ${provider}`);
       }
 
-      // Add timestamp to messages
       const timestamp = new Date().toISOString();
       const messagesWithTimestamp = messages.map(msg => ({
         ...msg,
@@ -148,18 +190,18 @@ class AIService {
       const responseWithTimestamp = {
         role: 'assistant',
         content: response,
-        timestamp
+        timestamp,
+        provider,
+        model
       };
 
       this.messageHistory.push(...messagesWithTimestamp);
       this.messageHistory.push(responseWithTimestamp);
 
-      // Keep history manageable
       if (this.messageHistory.length > 50) {
         this.messageHistory = this.messageHistory.slice(-50);
       }
 
-      // Save to file
       this.saveConversations();
 
       return {
@@ -167,7 +209,9 @@ class AIService {
         parsedData: schema ? parsedData : undefined,
         historyIncluded: includeHistory && !resetHistory,
         historyReset: resetHistory,
-        messageCount: this.messageHistory.length
+        messageCount: this.messageHistory.length,
+        provider,
+        model
       };
 
     } catch (error) {
@@ -175,7 +219,6 @@ class AIService {
       throw error;
     }
   }
-
   clearHistory() {
     this.messageHistory = [];
     this.currentConversationId = Date.now().toString();

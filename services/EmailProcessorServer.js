@@ -67,8 +67,7 @@ class EmailProcessorServer {
                     content: prompt
                 }
             ], {
-                includeBackground: true,
-                resetHistory: true // Start fresh for availability checks
+                includeBackground: true
             });
 
             return {response};
@@ -150,63 +149,8 @@ class EmailProcessorServer {
 
         return fixedData;
     }
-    async processAIResponse(prompt, schema, systemPrompt = '') {
-        try {
-            const messages = [
-                {
-                    role: 'system',
-                    content: systemPrompt || 'You are a venue coordinator assistant. Provide responses in JSON format.'
-                },
-                { role: 'user', content: prompt }
-            ];
 
-            const { response } = await aiService.generateResponse(messages, {
-                includeBackground: false,
-                resetHistory: true // Don't maintain history for JSON parsing responses
-            });
 
-            let jsonData;
-            try {
-                const jsonMatch = response.match(/{[\s\S]*}/);
-                if (jsonMatch) {
-                    jsonData = JSON.parse(jsonMatch[0]);
-                } else {
-                    jsonData = this.structureUnformattedResponse(response);
-                }
-            } catch (parseError) {
-                console.error('Error parsing JSON from AI response:', parseError);
-                jsonData = this.structureUnformattedResponse(response);
-            }
-
-            return schema.parse(jsonData);
-        } catch (error) {
-            console.error(`Error in AI processing:`, error);
-            throw error;
-        }
-    }
-
-    async processTextResponse(prompt, systemPrompt = '', conversationId = null) {
-        try {
-            const messages = [
-                {
-                    role: 'system',
-                    content: systemPrompt || 'You are a venue coordinator assistant.'
-                },
-                { role: 'user', content: prompt }
-            ];
-
-            const { response } = await aiService.generateResponse(messages, {
-                conversationId,
-                includeHistory: true,
-                includeBackground: true
-            });
-
-            return response;
-        } catch (error) {
-            console.error(`Error in AI processing:`, error);
-            throw error;
-        }
-    }
     setupRoutes() {
         this.router.post('/api/summarizeAI', async (req, res) => {
             try {
@@ -298,7 +242,9 @@ class EmailProcessorServer {
                                 content: `Generate a confirmation email response for: ${emailText}`
                             }
                         ], {
-                            includeBackground: true
+                            includeBackground: true,
+                            provider:'google',
+                            model:'gemini-1.5-flash'
                         });
                         break;
                     default:
@@ -434,44 +380,22 @@ class EmailProcessorServer {
 
                 const { aiText } = req.body;
 
-                const prompt = `
-                    ${this.templates.eventPrompt}
-                    
-                    Extract event details from this email and provide JSON in this format:
+                const messages = [
                     {
-                        "name": "contact name",
-                        "email": "contact email",
-                        "phone": "contact phone (optional)",
-                        "partyType": "type of event",
-                        "startTime": "YYYY-MM-DD HH:mm",
-                        "endTime": "YYYY-MM-DD HH:mm",
-                        "room": "requested venue space",
-                        "attendance": "expected guests",
-                        "services": ["array of requested services"],
-                        "notes": "additional details (optional)"
+                        role: 'system',
+                        content: 'You are a venue coordinator assistant.'
+                    },
+                    {
+                        role: 'user',
+                        content: aiText
                     }
+                ];
 
-                    Email content:
-                    ${aiText}
-                `;
-
-                const eventDetails = await this.processAIResponse(
-                    prompt,
-                    this.eventDetailsSchema,
-                    'You extract event details from inquiry emails.'
-                );
-
-                // Format dates
-                if (eventDetails.startTime) {
-                    eventDetails.startTime = moment.tz(eventDetails.startTime, 'America/New_York')
-                        .format('YYYY-MM-DD HH:mm');
-                }
-                if (eventDetails.endTime) {
-                    eventDetails.endTime = moment.tz(eventDetails.endTime, 'America/New_York')
-                        .format('YYYY-MM-DD HH:mm');
-                }
-
-                res.json(eventDetails);
+                const { response } = await aiService.generateResponse(messages, {
+                    includeBackground: true,
+                    resetHistory: true
+                });
+                res.send(response);
 
             } catch (error) {
                 console.error('Error in sendAIText:', error);

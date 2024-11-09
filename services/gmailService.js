@@ -18,43 +18,43 @@ class GmailService {
         }
     }
     // In gmailService.js class
-async sendEmail(to, subject, html) {
-    try {
-        const authClient = await this.auth.getOAuth2Client();
-        const gmail = google.gmail({ version: 'v1', auth: authClient });
+    async sendEmail(to, subject, html) {
+        try {
+            const authClient = await this.auth.getOAuth2Client();
+            const gmail = google.gmail({ version: 'v1', auth: authClient });
 
-        // Create the email content
-        const utf8Subject = `=?utf-8?B?${Buffer.from(subject).toString('base64')}?=`;
-        const messageParts = [
-            `To: ${to}`,
-            `Subject: ${utf8Subject}`,
-            'MIME-Version: 1.0',
-            'Content-Type: text/html; charset=utf-8',
-            '',
-            html
-        ];
-        const message = messageParts.join('\n');
+            // Create the email content
+            const utf8Subject = `=?utf-8?B?${Buffer.from(subject).toString('base64')}?=`;
+            const messageParts = [
+                `To: ${to}`,
+                `Subject: ${utf8Subject}`,
+                'MIME-Version: 1.0',
+                'Content-Type: text/html; charset=utf-8',
+                '',
+                html
+            ];
+            const message = messageParts.join('\n');
 
-        // The body needs to be base64url encoded
-        const encodedMessage = Buffer.from(message)
-            .toString('base64')
-            .replace(/\+/g, '-')
-            .replace(/\//g, '_')
-            .replace(/=+$/, '');
+            // The body needs to be base64url encoded
+            const encodedMessage = Buffer.from(message)
+                .toString('base64')
+                .replace(/\+/g, '-')
+                .replace(/\//g, '_')
+                .replace(/=+$/, '');
 
-        const res = await gmail.users.messages.send({
-            userId: 'me',
-            requestBody: {
-                raw: encodedMessage
-            }
-        });
+            const res = await gmail.users.messages.send({
+                userId: 'me',
+                requestBody: {
+                    raw: encodedMessage
+                }
+            });
 
-        return res.data;
-    } catch (error) {
-        console.error('Error sending email:', error);
-        throw error;
+            return res.data;
+        } catch (error) {
+            console.error('Error sending email:', error);
+            throw error;
+        }
     }
-}
 
     loadLastRetrievalDate() {
         try {
@@ -308,14 +308,15 @@ async sendEmail(to, subject, html) {
         await asyncLib.eachLimit(messages, 5, async (message) => {
             try {
                 const fullMessage = await this.getMessage(message.id);
-                let replied = false;
+
+                // Guard clause for invalid message structure
                 if (!fullMessage?.payload?.headers) {
                     console.error(`Invalid message structure for ID ${message.id}`);
-                }
-                else {
-                    replied = this.checkIfReplied(fullMessage, sentMessages);
+                    // Skip this message and continue processing others
+                    return;
                 }
 
+                let replied = this.checkIfReplied(fullMessage, sentMessages);
 
                 const headers = fullMessage.payload.headers;
                 const emailData = {
@@ -326,8 +327,8 @@ async sendEmail(to, subject, html) {
                     subject: headers.find(h => h.name === 'Subject')?.value || '',
                     timestamp: headers.find(h => h.name === 'Date')?.value || '',
                     internalDate: fullMessage.internalDate,
-                    text: fullMessage.parsedContent?.text || '',
-                    html: fullMessage.parsedContent?.html || '',
+                    text: fullMessage?.parsedContent?.text || '',
+                    html: fullMessage?.parsedContent?.html || '',
                     labels: fullMessage.labelIds || [],
                     snippet: fullMessage.snippet || '',
                     replied
