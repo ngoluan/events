@@ -29,7 +29,7 @@ app.use(session({
 const oauthRoutes = require('./routes/oauth')(googleAuth);
 const gmailRoutes = require('./routes/gmail')(googleAuth);
 const calendarRoutes = require('./routes/calendar')(googleAuth);
-const eventsRoutes = require('./routes/events');
+const eventsRoutes = require('./routes/events')(googleAuth);
 const aiRoutes = require('./routes/ai');
 
 // Use the routers

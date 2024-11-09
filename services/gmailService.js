@@ -169,34 +169,33 @@ class GmailService {
 
     checkIfReplied(inboxMessage, sentMessages) {
         try {
-            if (!inboxMessage?.payload?.headers) {
-                console.log('No headers found for inbox message:', inboxMessage?.id);
-                return false;
+            const threadId = inboxMessage.threadId;
+            let messageId = '';
+
+            // Get Message-ID either from headers or directly from the message
+            if (inboxMessage?.payload?.headers) {
+                messageId = inboxMessage.payload.headers.find(h => h.name === 'Message-ID')?.value || '';
             }
 
-            // Get Message-ID of the inbox email
-            const messageId = inboxMessage.payload.headers.find(h => h.name === 'Message-ID')?.value || '';
-            const threadId = inboxMessage.threadId;
-
-
             const hasReply = sentMessages.some(sentMessage => {
-                if (!sentMessage?.payload?.headers) {
-                    console.log('No headers found for sent message:', sentMessage?.id);
-                    return false;
-                }
-
                 // Check if the sent message is in the same thread
                 if (sentMessage.threadId !== threadId) {
                     return false;
                 }
 
-                // Get References and In-Reply-To headers
-                const inReplyTo = sentMessage.payload.headers.find(h => h.name === 'In-Reply-To')?.value || '';
-                const references = sentMessage.payload.headers.find(h => h.name === 'References')?.value || '';
+                let inReplyTo = '';
+                let references = '';
 
+                // Get References and In-Reply-To either from headers or direct properties
+                if (sentMessage?.payload?.headers) {
+                    inReplyTo = sentMessage.payload.headers.find(h => h.name === 'In-Reply-To')?.value || '';
+                    references = sentMessage.payload.headers.find(h => h.name === 'References')?.value || '';
+                } else {
+                    inReplyTo = sentMessage.inReplyTo || '';
+                    references = sentMessage.references || '';
+                }
 
-
-                // Check message header references
+                // Check message header references if messageId exists
                 if (messageId && (inReplyTo.includes(messageId) || references.includes(messageId))) {
                     return true;
                 }
@@ -206,11 +205,7 @@ class GmailService {
                 const inboxDate = new Date(inboxMessage.internalDate);
 
                 // If in same thread and sent message is newer, consider it a reply
-                const isNewerInThread = sentDate > inboxDate;
-                if (isNewerInThread) {
-                    console.log('Found reply through date comparison');
-                }
-                return isNewerInThread;
+                return sentDate > inboxDate;
             });
 
             return hasReply;
@@ -220,6 +215,7 @@ class GmailService {
             return false;
         }
     }
+
     async getMessage(messageId) {
         try {
             // First check cache
@@ -308,33 +304,46 @@ class GmailService {
         await asyncLib.eachLimit(messages, 5, async (message) => {
             try {
                 const fullMessage = await this.getMessage(message.id);
+                let emailData;
 
-                // Guard clause for invalid message structure
-                if (!fullMessage?.payload?.headers) {
-                    console.error(`Invalid message structure for ID ${message.id}`);
-                    // Skip this message and continue processing others
-                    return;
+                if (fullMessage?.payload?.headers) {
+                    // Process message with headers
+                    const headers = fullMessage.payload.headers;
+                    const replied = this.checkIfReplied(fullMessage, sentMessages);
+
+                    emailData = {
+                        id: message.id,
+                        threadId: fullMessage.threadId,
+                        from: headers.find(h => h.name === 'From')?.value || '',
+                        to: headers.find(h => h.name === 'To')?.value || '',
+                        subject: headers.find(h => h.name === 'Subject')?.value || '',
+                        timestamp: headers.find(h => h.name === 'Date')?.value || '',
+                        internalDate: fullMessage.internalDate,
+                        text: fullMessage?.parsedContent?.text || '',
+                        html: fullMessage?.parsedContent?.html || '',
+                        labels: fullMessage.labelIds || [],
+                        snippet: fullMessage.snippet || '',
+                        replied
+                    };
+                } else {
+                    // Process message without headers by using direct properties
+                    emailData = {
+                        id: fullMessage.id || message.id,
+                        threadId: fullMessage.threadId || '',
+                        from: fullMessage.from || '',
+                        to: fullMessage.to || '',
+                        subject: fullMessage.subject || '',
+                        timestamp: fullMessage.timestamp || '',
+                        internalDate: fullMessage.internalDate || '',
+                        text: fullMessage.text || fullMessage?.parsedContent?.text || '',
+                        html: fullMessage.html || fullMessage?.parsedContent?.html || '',
+                        labels: fullMessage.labels || fullMessage.labelIds || [],
+                        snippet: fullMessage.snippet || '',
+                        replied: fullMessage.replied || this.checkIfReplied(fullMessage, sentMessages) || false
+                    };
                 }
 
-                let replied = this.checkIfReplied(fullMessage, sentMessages);
-
-                const headers = fullMessage.payload.headers;
-                const emailData = {
-                    id: message.id,
-                    threadId: fullMessage.threadId,
-                    from: headers.find(h => h.name === 'From')?.value || '',
-                    to: headers.find(h => h.name === 'To')?.value || '',
-                    subject: headers.find(h => h.name === 'Subject')?.value || '',
-                    timestamp: headers.find(h => h.name === 'Date')?.value || '',
-                    internalDate: fullMessage.internalDate,
-                    text: fullMessage?.parsedContent?.text || '',
-                    html: fullMessage?.parsedContent?.html || '',
-                    labels: fullMessage.labelIds || [],
-                    snippet: fullMessage.snippet || '',
-                    replied
-                };
-
-                // Update cache after checking reply status
+                // Update cache with processed email data
                 this.emailCache.set(message.id, emailData);
                 processedEmails.push(emailData);
 
@@ -349,7 +358,6 @@ class GmailService {
             return dateB - dateA;
         });
     }
-
     extractPlainTextFromHtml(html) {
         let plainText = "";
 

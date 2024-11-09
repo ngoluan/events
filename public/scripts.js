@@ -437,31 +437,32 @@ export class EventManageApp {
     }
     // In EventManageApp class
     async summarizeEventAiHandler() {
-        // Find the first email conversation
-        const parent = $("body").find(".sms").first();
-        let emailText = ""        // Prepare the text to send to the AI service
-        if (parent.length) {
-            emailText = parent.find(".email").text();
-
-        }
-
-        // Get the current contact based on currentId
-        const contact = _.find(this.contacts, ["id", this.currentId]);
-        if (!contact) {
+        if (this.currentId === -1) {
             this.showToast('No contact selected.', 'error');
             return;
         }
 
+        try {
+            const response = await fetch(`/api/events/${this.currentId}/summary`);
+            if (!response.ok) {
+                throw new Error(response.statusText);
+            }
 
-        const text = `Summarize this event. In particular, tell me the event organizer, time and date, room they have booked, event type, any catering or drink packages, and any special requests in the notes. Here are some details: ${JSON.stringify(contact)}. 
-Here is the email conversation: ${emailText}`;
+            const data = await response.json();
+            
+            // Simple text formatting
+            const formattedResult = `${data.summary}.`;
 
-        // Send the text to the AI service
-        const response = await this.sendAIRequest("/api/sendAIText", {
-            aiText: text,
-            includeBackground: false
-        });
-        this.writeToAIResult(response);
+            this.writeToAIResult(formattedResult);
+            
+            // Refresh the contact info to show updated notes
+            this.loadContact(this.currentId);
+
+        } catch (error) {
+            console.error('Error summarizing event:', error);
+            this.showToast('Failed to summarize event', 'error');
+            this.writeToAIResult('Failed to generate summary. Please try again.');
+        }
     }
 
     filterContacts(searchTerm) {

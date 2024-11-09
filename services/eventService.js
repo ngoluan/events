@@ -2,11 +2,14 @@
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
+const gmailService = require('./gmailService');
+const aiService = require('./aiService');
 class EventService {
-  constructor() {
+  constructor(googleAuth) {
     this.eventsFilePath = path.join(__dirname, '..', 'data', 'events.json');
     this.remoteApiGetUrl = 'https://eattaco.ca/api/getEventsContacts';
     this.remoteApiUpdateUrl = 'https://eattaco.ca/api/updateEventContact';
+    this.gmail = new gmailService(googleAuth);
 
     this.initializeEventsFile();
   }
@@ -27,6 +30,89 @@ class EventService {
         console.error('Error reading events file, reinitializing:', error);
         this.saveEvents({ contacts: [] });
       }
+    }
+  }
+  async getEventSummary(id) {
+    try {
+      // Get the contact information
+      const contact = this.getEvent(id);
+      if (!contact) {
+        throw new Error('Event not found');
+      }
+
+      // Get all emails for this contact
+      const emails = await this.gmail.getEmailsForContact(contact.email);
+      
+      // Sort emails by date
+      const sortedEmails = emails.sort((a, b) => 
+        new Date(a.internalDate) - new Date(b.internalDate)
+      );
+      
+      // Get the first email's content
+      const firstEmail = sortedEmails[0];
+      const emailContent = firstEmail?.text || firstEmail?.html || '';
+
+      // Format contact data for the prompt
+      const contactSummary = {
+        name: contact.name,
+        email: contact.email,
+        phone: contact.phone,
+        startTime: contact.startTime,
+        endTime: contact.endTime,
+        room: Array.isArray(contact.room) ? contact.room.join(', ') : contact.room,
+        attendance: contact.attendance,
+        partyType: contact.partyType,
+        services: Array.isArray(contact.services) ? contact.services.join(', ') : contact.services,
+        notes: contact.notes
+      };
+
+      // Prepare the prompt for AI
+      const prompt = `Summarize this event. In particular, tell me:
+        - Event organizer
+        - Time and date
+        - Room booked
+        - Number of attendees
+        - Event type
+        - Catering or drink packages and choises
+        - Special requests in the notes
+        - When the organizer last emailed
+        - Payment information (but no etransfer information).
+
+        Event details: ${JSON.stringify(contactSummary)}
+        Initial email conversation: ${emailContent}`;
+
+      // Get AI summary
+      const { response } = await aiService.generateResponse([
+        {
+          role: 'system',
+          content: 'You are a venue coordinator assistant summarizing event details.'
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ], {
+        includeBackground: false,
+        resetHistory: true
+      });
+
+      return {
+        success: true,
+        summary: response,
+        metadata: {
+          emailCount: sortedEmails.length,
+          firstEmailDate: firstEmail?.timestamp,
+          lastEmailDate: sortedEmails[sortedEmails.length - 1]?.timestamp,
+          contactInfo: contactSummary
+        }
+      };
+
+    } catch (error) {
+      console.error('Error generating event summary:', error);
+      return {
+        success: false,
+        error: error.message
+      };
     }
   }
   async updateRemoteEvent(contact){
@@ -198,4 +284,4 @@ class EventService {
   }
 }
 
-module.exports = new EventService();
+module.exports =  EventService;
