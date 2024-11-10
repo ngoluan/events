@@ -119,7 +119,7 @@ class ReceiptManager {
                                     </td>
                                     <td>
                                         <input type="number" id="newItemPrice" placeholder="Price" step="0.01"
-                                               value="${this.rentalFee.toFixed(2)}"
+                                               value="${((this.rentalFee/2)/1.13).toFixed(2)}"
                                                class="input input-bordered input-sm w-full">
                                     </td>
                                     <td class="text-center">

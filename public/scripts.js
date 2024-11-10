@@ -449,12 +449,12 @@ export class EventManageApp {
             }
 
             const data = await response.json();
-            
+
             // Simple text formatting
             const formattedResult = `${data.summary}.`;
 
             this.writeToAIResult(formattedResult);
-            
+
             // Refresh the contact info to show updated notes
             this.loadContact(this.currentId);
 
@@ -517,7 +517,7 @@ export class EventManageApp {
             e.preventDefault();
             this.generateDeposit();
         });
-        
+
         $(document).on("click", "#summarizeEvent", async (e) => {
             e.preventDefault();
             await this.summarizeEventAiHandler();
@@ -1073,37 +1073,42 @@ export class EventManageApp {
             });
     }
     renderContactsWithCalendarSync() {
-        // Create map of calendar events for efficient lookup
+        // Create map of calendar events
         const eventMap = new Map();
         this.calendarEvents.forEach(event => {
             const eventDate = moment.tz(event.startTime, 'America/New_York').format('YYYY-MM-DD');
             const eventKey = `${event.title.toLowerCase()}_${eventDate}`;
             eventMap.set(eventKey, event);
         });
-
-        // Process contacts and generate HTML
+    
+        // Render contacts
         const $contactsContent = $("#contacts");
         $contactsContent.empty();
         let html = '';
-
+    
         this.contacts.slice().reverse().forEach(contact => {
             if (!contact || !contact.startTime || !contact.name) return;
-
+    
             const contactDate = moment.tz(contact.startTime, 'America/New_York');
             const formattedDate = contactDate.format("MM/DD/YYYY");
             const lookupKey = `${contact.name.toLowerCase()}_${contactDate.format('YYYY-MM-DD')}`;
-
-            // Determine color based on various conditions
-            let colour = "blue"; // default color
+    
+            let colour = "blue"; 
             let statusIcons = '';
-
-            // Check calendar sync status
+            let attendanceInfo = '';
+    
+            // Add attendance info if available
+            if (contact.attendance) {
+                attendanceInfo = `<span class="text-sm text-gray-600">(${contact.attendance} ppl)</span>`;
+            }
+    
+            // Check calendar entry
             const hasCalendarEntry = eventMap.has(lookupKey);
-
+    
             if (hasCalendarEntry) {
                 statusIcons += '<i class="bi bi-calendar-check-fill text-success ml-2"></i>';
             } else {
-                // Apply existing color logic
+                // Add status icons
                 if (contact.status) {
                     if (contact.status.includes("depositPaid")) {
                         statusIcons += '<i class="bi bi-cash text-success ml-2"></i>';
@@ -1116,7 +1121,7 @@ export class EventManageApp {
                     colour = "lightgrey";
                 }
             }
-
+    
             html += `
                 <div class="contactCont hover:bg-base-200 transition-colors" 
                      data-id="${_.escape(contact.id)}" 
@@ -1124,12 +1129,14 @@ export class EventManageApp {
                     <a href="#" class="contactBtn flex items-center justify-between p-2" 
                        style="color:${_.escape(colour)};" 
                        data-id="${_.escape(contact.id)}">
-                        <span class="flex-1">${_.escape(contact.name)} (${_.escape(formattedDate)})</span>
+                        <span class="flex-1">
+                            ${_.escape(contact.name)} (${_.escape(formattedDate)}) ${attendanceInfo}
+                        </span>
                         <span class="flex items-center">${statusIcons}</span>
                     </a>
                 </div>`;
         });
-
+    
         $contactsContent.append(html);
     }
 
@@ -1240,13 +1247,22 @@ export class EventManageApp {
         try {
             const data = await $.get("/calendar/getEventCalendar");
 
-            // Process calendar events
+            // Transform calendar events
             this.calendarEvents = data.map((event, index) => {
                 const timezone = 'America/New_York';
                 const startTime = moment.tz(event.start.dateTime || event.start.date, timezone);
                 const endTime = moment.tz(event.end.dateTime || event.end.date, timezone);
 
-                event.summary = `${event.summary} <br>${startTime.format("HHmm")}-${endTime.format("HHmm")}`;
+                // Find matching contact for attendance info
+                const contact = this.contacts.find(c => {
+                    const contactDate = moment.tz(c.startTime, timezone).format('YYYY-MM-DD');
+                    const eventDate = startTime.format('YYYY-MM-DD');
+                    return c.name && event.summary.toLowerCase().includes(c.name.toLowerCase()) && contactDate === eventDate;
+                });
+
+                // Add attendance to summary if available
+                const attendance = contact?.attendance ? ` (${contact.attendance} ppl)` : '';
+                event.summary = `${event.summary} <br>${startTime.format("HHmm")}-${endTime.format("HHmm")}${attendance}`;
 
                 let calendarEnd = endTime.clone();
                 if (endTime.isAfter(startTime.clone().hour(23).minute(59))) {
@@ -1259,16 +1275,17 @@ export class EventManageApp {
                     startTime: startTime.format(),
                     endTime: calendarEnd.format(),
                     description: event.description || '',
-                    room: event.location || ''
+                    room: event.location || '',
+                    attendance: contact?.attendance
                 };
             });
 
             // Load events into calendar
             this.mainCalendar.loadEvents(this.calendarEvents);
 
-            // Update contacts display if contacts are loaded
+            // Refresh contacts display if needed
             if (this.contacts.length > 0) {
-                this.getAllContacts();
+                this.renderContactsWithCalendarSync();
             }
 
         } catch (error) {
@@ -1545,26 +1562,26 @@ export class EventManageApp {
     generateDeposit() {
         const rentalFee = parseFloat($("#infoRentalRate").val()) || 0;
         const minSpend = parseFloat($("#infoMinSpend").val()) || 0;
-        
+
         if (!rentalFee && !minSpend) {
             this.showToast("Please set either a rental fee or minimum spend first", "warning");
             return;
         }
-        
+
         let depositText;
         if (rentalFee > 0) {
-            depositText = `$${(rentalFee/2).toFixed(2)} deposit to book.`;
+            depositText = `$${(rentalFee / 2).toFixed(2)} deposit to book.`;
         } else {
-            const deposit = Math.min(minSpend/2, 1200);
+            const deposit = Math.min(minSpend / 2, 1200);
             depositText = `To host an event, a deposit of $${deposit.toFixed(2)} is required along with a minimum spend of $${minSpend.toFixed(2)} for the night. If the minimum spend requirement is met, the full deposit amount will be refunded. However, if the spend falls below the minimum requirement, the deposit will be forfeited in proportion to the amount by which the spend falls short.`;
         }
-        
+
         const currentNotes = $("#infoNotes").val();
         const updatedNotes = currentNotes ? `${currentNotes}\n\n${depositText}` : depositText;
         $("#infoNotes").val(updatedNotes);
         this.showToast("Deposit information added to notes", "success");
     }
-    
+
 
     async summarizeLastEmails() {
         try {

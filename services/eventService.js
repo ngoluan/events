@@ -3,13 +3,16 @@ const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
 const gmailService = require('./gmailService');
+const GoogleCalendarService = require('./googleCalendarService');
 const aiService = require('./aiService');
+const moment = require('moment-timezone');
 class EventService {
   constructor(googleAuth) {
     this.eventsFilePath = path.join(__dirname, '..', 'data', 'events.json');
     this.remoteApiGetUrl = 'https://eattaco.ca/api/getEventsContacts';
     this.remoteApiUpdateUrl = 'https://eattaco.ca/api/updateEventContact';
     this.gmail = new gmailService(googleAuth);
+    this.calendarService = new GoogleCalendarService(googleAuth);
 
     this.initializeEventsFile();
   }
@@ -42,12 +45,12 @@ class EventService {
 
       // Get all emails for this contact
       const emails = await this.gmail.getEmailsForContact(contact.email);
-      
+
       // Sort emails by date
-      const sortedEmails = emails.sort((a, b) => 
+      const sortedEmails = emails.sort((a, b) =>
         new Date(a.internalDate) - new Date(b.internalDate)
       );
-      
+
       // Get the first email's content
       const firstEmail = sortedEmails[0];
       const emailContent = firstEmail?.text || firstEmail?.html || '';
@@ -68,25 +71,25 @@ class EventService {
 
       // Prepare the prompt for AI
       const prompt = `Summarize this event. In particular, tell me:
-        - Event organizer
+        - Event organizer (no contact info)
         - Time and date
         - Room booked
         - Number of attendees
         - Event type
-        - Catering or drink packages and choises
+        - Catering or drink packages and choices. If they choose catering or drink packages, be careful and detailed with their choices.
         - Special requests in the notes
         - When the organizer last emailed
         - Payment information (but no etransfer information).
 
+          Respond in bullet points or short sentences.
+          Be detalied about special requests by organizers. 
+
         Event details: ${JSON.stringify(contactSummary)}
-        Initial email conversation: ${emailContent}`;
+        Recent email conversation: ${emailContent}`;
 
       // Get AI summary
       const { response } = await aiService.generateResponse([
-        {
-          role: 'system',
-          content: 'You are a venue coordinator assistant summarizing event details.'
-        },
+
         {
           role: 'user',
           content: prompt
@@ -115,7 +118,7 @@ class EventService {
       };
     }
   }
-  async updateRemoteEvent(contact){
+  async updateRemoteEvent(contact) {
     try {
       const response = await axios.post(this.remoteApiUpdateUrl, contact);
       const remoteEvents = response.data;
@@ -282,6 +285,169 @@ class EventService {
       return false;
     }
   }
+  async generateWeeklySummary() {
+    try {
+      // Get calendar events using the route
+      const calendarEvents = await this.calendarService.listEvents();
+
+      // Load local events
+      const localEvents = this.loadEvents();
+
+      // Filter events for next week
+      const startOfWeek = moment().tz('America/New_York').startOf('day').add(1, 'day');
+      const endOfWeek = moment().tz('America/New_York').add(7, 'days').endOf('day');
+
+      const upcomingEvents = calendarEvents.filter(event => {
+        const eventStart = moment(event.start.dateTime || event.start.date);
+        return eventStart.isBetween(startOfWeek, endOfWeek);
+      });
+
+      if (upcomingEvents.length === 0) {
+        const noEventsEmail = {
+          subject: 'Weekly Event Summary - No Upcoming Events',
+          html: 'No events scheduled for the upcoming week.'
+        };
+
+        await this.gmail.sendEmail('info@eattaco.ca', noEventsEmail.subject, noEventsEmail.html);
+        return noEventsEmail;
+      }
+
+      let eventSummaries = [];
+
+      // Process each event
+      for (const event of upcomingEvents) {
+        const eventName = event.summary || 'Unnamed Event';
+        const eventStart = moment(event.start.dateTime || event.start.date);
+        const eventStartFormatted = eventStart.format('MMMM Do YYYY, h:mm a');
+        const eventStartDate = eventStart.format('YYYY-MM-DD');
+
+        // Find matching local event
+        const localEvent = localEvents.find(e => {
+          if (typeof e.name === 'undefined') return false;
+          const localEventName = e.name.toLowerCase();
+          const localEventDate = moment(e.startTime).format('YYYY-MM-DD');
+          return eventName.toLowerCase().includes(localEventName) &&
+            localEventDate === eventStartDate;
+        });
+
+        let eventDetails = 'Event found in calendar but no matching contact details in system.';
+        let cateringStatus = 'Unknown';
+        let followUpMailto = '';
+
+        if (localEvent) {
+          try {
+            // Get event summary using the existing endpoint
+            const summaryResponse = await axios.get(`${process.env.HOST}/api/events/${localEvent.id}/summary`);
+            eventDetails = summaryResponse.data.summary;
+
+            // Determine catering status
+            cateringStatus = localEvent.services &&
+              Array.isArray(localEvent.services) &&
+              localEvent.services.includes('catering')
+              ? 'Requested' : 'Not Requested';
+
+            // Generate follow-up email content using AI
+            const followUpPrompt = `
+                        Generate a follow-up email for an upcoming event. The email should:
+                        1. Express excitement for their event
+                        2. Confirm the event date and time
+                        3. Ask for an updated attendee count
+                        Based on the email summary, if catering is requested, a package has been picked and the individual choices(i.e. types of tacos or types of appetizers) have been picked, then confirm the choices. 
+                        
+                        If catering is requested and a package has been picked, but individual options (like tacos or buffet choices) have not been picked, ask for the choices. We need it about 72 hours before the event.
+                        
+                        If they don't mention catering, ask if they would be interested in our catering services, mentioning our $6 light appetizers option'
+                        
+                        4. Be concise - no more than 3-4 short paragraphs. Don't add a subject line.
+                        
+                        Event Summary: ${eventDetails}
+                        Event Date: ${eventStartFormatted}
+                        Client Name: ${localEvent.name}
+                    `;
+
+            const { response: emailContent } = await aiService.generateResponse([
+              {
+                role: 'system',
+                content: 'You are a friendly venue coordinator writing follow-up emails.'
+              },
+              {
+                role: 'user',
+                content: followUpPrompt
+              }
+            ], {
+              includeBackground: true,
+              resetHistory: true,
+              provider: 'google',
+              model: 'gemini-1.5-flash'
+            });
+
+
+            // Create mailto link with AI-generated content
+            const subject = `Excited for your event on ${eventStart.format('MMMM Do')}`;
+
+            // Properly encode the components separately
+            const encodedEmail = encodeURIComponent(localEvent.email);
+            const encodedSubject = encodeURIComponent(subject);
+            const encodedBody = encodeURIComponent(emailContent);
+
+            // Create the mailto link without URLSearchParams
+            followUpMailto = `mailto:${encodedEmail}?subject=${encodedSubject}&body=${encodedBody}`;
+
+          } catch (error) {
+            console.error(`Error processing event ${localEvent.id}:`, error);
+            eventDetails = 'Error retrieving event details';
+          }
+        }
+
+        eventSummaries.push({
+          name: eventName,
+          email: localEvent?.email || 'No email found',
+          date: eventStartFormatted,
+          details: eventDetails,
+          catering: cateringStatus,
+          followUpMailto: followUpMailto
+        });
+      }
+
+      // Generate email HTML
+      const emailHtml = `
+            <h2>Weekly Event Summary</h2>
+            <p>Here are the upcoming events for the next week:</p>
+            ${eventSummaries.map(event => `
+                <div style="margin-bottom: 30px; padding: 15px; border: 1px solid #ddd; border-radius: 5px;">
+                    <h3>${event.name}</h3>
+                    <p><strong>Date:</strong> ${event.date}</p>
+                    <p><strong>Email:</strong> ${event.email}</p>
+                    <div style="margin: 10px 0;">
+                        <h4>Event Details:</h4>
+                        <p>${event.details}</p>
+                    </div>
+                    ${event.followUpMailto ? `
+                       <a href="${event.followUpMailto}" 
+                          style="display: inline-block; padding: 10px 20px; 
+                                background-color: #007bff; color: white; 
+                                text-decoration: none; border-radius: 5px;">
+                          Send Follow-up Email
+                      </a>
+                    ` : ''}
+                </div>
+            `).join('')}
+        `;
+
+      const emailData = {
+        subject: `Weekly Event Summary - ${upcomingEvents.length} Upcoming Events`,
+        html: emailHtml
+      };
+
+      // Send email using the gmail service
+      await this.gmail.sendEmail('info@eattaco.ca', emailData.subject, emailData.html);
+
+      return emailData;
+    } catch (error) {
+      console.error('Error generating weekly summary:', error);
+      throw error;
+    }
+  }
 }
 
-module.exports =  EventService;
+module.exports = EventService;

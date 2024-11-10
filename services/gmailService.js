@@ -640,21 +640,19 @@ class GmailService {
             const now = moment();
             const needsUpdate = !cachedEmails.length || lastRetrievalDate.isBefore(now, 'day');
 
-            if (needsUpdate) {
-                // listMessages now returns fully processed messages
-                const processedMessages = await this.listMessages({
-                    maxResults,
-                    onlyImportant
-                });
+            // listMessages now returns fully processed messages
+            const processedMessages = await this.listMessages({
+                maxResults,
+                onlyImportant
+            });
 
-                // Merge new emails with cached ones, maintaining order
-                const allEmails = this.mergeEmails(cachedEmails, processedMessages);
+            // Merge new emails with cached ones, maintaining order
+            const allEmails = this.mergeEmails(cachedEmails, processedMessages);
 
-                // Save updated cache
-                this.saveEmailsToCache(allEmails);
+            // Save updated cache
+            this.saveEmailsToCache(allEmails);
 
-                return allEmails;
-            }
+            return allEmails;
 
             return cachedEmails;
         } catch (error) {

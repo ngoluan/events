@@ -61,7 +61,7 @@
 
   .email {
     @apply transition-all duration-200 overflow-hidden;
-    max-height: 50vh;
+    max-height: 25vh;
   }
 
   .email.expanded {

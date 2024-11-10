@@ -3277,11 +3277,11 @@ html {
 }
 
 .\!email {
-  max-height: 50vh !important;
+  max-height: 25vh !important;
 }
 
 .email {
-  max-height: 50vh;
+  max-height: 25vh;
 }
 
 .\!email.expanded {

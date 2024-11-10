@@ -1,13 +1,8 @@
 [
-  "services/gmailService.js",
-  "services/eventService.js",
-  "services/aiService.js",
-  "services/EmailProcessorServer.js",
-  "services/BackgroundService.js",
-  "routes/gmail.js",
-  "routes/events.js",
-  "routes/calendar.js",
-  "routes/ai.js",
   "public/scripts.js",
-  "public/EmailProcessor.js"
+  "public/index.html",
+  "public/calendar.js",
+  "public/ReceiptManager.js",
+  "public/EmailProcessor.js",
+  "src/styles.css"
 ]

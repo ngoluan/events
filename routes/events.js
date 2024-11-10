@@ -8,6 +8,21 @@ module.exports = (googleAuth) => {
 
   const eventService = new EventService(googleAuth);
 
+  router.get('/api/events/weekly-summary', async (req, res) => {
+    try {
+      const summary = await eventService.generateWeeklySummary();
+      res.json({
+        message: 'Weekly summary generated and sent successfully',
+        summary: summary
+      });
+    } catch (error) {
+      console.error('Error generating weekly summary:', error);
+      res.status(500).json({
+        error: 'Failed to generate weekly summary',
+        details: error.message
+      });
+    }
+  });
   router.post('/api/createEventContract', async (req, res) => {
     const data = req.body
     const contractData = await pdfService.createEventContract(data, res);
