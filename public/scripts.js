@@ -1072,6 +1072,58 @@ export class EventManageApp {
                 this.showToast('Failed to load contacts', 'error');
             });
     }
+    async createCalendar() {
+        this.mainCalendar = new Calendar('calendar');
+        try {
+            const data = await $.get("/calendar/getEventCalendar");
+
+            // Transform calendar events
+            this.calendarEvents = data.map((event, index) => {
+                const timezone = 'America/New_York';
+                const startTime = moment.tz(event.start.dateTime || event.start.date, timezone);
+                const endTime = moment.tz(event.end.dateTime || event.end.date, timezone);
+
+                // Find matching contact for attendance info
+                const contact = this.contacts.find(c => {
+                    const contactDate = moment.tz(c.startTime, timezone).format('YYYY-MM-DD');
+                    const eventDate = startTime.format('YYYY-MM-DD');
+                    return c.name && event.summary.toLowerCase().includes(c.name.toLowerCase()) && contactDate === eventDate;
+                });
+
+                // Add attendance to summary if available
+                const attendanceInfo = contact?.attendance ? ` (${contact.attendance} ppl)` : '';
+                event.summary = `${event.summary} <br>${startTime.format("HHmm")}-${endTime.format("HHmm")}${attendanceInfo}`;
+
+                let calendarEnd = endTime.clone();
+                if (endTime.isAfter(startTime.clone().hour(23).minute(59))) {
+                    calendarEnd = startTime.clone().hour(23).minute(59);
+                }
+
+                return {
+                    id: index,
+                    title: event.summary || 'No Title',
+                    startTime: startTime.format(),
+                    endTime: calendarEnd.format(),
+                    description: event.description || '',
+                    room: event.location || '',
+                    attendance: contact?.attendance
+                };
+            });
+
+            // Load events into calendar
+            this.mainCalendar.loadEvents(this.calendarEvents);
+
+            // Refresh contacts display if needed
+            if (this.contacts.length > 0) {
+                this.renderContactsWithCalendarSync();
+            }
+
+        } catch (error) {
+            console.error('Error loading calendar events:', error);
+            this.showToast('Failed to load calendar events', 'error');
+        }
+    }
+
     renderContactsWithCalendarSync() {
         // Create map of calendar events
         const eventMap = new Map();
@@ -1080,31 +1132,25 @@ export class EventManageApp {
             const eventKey = `${event.title.toLowerCase()}_${eventDate}`;
             eventMap.set(eventKey, event);
         });
-    
+
         // Render contacts
         const $contactsContent = $("#contacts");
         $contactsContent.empty();
         let html = '';
-    
+
         this.contacts.slice().reverse().forEach(contact => {
             if (!contact || !contact.startTime || !contact.name) return;
-    
+
             const contactDate = moment.tz(contact.startTime, 'America/New_York');
             const formattedDate = contactDate.format("MM/DD/YYYY");
             const lookupKey = `${contact.name.toLowerCase()}_${contactDate.format('YYYY-MM-DD')}`;
-    
-            let colour = "blue"; 
+
+            let colour = "blue";
             let statusIcons = '';
-            let attendanceInfo = '';
-    
-            // Add attendance info if available
-            if (contact.attendance) {
-                attendanceInfo = `<span class="text-sm text-gray-600">(${contact.attendance} ppl)</span>`;
-            }
-    
+
             // Check calendar entry
             const hasCalendarEntry = eventMap.has(lookupKey);
-    
+
             if (hasCalendarEntry) {
                 statusIcons += '<i class="bi bi-calendar-check-fill text-success ml-2"></i>';
             } else {
@@ -1121,7 +1167,7 @@ export class EventManageApp {
                     colour = "lightgrey";
                 }
             }
-    
+
             html += `
                 <div class="contactCont hover:bg-base-200 transition-colors" 
                      data-id="${_.escape(contact.id)}" 
@@ -1130,13 +1176,13 @@ export class EventManageApp {
                        style="color:${_.escape(colour)};" 
                        data-id="${_.escape(contact.id)}">
                         <span class="flex-1">
-                            ${_.escape(contact.name)} (${_.escape(formattedDate)}) ${attendanceInfo}
+                            ${_.escape(contact.name)} (${_.escape(formattedDate)})
                         </span>
                         <span class="flex items-center">${statusIcons}</span>
                     </a>
                 </div>`;
         });
-    
+
         $contactsContent.append(html);
     }
 

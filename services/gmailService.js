@@ -65,21 +65,20 @@ class GmailService {
         } catch (error) {
             console.error('Error loading last retrieval date:', error);
         }
-        // Default to 7 days ago if no date found
-        return moment().subtract(7, 'days').format('YYYY/MM/DD');
+        // Default to 30 minutes ago if no date found
+        return moment().subtract(30, 'minutes').format('YYYY-MM-DD HH:mm:ss');
     }
-
+    
     saveLastRetrievalDate() {
         try {
             const data = {
-                lastRetrieval: moment().format('YYYY/MM/DD')
+                lastRetrieval: moment().format('YYYY-MM-DD HH:mm:ss')
             };
             fs.writeFileSync(this.lastRetrievalPath, JSON.stringify(data, null, 2), 'utf8');
         } catch (error) {
             console.error('Error saving last retrieval date:', error);
         }
     }
-
     saveEmailsToCache(emails) {
         try {
             // Sort before saving
@@ -560,40 +559,6 @@ class GmailService {
             fs.writeFileSync(this.cacheFilePath, JSON.stringify(cachedEmails, null, 2), 'utf8');
         } catch (error) {
             console.error('Error updating email in cache:', error);
-        }
-    }
-
-    async getAllEmails(maxResults = 100, onlyImportant = false) {
-        try {
-            // First load from cache
-            let cachedEmails = this.loadEmailsFromCache();
-
-            // Check if we need to fetch new emails
-            const lastRetrievalDate = moment(this.loadLastRetrievalDate(), "YYYY/MM/DD");
-            const now = moment();
-            const needsUpdate = !cachedEmails.length || lastRetrievalDate.isBefore(now, 'day');
-
-            if (needsUpdate) {
-                // listMessages now returns fully processed messages
-                const processedMessages = await this.listMessages({
-                    maxResults,
-                    onlyImportant
-                });
-
-                // Merge new emails with cached ones, maintaining order
-                const allEmails = this.mergeEmails(cachedEmails, processedMessages);
-
-                // Save updated cache
-                this.saveEmailsToCache(allEmails);
-
-                return allEmails;
-            }
-
-            return cachedEmails;
-        } catch (error) {
-            console.error('Error getting all emails:', error);
-            // If there's an error fetching new emails, return cached emails
-            return this.loadEmailsFromCache();
         }
     }
 

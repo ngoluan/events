@@ -45,19 +45,17 @@ module.exports = (googleAuth) => {
             const type = req.query.type || 'all';
             const email = req.query.email;
             const forceRefresh = req.query.forceRefresh === 'true';
-
+    
             let emails;
-            if (forceRefresh) {
-                emails = await gmail.forceFullRefresh();
-            } else if (type === 'contact' && email) {
+            if (type === 'contact' && email) {
                 emails = await gmail.getEmailsForContact(email);
             } else {
-                emails = await gmail.getAllEmails();
+                emails = await gmail.getAllEmails(100, false, forceRefresh);
             }
-
+    
             // filter for labels inbox
             emails = emails.filter(email => email.labels.includes('INBOX'));
-
+    
             res.json(emails);
         } catch (error) {
             console.error('Error reading Gmail:', error);
