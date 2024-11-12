@@ -4,5 +4,6 @@
   "public/calendar.js",
   "public/ReceiptManager.js",
   "public/EmailProcessor.js",
+  "public/EmailEventUpdater.js",
   "src/styles.css"
 ]

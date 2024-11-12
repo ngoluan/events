@@ -50,7 +50,7 @@ module.exports = (googleAuth) => {
             if (type === 'contact' && email) {
                 emails = await gmail.getEmailsForContact(email);
             } else {
-                emails = await gmail.getAllEmails(100, false, forceRefresh);
+                emails = await gmail.getAllEmails(50, false, forceRefresh);
             }
     
             // filter for labels inbox

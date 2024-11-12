@@ -599,27 +599,31 @@ class GmailService {
         try {
             // First load from cache
             let cachedEmails = this.loadEmailsFromCache();
-
+    
             // Check if we need to fetch new emails
-            const lastRetrievalDate = moment(this.loadLastRetrievalDate(), "YYYY/MM/DD");
+            const lastRetrievalDate = moment(this.loadLastRetrievalDate(), "YYYY-MM-DD HH:mm");
             const now = moment();
-            const needsUpdate = !cachedEmails.length || lastRetrievalDate.isBefore(now, 'day');
-
-            // listMessages now returns fully processed messages
+            const needsUpdate = !cachedEmails.length || lastRetrievalDate.isBefore(now, 'minute');
+    
+            // If no update needed, return cached emails
+            if (!needsUpdate) {
+                return cachedEmails;
+            }
+    
+            // If update needed, fetch and process new emails
             const processedMessages = await this.listMessages({
                 maxResults,
                 onlyImportant
             });
-
+    
             // Merge new emails with cached ones, maintaining order
             const allEmails = this.mergeEmails(cachedEmails, processedMessages);
-
+    
             // Save updated cache
             this.saveEmailsToCache(allEmails);
 
-            return allEmails;
-
-            return cachedEmails;
+            // limit to maxResults
+            return allEmails.slice(0, maxResults);
         } catch (error) {
             console.error('Error getting all emails:', error);
             // If there's an error fetching new emails, return cached emails

@@ -16,6 +16,7 @@ export class EventManageApp {
         };
         this.backgroundInfo = {};
         this.emailsLoaded = false;
+        this.emailEventUpdater = new EmailEventUpdater(this);
         this.initializeToastContainer();
     }
 
@@ -517,7 +518,22 @@ export class EventManageApp {
             e.preventDefault();
             this.generateDeposit();
         });
+        $(document).on('click', '.updateEventInfo', async (e) => {
+            e.preventDefault();
+            const $emailContainer = $(e.target).closest('.sms');
+            const emailContent = $emailContainer.find('.email').text();
+            const emailAddress = $emailContainer.attr('to');
 
+            const button = e.target.closest('.updateEventInfo');
+            const originalHtml = button.innerHTML;
+            button.innerHTML = '<i class="bi bi-hourglass-split animate-spin"></i>';
+
+            try {
+                await this.emailEventUpdater.updateEventFromEmail(emailContent, emailAddress);
+            } finally {
+                button.innerHTML = originalHtml;
+            }
+        });
         $(document).on("click", "#summarizeEvent", async (e) => {
             e.preventDefault();
             await this.summarizeEventAiHandler();
@@ -1025,6 +1041,10 @@ export class EventManageApp {
                         <button class="icon-btn archiveEmail tooltip tooltip-top" data-tip="Archive Email">
                             <i class="bi bi-archive"></i>
                         </button>
+                         <button class="icon-btn updateEventInfo tooltip tooltip-top" data-tip="Update Event Info">
+                            <i class="bi bi-arrow-up-circle"></i>
+                        </button>
+                        
                     </div>
                 </div>`;
         });

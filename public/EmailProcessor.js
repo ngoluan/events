@@ -3,6 +3,7 @@ class EmailProcessor {
         this.currentConversationId = null;
         this.registerEvents();
         this.parent = parent;
+
     }
 
     registerEvents() {

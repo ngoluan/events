@@ -18,6 +18,7 @@ export class EventManageApp {
         };
         this.backgroundInfo = {};
         this.emailsLoaded = false;
+        this.emailEventUpdater = new EmailEventUpdater(this);
         this.initializeToastContainer();
     }
 
@@ -451,12 +452,12 @@ export class EventManageApp {
             }
 
             const data = await response.json();
-            
+
             
             const formattedResult = `${data.summary}.`;
 
             this.writeToAIResult(formattedResult);
-            
+
             
             this.loadContact(this.currentId);
 
@@ -519,7 +520,22 @@ export class EventManageApp {
             e.preventDefault();
             this.generateDeposit();
         });
-        
+        $(document).on('click', '.updateEventInfo', async (e) => {
+            e.preventDefault();
+            const $emailContainer = $(e.target).closest('.sms');
+            const emailContent = $emailContainer.find('.email').text();
+            const emailAddress = $emailContainer.attr('to');
+
+            const button = e.target.closest('.updateEventInfo');
+            const originalHtml = button.innerHTML;
+            button.innerHTML = '<i class="bi bi-hourglass-split animate-spin"></i>';
+
+            try {
+                await this.emailEventUpdater.updateEventFromEmail(emailContent, emailAddress);
+            } finally {
+                button.innerHTML = originalHtml;
+            }
+        });
         $(document).on("click", "#summarizeEvent", async (e) => {
             e.preventDefault();
             await this.summarizeEventAiHandler();
@@ -1027,6 +1043,10 @@ export class EventManageApp {
                         <button class="icon-btn archiveEmail tooltip tooltip-top" data-tip="Archive Email">
                             <i class="bi bi-archive"></i>
                         </button>
+                         <button class="icon-btn updateEventInfo tooltip tooltip-top" data-tip="Update Event Info">
+                            <i class="bi bi-arrow-up-circle"></i>
+                        </button>
+                        
                     </div>
                 </div>`;
         });
@@ -1074,6 +1094,58 @@ export class EventManageApp {
                 this.showToast('Failed to load contacts', 'error');
             });
     }
+    async createCalendar() {
+        this.mainCalendar = new Calendar('calendar');
+        try {
+            const data = await $.get("/calendar/getEventCalendar");
+
+            
+            this.calendarEvents = data.map((event, index) => {
+                const timezone = 'America/New_York';
+                const startTime = moment.tz(event.start.dateTime || event.start.date, timezone);
+                const endTime = moment.tz(event.end.dateTime || event.end.date, timezone);
+
+                
+                const contact = this.contacts.find(c => {
+                    const contactDate = moment.tz(c.startTime, timezone).format('YYYY-MM-DD');
+                    const eventDate = startTime.format('YYYY-MM-DD');
+                    return c.name && event.summary.toLowerCase().includes(c.name.toLowerCase()) && contactDate === eventDate;
+                });
+
+                
+                const attendanceInfo = contact?.attendance ? ` (${contact.attendance} ppl)` : '';
+                event.summary = `${event.summary} <br>${startTime.format("HHmm")}-${endTime.format("HHmm")}${attendanceInfo}`;
+
+                let calendarEnd = endTime.clone();
+                if (endTime.isAfter(startTime.clone().hour(23).minute(59))) {
+                    calendarEnd = startTime.clone().hour(23).minute(59);
+                }
+
+                return {
+                    id: index,
+                    title: event.summary || 'No Title',
+                    startTime: startTime.format(),
+                    endTime: calendarEnd.format(),
+                    description: event.description || '',
+                    room: event.location || '',
+                    attendance: contact?.attendance
+                };
+            });
+
+            
+            this.mainCalendar.loadEvents(this.calendarEvents);
+
+            
+            if (this.contacts.length > 0) {
+                this.renderContactsWithCalendarSync();
+            }
+
+        } catch (error) {
+            console.error('Error loading calendar events:', error);
+            this.showToast('Failed to load calendar events', 'error');
+        }
+    }
+
     renderContactsWithCalendarSync() {
         
         const eventMap = new Map();
@@ -1095,8 +1167,7 @@ export class EventManageApp {
             const formattedDate = contactDate.format("MM/DD/YYYY");
             const lookupKey = `${contact.name.toLowerCase()}_${contactDate.format('YYYY-MM-DD')}`;
 
-            
-            let colour = "blue"; 
+            let colour = "blue";
             let statusIcons = '';
 
             
@@ -1126,7 +1197,9 @@ export class EventManageApp {
                     <a href="#" class="contactBtn flex items-center justify-between p-2" 
                        style="color:${_.escape(colour)};" 
                        data-id="${_.escape(contact.id)}">
-                        <span class="flex-1">${_.escape(contact.name)} (${_.escape(formattedDate)})</span>
+                        <span class="flex-1">
+                            ${_.escape(contact.name)} (${_.escape(formattedDate)})
+                        </span>
                         <span class="flex items-center">${statusIcons}</span>
                     </a>
                 </div>`;
@@ -1248,7 +1321,16 @@ export class EventManageApp {
                 const startTime = moment.tz(event.start.dateTime || event.start.date, timezone);
                 const endTime = moment.tz(event.end.dateTime || event.end.date, timezone);
 
-                event.summary = `${event.summary} <br>${startTime.format("HHmm")}-${endTime.format("HHmm")}`;
+                
+                const contact = this.contacts.find(c => {
+                    const contactDate = moment.tz(c.startTime, timezone).format('YYYY-MM-DD');
+                    const eventDate = startTime.format('YYYY-MM-DD');
+                    return c.name && event.summary.toLowerCase().includes(c.name.toLowerCase()) && contactDate === eventDate;
+                });
+
+                
+                const attendance = contact?.attendance ? ` (${contact.attendance} ppl)` : '';
+                event.summary = `${event.summary} <br>${startTime.format("HHmm")}-${endTime.format("HHmm")}${attendance}`;
 
                 let calendarEnd = endTime.clone();
                 if (endTime.isAfter(startTime.clone().hour(23).minute(59))) {
@@ -1261,7 +1343,8 @@ export class EventManageApp {
                     startTime: startTime.format(),
                     endTime: calendarEnd.format(),
                     description: event.description || '',
-                    room: event.location || ''
+                    room: event.location || '',
+                    attendance: contact?.attendance
                 };
             });
 
@@ -1270,7 +1353,7 @@ export class EventManageApp {
 
             
             if (this.contacts.length > 0) {
-                this.getAllContacts();
+                this.renderContactsWithCalendarSync();
             }
 
         } catch (error) {
@@ -1547,26 +1630,26 @@ export class EventManageApp {
     generateDeposit() {
         const rentalFee = parseFloat($("#infoRentalRate").val()) || 0;
         const minSpend = parseFloat($("#infoMinSpend").val()) || 0;
-        
+
         if (!rentalFee && !minSpend) {
             this.showToast("Please set either a rental fee or minimum spend first", "warning");
             return;
         }
-        
+
         let depositText;
         if (rentalFee > 0) {
-            depositText = `$${(rentalFee/2).toFixed(2)} deposit to book.`;
+            depositText = `$${(rentalFee / 2).toFixed(2)} deposit to book.`;
         } else {
-            const deposit = Math.min(minSpend/2, 1200);
+            const deposit = Math.min(minSpend / 2, 1200);
             depositText = `To host an event, a deposit of $${deposit.toFixed(2)} is required along with a minimum spend of $${minSpend.toFixed(2)} for the night. If the minimum spend requirement is met, the full deposit amount will be refunded. However, if the spend falls below the minimum requirement, the deposit will be forfeited in proportion to the amount by which the spend falls short.`;
         }
-        
+
         const currentNotes = $("#infoNotes").val();
         const updatedNotes = currentNotes ? `${currentNotes}\n\n${depositText}` : depositText;
         $("#infoNotes").val(updatedNotes);
         this.showToast("Deposit information added to notes", "success");
     }
-    
+
 
     async summarizeLastEmails() {
         try {
@@ -2137,6 +2220,7 @@ export class EventManageApp {
         crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="https:
     <script src="https:
+    <script src="/EmailEventUpdater.js"></script>
     <script src="/EmailProcessor.js"></script>
     <script src="/ReceiptManager.js"></script>
     <script src="/calendar.js"></script>
@@ -2168,6 +2252,7 @@ class Calendar {
         this.containerId = containerId;
         this.currentDate = new Date();
         this.events = [];
+        this.weatherData = new Map();
         $(document).ready(() => this.initialize());
     }
     
@@ -2256,34 +2341,120 @@ class Calendar {
     refreshCalendar() {
         this.generateCalendar(this.currentDate);
     }
+    getWMOIcon(code) {
+        
+        const weatherCodes = {
+            0: { icon: 'bi-sun-fill', class: 'text-yellow-500' },  
+            1: { icon: 'bi-sun-fill', class: 'text-yellow-500' },  
+            2: { icon: 'bi-cloud-sun-fill', class: 'text-gray-500' },  
+            3: { icon: 'bi-cloud-fill', class: 'text-gray-500' },  
+
+            
+            45: { icon: 'bi-cloud-haze-fill', class: 'text-gray-400' },  
+            48: { icon: 'bi-cloud-haze-fill', class: 'text-gray-400' },  
+
+            
+            51: { icon: 'bi-cloud-drizzle-fill', class: 'text-blue-400' },  
+            53: { icon: 'bi-cloud-drizzle-fill', class: 'text-blue-400' },  
+            55: { icon: 'bi-cloud-drizzle-fill', class: 'text-blue-400' },  
+
+            
+            56: { icon: 'bi-cloud-sleet-fill', class: 'text-blue-300' },  
+            57: { icon: 'bi-cloud-sleet-fill', class: 'text-blue-300' },  
+
+            
+            61: { icon: 'bi-cloud-rain-fill', class: 'text-blue-500' },  
+            63: { icon: 'bi-cloud-rain-fill', class: 'text-blue-500' },  
+            65: { icon: 'bi-cloud-rain-heavy-fill', class: 'text-blue-600' },  
+
+            
+            66: { icon: 'bi-cloud-sleet-fill', class: 'text-blue-300' },  
+            67: { icon: 'bi-cloud-sleet-fill', class: 'text-blue-300' },  
+
+            
+            71: { icon: 'bi-snow', class: 'text-blue-200' },  
+            73: { icon: 'bi-snow', class: 'text-blue-200' },  
+            75: { icon: 'bi-snow-fill', class: 'text-blue-200' },  
+
+            
+            77: { icon: 'bi-snow', class: 'text-blue-200' },  
+
+            
+            80: { icon: 'bi-cloud-rain-fill', class: 'text-blue-500' },  
+            81: { icon: 'bi-cloud-rain-fill', class: 'text-blue-500' },  
+            82: { icon: 'bi-cloud-rain-heavy-fill', class: 'text-blue-600' },  
+
+            
+            85: { icon: 'bi-snow', class: 'text-blue-200' },  
+            86: { icon: 'bi-snow-fill', class: 'text-blue-200' },  
+
+            
+            95: { icon: 'bi-cloud-lightning-fill', class: 'text-yellow-600' },  
+            96: { icon: 'bi-cloud-lightning-rain-fill', class: 'text-yellow-600' },  
+            99: { icon: 'bi-cloud-lightning-rain-fill', class: 'text-yellow-600' }   
+        };
+
+        return weatherCodes[code] || { icon: 'bi-question-circle', class: 'text-gray-500' };
+    }
+
+    async fetchWeatherData() {
+        try {
+            const response = await fetch('https:
+            const data = await response.json();
+
+            
+            data.daily.time.forEach((date, index) => {
+                this.weatherData.set(date, {
+                    weatherCode: data.daily.weather_code[index],
+                    maxTemp: Math.round(data.daily.temperature_2m_max[index]),
+                    minTemp: Math.round(data.daily.temperature_2m_min[index])
+                });
+            });
+        } catch (error) {
+            console.error('Error fetching weather data:', error);
+        }
+    }
+
     generateCalendar(d) {
         const firstDayOfMonth = new Date(d.getFullYear(), d.getMonth(), 1).getDay();
         const totalDays = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
         let html = '<table class="table calendar"><thead><tr>';
+
         for (let i = 0; i < 7; i++) {
             html += `<th>${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][i]}</th>`;
         }
         html += '</tr></thead><tbody><tr>';
 
         
-        const roomClasses = {
-            "DiningRoom": "event-room-1",
-            "Lounge": "event-room-2"
-            
-        };
-
-        
         for (let i = 0; i < firstDayOfMonth; i++) {
-            html += '<td></td>'; 
+            html += '<td></td>';
         }
 
         for (let day = 1; day <= totalDays; day++) {
             const dayDate = new Date(d.getFullYear(), d.getMonth(), day);
+            const dateStr = moment(dayDate).format('YYYY-MM-DD');
+            const weather = this.weatherData.get(dateStr);
+
             if ((day + firstDayOfMonth - 1) % 7 === 0 && day > 1) {
-                html += '</tr><tr>'; 
+                html += '</tr><tr>';
             }
 
-            html += `<td class="day" data-date="${dayDate.toISOString().split('T')[0]}">${day}`;
+            html += `
+                <td class="day relative" data-date="${dateStr}">
+                    <div class="flex justify-between items-start">
+                        <span class="font-bold">${day}</span>
+                        ${weather ? `
+                            <div class="weather-info text-xs flex flex-col items-end">
+                                <div class="flex items-center gap-1">
+                                    <i class="bi ${this.getWMOIcon(weather.weatherCode).icon} ${this.getWMOIcon(weather.weatherCode).class}"></i>
+                                </div>
+                                <div class="text-right">
+                                    <span class="text-red-500">${weather.maxTemp}°</span>
+                                    <span class="text-blue-500">${weather.minTemp}°</span>
+                                </div>
+                            </div>
+                        ` : ''}
+                    </div>`;
 
             
             const eventsForDay = this.events.filter(event => {
@@ -2292,11 +2463,11 @@ class Calendar {
                 return dayDate >= eventStart && dayDate <= eventEnd;
             });
 
-            
             eventsForDay.forEach(event => {
-                html += `<div class="event-bar" data-eventid="${event.id}" title="${event.title}: ${event.description}">
-          ${event.title}
-        </div>`;
+                html += `
+                    <div class="event-bar mt-2" data-eventid="${event.id}" title="${event.title}">
+                        ${event.title}
+                    </div>`;
             });
 
             html += `</td>`;
@@ -2305,7 +2476,7 @@ class Calendar {
         
         const lastDayOfMonth = new Date(d.getFullYear(), d.getMonth(), totalDays).getDay();
         for (let i = lastDayOfMonth; i < 6; i++) {
-            html += '<td></td>'; 
+            html += '<td></td>';
         }
 
         html += '</tr></tbody></table>';
@@ -2317,11 +2488,8 @@ class Calendar {
             this.eventClickHandler(eventId);
         });
 
-        
         this.updateMonthYear(d);
     }
-
-
 
     updateMonthYear(d) {
         $('#month', '#' + this.containerId).text(['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'][d.getMonth()]);
@@ -2338,12 +2506,14 @@ class Calendar {
         });
     }
 
-    changeMonth(offset) {
+    async changeMonth(offset) {
         this.currentDate.setMonth(this.currentDate.getMonth() + offset);
+        await this.fetchWeatherData(); 
         this.refreshCalendar();
     }
 
-    initialize() {
+    async initialize() {
+        await this.fetchWeatherData();
         this.constructHTML();
         this.refreshCalendar();
     }
@@ -2656,6 +2826,7 @@ class EmailProcessor {
         this.currentConversationId = null;
         this.registerEvents();
         this.parent = parent;
+
     }
 
     registerEvents() {
@@ -2838,6 +3009,124 @@ class EmailProcessor {
             const statusHtml = `<div class="text-muted small mt-2">Conversation messages: ${messageCount}</div>`;
             $('.aiChatReponse').first().find('.aiChatReponseContent').after(statusHtml);
         }
+    }
+}
+
+//--- File: /home/luan_ngo/web/events/public/EmailEventUpdater.js ---
+class EmailEventUpdater {
+    constructor(app) {
+        this.app = app;
+        this.highlightedFields = new Set();
+    }
+
+    async updateEventFromEmail(emailContent, emailAddress) {
+        try {
+            
+            const event = this.app.contacts.find(contact => 
+                contact.email && contact.email.toLowerCase() === emailAddress.toLowerCase()
+            );
+
+            if (!event) {
+                this.app.showToast('No matching event found for this email', 'error');
+                return;
+            }
+
+            
+            this.app.loadContact(event.id);
+
+            
+            const response = await fetch('/ai/analyzeEventUpdate', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    eventDetails: event,
+                    emailContent: emailContent
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to analyze event update');
+            }
+
+            const result = await response.json();
+            
+            if (!result.success) {
+                throw new Error(result.error || 'Failed to analyze event update');
+            }
+
+            
+            const timestamp = moment().format('MM/DD/YYYY HH:mm');
+            const updatedNotes = `[${timestamp}] Update from email:\n${result.summary}\n\n${event.notes || ''}`;
+            
+            
+            event.notes = updatedNotes;
+            
+            
+            const updatedFields = new Set(['notes']);
+            this.updateUI(event, updatedFields);
+
+            
+            
+
+            
+            
+
+            return true;
+        } catch (error) {
+            console.error('Error updating event from email:', error);
+            this.app.showToast('Failed to update event information', 'error');
+            return false;
+        }
+    }
+
+    updateUI(event, updatedFields) {
+        
+        this.clearHighlights();
+        this.highlightedFields = updatedFields;
+
+        
+        updatedFields.forEach(field => {
+            const element = document.getElementById(`info${field.charAt(0).toUpperCase() + field.slice(1)}`);
+            if (element) {
+                
+                if (field === 'notes') {
+                    element.value = event.notes;
+                } else {
+                    element.value = event[field];
+                }
+
+                
+                const label = element.previousElementSibling;
+                if (label && label.classList.contains('label')) {
+                    label.style.backgroundColor = '#fff3cd';
+                }
+            }
+        });
+
+        
+        const saveButton = document.getElementById('infoSave');
+        if (saveButton) {
+            const originalClick = saveButton.onclick;
+            saveButton.onclick = (e) => {
+                if (originalClick) originalClick(e);
+                this.clearHighlights();
+            };
+        }
+    }
+
+    clearHighlights() {
+        this.highlightedFields.forEach(field => {
+            const element = document.getElementById(`info${field.charAt(0).toUpperCase() + field.slice(1)}`);
+            if (element) {
+                const label = element.previousElementSibling;
+                if (label && label.classList.contains('label')) {
+                    label.style.backgroundColor = '';
+                }
+            }
+        });
+        this.highlightedFields.clear();
     }
 }
 
