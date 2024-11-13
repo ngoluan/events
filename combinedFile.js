@@ -62,6 +62,68 @@ export class EventManageApp {
         });
 
         this.initializeBackgroundInfo();
+        this.initializeMobileNavigation();
+
+    }
+
+    initializeMobileNavigation() {
+        window.scrollToSection = (sectionId) => {
+            const section = document.getElementById(sectionId);
+            if (section) {
+                
+                document.querySelectorAll('.btm-nav button').forEach(btn => {
+                    btn.classList.remove('active');
+                });
+                
+                
+                const button = document.querySelector(`.btm-nav button[onclick*="${sectionId}"]`);
+                if (button) {
+                    button.classList.add('active');
+                }
+    
+                
+                section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        };
+    
+        
+        document.querySelectorAll('.btm-nav button').forEach(button => {
+            button.addEventListener('click', function() {
+                
+                document.querySelectorAll('.btm-nav button').forEach(btn => {
+                    btn.classList.remove('active');
+                });
+                
+                
+                this.classList.add('active');
+            });
+        });
+    
+        
+        window.addEventListener('scroll', () => {
+            const sections = ['contacts', 'info', 'messages', 'actions', 'calendar'];
+            let currentSection = '';
+    
+            sections.forEach(sectionId => {
+                const section = document.getElementById(sectionId);
+                if (section) {
+                    const rect = section.getBoundingClientRect();
+                    if (rect.top <= 100 && rect.bottom >= 100) {
+                        currentSection = sectionId;
+                    }
+                }
+            });
+    
+            if (currentSection) {
+                document.querySelectorAll('.btm-nav button').forEach(btn => {
+                    btn.classList.remove('active');
+                });
+                const activeButton = document.querySelector(`.btm-nav button[onclick*="${currentSection}"]`);
+                if (activeButton) {
+                    activeButton.classList.add('active');
+                }
+            }
+        });
     }
     showReceiptManager() {
         if (this.currentId === -1) {
@@ -1701,7 +1763,7 @@ export class EventManageApp {
             <h1 class="text-2xl font-bold text-base-content">Event Management</h1>
         </div>
         
-        <div class=" lg:flex fixed top-4 right-4 gap-2 z-50">
+        <div class="hidden lg:flex fixed top-4 right-4 gap-2 z-50">
             <button class="btn btn-ghost btn-circle tooltip tooltip-left" data-tip="Contacts">
                 <i class="bi bi-address-book text-xl"></i>
             </button>
@@ -2001,8 +2063,8 @@ export class EventManageApp {
                 
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     
-                    <section id="messages" class="card bg-base-100 shadow-lg">
-                        <div class="card-body">
+                    <section id="messages" class="card bg-base-100 shadow-lg h-[75vh]">
+                        <div class="card-body flex flex-col">
                             <div class="flex justify-between items-center mb-4">
                                 <h2 class="card-title text-lg">Messages</h2>
                                 <div class="flex gap-2">
@@ -2096,7 +2158,7 @@ export class EventManageApp {
             </main>
         </div>
         <div class="container py-6">
-            <section id="calendar" class="card bg-base-100 shadow-lg ">
+            <section id="calendar" class="card bg-base-100 shadow-lg">
                 <div class="card-body">
                     <h2 class="card-title text-lg mb-4">Calendar</h2>
                     <div id="calendarContainer" class="w-full">
@@ -2108,22 +2170,20 @@ export class EventManageApp {
     </div>
 
 
-
-    
-    <nav class="btm-nav lg:hidden">
-        <button class="active tooltip tooltip-top" data-tip="Contacts">
-            <i class="bi bi-address-book text-xl"></i>
+    <nav class="btm-nav md:hidden"> 
+        <button onclick="scrollToSection('contacts')" class="tooltip tooltip-top" data-tip="Contacts">
+            <i class="bi bi-people text-xl"></i> 
         </button>
-        <button class="tooltip tooltip-top" data-tip="Event Details">
+        <button onclick="scrollToSection('info')" class="tooltip tooltip-top" data-tip="Event Details">
             <i class="bi bi-info-circle text-xl"></i>
         </button>
-        <button class="tooltip tooltip-top" data-tip="Messages">
+        <button onclick="scrollToSection('messages')" class="tooltip tooltip-top" data-tip="Messages">
             <i class="bi bi-envelope text-xl"></i>
         </button>
-        <button class="tooltip tooltip-top" data-tip="Actions">
+        <button onclick="scrollToSection('actions')" class="tooltip tooltip-top" data-tip="Actions">
             <i class="bi bi-list text-xl"></i>
         </button>
-        <button class="tooltip tooltip-top" data-tip="Calendar">
+        <button onclick="scrollToSection('calendar')" class="tooltip tooltip-top" data-tip="Calendar">
             <i class="bi bi-calendar text-xl"></i>
         </button>
         <button onclick="window.user_settings_modal.showModal()" class="tooltip tooltip-top" data-tip="Settings">
@@ -2526,300 +2586,6 @@ class Calendar {
 
 
 
-//--- File: /home/luan_ngo/web/events/public/ReceiptManager.js ---
-class ReceiptManager {
-  constructor(rentalFee) {
-    this.items = [];
-    this.tipPercent = 0;
-    this.ccSurcharge = false;
-    this.taxRate = 0.13;
-    this.rentalFee = rentalFee || 0;
-
-    this.createDialog();
-    this.initializeEventListeners();
-
-    
-    this.dialog.showModal();
-  }
-  createDialog() {
-    const dialogHtml = `
-        <dialog id="receiptDialog" class="modal">
-            <div class="modal-box max-w-2xl">
-                <div id="receiptContent">
-                    
-                    <div class="text-center space-y-2 mt-6">
-                        <p class="text-sm">I say taco, you say taco!</p>
-                        <h1 class="font-bold text-2xl">TacoTaco</h1>
-                        <p class="text-sm">319 Augusta Ave. Toronto ON M5T2M2</p>
-                    </div>
-
-                    
-                    <div class="space-y-4 mt-6">
-                        <table class="table w-full" id="receiptItems">
-                            <thead>
-                                <tr>
-                                    <th class="text-left">Item</th>
-                                    <th class="text-right w-20">Qty</th>
-                                    <th class="text-right w-24">Price</th>
-                                    <th class="text-right w-24">Total</th>
-                                    <th class="w-12"></th>
-                                </tr>
-                            </thead>
-                            <tbody></tbody>
-                        </table>
-                    </div>
-
-                    
-                    <div class="space-y-2 border-t pt-4 mt-8">
-                        <div class="flex justify-between">
-                            <span>Subtotal</span>
-                            <span id="subtotalAmount">$0.00</span>
-                        </div>
-
-                        <div class="flex justify-between">
-                            <span>Tip (<span id="tipPercentDisplay">0</span>%)</span>
-                            <span id="tipAmount">$0.00</span>
-                        </div>
-
-                        <div class="flex justify-between items-center">
-                            <label class="flex items-center gap-2 cursor-pointer">
-                                <span>CC Surcharge <span id="ccLabel"></span></span>
-                                <input type="checkbox" id="ccSurcharge" class="checkbox checkbox-sm print:hidden">
-                            </label>
-                            <span id="surchargeAmount">$0.00</span>
-                        </div>
-
-                        <div class="flex justify-between">
-                            <span>Tax (13%)</span>
-                            <span id="taxAmount">$0.00</span>
-                        </div>
-
-                        <div class="flex justify-between font-bold text-lg border-t pt-2">
-                            <span>Total</span>
-                            <span id="totalAmount">$0.00</span>
-                        </div>
-                    </div>
-
-                    
-                    <div class="text-center text-sm space-y-1 mt-8">
-                        <div>eattaco.ca@tacotacoto</div>
-                        <div>GST/HST #: 773762067RT0001</div>
-                    </div>
-                </div> 
-
-                
-                <div class="border-t mt-8 pt-4 print:hidden">
-                    <h3 class="font-semibold text-lg mb-4">Receipt Controls</h3>
-
-                    
-                    <div class="mb-4">
-                        <div class="flex items-center gap-2">
-                            <span class="w-24">Tip Amount:</span>
-                            <select id="tipPercent" class="select select-bordered select-sm">
-                                <option value="0">0%</option>
-                                <option value="10">10%</option>
-                                <option value="15">15%</option>
-                                <option value="18">18%</option>
-                                <option value="20">20%</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    
-                    <div class="overflow-x-auto">
-                        <table class="table w-full">
-                            <thead>
-                                <tr>
-                                    <th class="text-left">Item</th>
-                                    <th class="text-left">Quantity</th>
-                                    <th class="text-left">Price</th>
-                                    <th></th> 
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr>
-                                    <td>
-                                        <input type="text" id="newItemName" placeholder="Item name" value="Rental"
-                                               class="input input-bordered input-sm w-full">
-                                    </td>
-                                    <td>
-                                        <input type="number" id="newItemQty" placeholder="Qty" value="1" min="1"
-                                               class="input input-bordered input-sm w-full">
-                                    </td>
-                                    <td>
-                                        <input type="number" id="newItemPrice" placeholder="Price" step="0.01"
-                                               value="${((this.rentalFee/2)/1.13).toFixed(2)}"
-                                               class="input input-bordered input-sm w-full">
-                                    </td>
-                                    <td class="text-center">
-                                        <button id="addItemBtn" class="btn btn-sm btn-ghost btn-square text-success">
-                                            <span class="font-bold text-lg">+</span>
-                                        </button>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-                
-                <div class="modal-action mt-6 print:hidden">
-                    <button id="downloadReceiptBtn" class="btn btn-success gap-2">
-                        Save as Image
-                    </button>
-                    <button id="printReceiptBtn" class="btn btn-primary">
-                        Print
-                    </button>
-                    <form method="dialog">
-                        <button class="btn">Close</button>
-                    </form>
-                </div>
-            </div>
-            <form method="dialog" class="modal-backdrop">
-                <button>close</button>
-            </form>
-        </dialog>
-    `;
-
-    document.body.insertAdjacentHTML('beforeend', dialogHtml);
-    this.dialog = document.getElementById('receiptDialog');
-}
-
-
-  
-  initializeEventListeners() {
-    
-    document.getElementById('addItemBtn').addEventListener('click', () => {
-      this.handleAddItem();
-    });
-
-    
-    document.getElementById('newItemPrice').addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') {
-        this.handleAddItem();
-      }
-    });
-
-    document.getElementById('tipPercent').addEventListener('change', (e) => {
-      this.tipPercent = parseInt(e.target.value);
-      document.getElementById('tipPercentDisplay').textContent = this.tipPercent;
-      this.updateTotals();
-    });
-    
-    document.getElementById('ccSurcharge').addEventListener('change', (e) => {
-      this.ccSurcharge = e.target.checked;
-      document.getElementById('ccLabel').textContent = this.ccSurcharge ? '(2.4%)' : '';
-      this.updateTotals();
-    });
-
-    
-    document.getElementById('printReceiptBtn').addEventListener('click', () => {
-      window.print();
-    });
-
-    
-    document.getElementById('downloadReceiptBtn').addEventListener('click', () => {
-      this.downloadAsImage();
-    });
-
-    
-    this.dialog.addEventListener('close', () => {
-      this.dialog.remove();
-      delete window.currentReceipt;
-    });
-  }
-
-  handleAddItem() {
-    const nameInput = document.getElementById('newItemName');
-    const qtyInput = document.getElementById('newItemQty');
-    const priceInput = document.getElementById('newItemPrice');
-
-    const name = nameInput.value;
-    const quantity = parseInt(qtyInput.value);
-    const price = parseFloat(priceInput.value);
-
-    if (name && quantity > 0 && price >= 0) {
-      this.addItem({ name, quantity, price });
-      nameInput.value = 'Rental';
-      qtyInput.value = '1';
-      priceInput.value = this.rentalFee.toFixed(2);
-      priceInput.focus();
-    }
-  }
-
-  addItem({ name, quantity, price }) {
-    const item = { name, quantity, price, id: Date.now() };
-    this.items.push(item);
-    this.renderItems();
-    this.updateTotals();
-  }
-
-  removeItem(itemId) {
-    this.items = this.items.filter(item => item.id !== itemId);
-    this.renderItems();
-    this.updateTotals();
-  }
-
-  renderItems() {
-    const tbody = document.querySelector('#receiptItems tbody');
-    const itemsHtml = this.items.map(item => `
-          <tr class="border-b">
-              <td class="p-2">${item.name}</td>
-              <td class="text-right p-2">${item.quantity}</td>
-              <td class="text-right p-2">$${item.price.toFixed(2)}</td>
-              <td class="text-right p-2">$${(item.quantity * item.price).toFixed(2)}</td>
-              <td class="text-right p-2 print:hidden">
-                  <button onclick="window.currentReceipt.removeItem(${item.id})" class="text-red-600 hover:text-red-700">
-                      <i class="bi bi-x"></i>
-                  </button>
-              </td>
-          </tr>
-      `).join('');
-
-    tbody.innerHTML = itemsHtml;
-  }
-
-  updateTotals() {
-    const subtotal = this.items.reduce((sum, item) => sum + (item.quantity * item.price), 0);
-    const tipableAmount = this.items
-      .filter(item => item.name.toLowerCase() !== 'rental')
-      .reduce((sum, item) => sum + (item.quantity * item.price), 0);
-
-    const tip = (tipableAmount * this.tipPercent) / 100;
-    const tax = subtotal * this.taxRate;
-    const subtotalWithTipAndTax = subtotal + tip + tax;
-    const surcharge = this.ccSurcharge ? subtotalWithTipAndTax * 0.024 : 0;
-    const total = subtotalWithTipAndTax + surcharge;
-
-    document.getElementById('subtotalAmount').textContent = `$${subtotal.toFixed(2)}`;
-    document.getElementById('tipAmount').textContent = `$${tip.toFixed(2)}`;
-    document.getElementById('taxAmount').textContent = `$${tax.toFixed(2)}`;
-    document.getElementById('surchargeAmount').textContent = `$${surcharge.toFixed(2)}`;
-    document.getElementById('totalAmount').textContent = `$${total.toFixed(2)}`;
-  }
-  async downloadAsImage() {
-    try {
-      const element = document.getElementById('receiptContent');
-      const canvas = await html2canvas(element, {
-        scale: 2,
-        backgroundColor: '#ffffff',
-        logging: false,
-      });
-  
-      const image = canvas.toDataURL('image/png');
-      const link = document.createElement('a');
-      link.download = `Receipt-${new Date().toISOString().split('T')[0]}.png`;
-      link.href = image;
-      link.click();
-    } catch (error) {
-      console.error('Error generating image:', error);
-      alert('Could not generate receipt image. Please try printing instead.');
-    }
-  }
-  
-
-}
-
 //--- File: /home/luan_ngo/web/events/public/EmailProcessor.js ---
 class EmailProcessor {
     constructor(parent) {
@@ -3012,130 +2778,27 @@ class EmailProcessor {
     }
 }
 
-//--- File: /home/luan_ngo/web/events/public/EmailEventUpdater.js ---
-class EmailEventUpdater {
-    constructor(app) {
-        this.app = app;
-        this.highlightedFields = new Set();
-    }
-
-    async updateEventFromEmail(emailContent, emailAddress) {
-        try {
-            
-            const event = this.app.contacts.find(contact => 
-                contact.email && contact.email.toLowerCase() === emailAddress.toLowerCase()
-            );
-
-            if (!event) {
-                this.app.showToast('No matching event found for this email', 'error');
-                return;
-            }
-
-            
-            this.app.loadContact(event.id);
-
-            
-            const response = await fetch('/ai/analyzeEventUpdate', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    eventDetails: event,
-                    emailContent: emailContent
-                })
-            });
-
-            if (!response.ok) {
-                throw new Error('Failed to analyze event update');
-            }
-
-            const result = await response.json();
-            
-            if (!result.success) {
-                throw new Error(result.error || 'Failed to analyze event update');
-            }
-
-            
-            const timestamp = moment().format('MM/DD/YYYY HH:mm');
-            const updatedNotes = `[${timestamp}] Update from email:\n${result.summary}\n\n${event.notes || ''}`;
-            
-            
-            event.notes = updatedNotes;
-            
-            
-            const updatedFields = new Set(['notes']);
-            this.updateUI(event, updatedFields);
-
-            
-            
-
-            
-            
-
-            return true;
-        } catch (error) {
-            console.error('Error updating event from email:', error);
-            this.app.showToast('Failed to update event information', 'error');
-            return false;
-        }
-    }
-
-    updateUI(event, updatedFields) {
-        
-        this.clearHighlights();
-        this.highlightedFields = updatedFields;
-
-        
-        updatedFields.forEach(field => {
-            const element = document.getElementById(`info${field.charAt(0).toUpperCase() + field.slice(1)}`);
-            if (element) {
-                
-                if (field === 'notes') {
-                    element.value = event.notes;
-                } else {
-                    element.value = event[field];
-                }
-
-                
-                const label = element.previousElementSibling;
-                if (label && label.classList.contains('label')) {
-                    label.style.backgroundColor = '#fff3cd';
-                }
-            }
-        });
-
-        
-        const saveButton = document.getElementById('infoSave');
-        if (saveButton) {
-            const originalClick = saveButton.onclick;
-            saveButton.onclick = (e) => {
-                if (originalClick) originalClick(e);
-                this.clearHighlights();
-            };
-        }
-    }
-
-    clearHighlights() {
-        this.highlightedFields.forEach(field => {
-            const element = document.getElementById(`info${field.charAt(0).toUpperCase() + field.slice(1)}`);
-            if (element) {
-                const label = element.previousElementSibling;
-                if (label && label.classList.contains('label')) {
-                    label.style.backgroundColor = '';
-                }
-            }
-        });
-        this.highlightedFields.clear();
-    }
-}
-
 //--- File: /home/luan_ngo/web/events/src/styles.css ---
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+
+  html,
+  body {
+    @apply h-full overflow-x-hidden;
+  }
+
+  body {
+    @apply pb-16 lg:pb-0;
+    
+    @apply bg-base-100;
+  }
+}
+
 @layer components {
+
   
   .card {
     @apply bg-base-200 text-base-content border border-base-300;
@@ -3164,32 +2827,86 @@ class EmailEventUpdater {
 
   
   .messages-container {
-    @apply flex-1 overflow-y-auto overflow-x-hidden space-y-4;
-    min-height: 100px;
-    padding: 1rem;
+    @apply flex-1 overflow-y-auto overflow-x-hidden space-y-4 p-4;
+    height: calc(100vh - 16rem);
+    
+    -webkit-overflow-scrolling: touch;
   }
 
-  #messages, #actionss {
-    @apply flex flex-col h-full;
-    height: 75vh;
+  
+  .top-nav {
+    @apply hidden lg:flex fixed top-4 right-4 gap-2 z-50;
   }
 
-  #messages .card-body {
-    @apply p-4;
+  .btm-nav {
+    @apply fixed bottom-0 left-0 right-0 z-[9999] bg-base-100 border-t border-base-200;
+    @apply flex flex-row justify-around items-center;
+    @apply lg:hidden;
+    
+    height: 4rem;
+    position: fixed !important;
+    
   }
 
-  #messages .card-title {
-    @apply mb-4 flex justify-between items-center;
+  .btm-nav button {
+    @apply flex-1 flex flex-col items-center justify-center gap-1;
+    @apply transition-colors duration-200;
+    @apply text-base-content/70 hover:text-base-content;
+    min-height: 4rem;
+  }
+
+  .btm-nav button.active {
+    @apply text-primary bg-base-200 border-t-2 border-primary;
+  }
+
+  
+  body {
+    @apply pb-16 lg:pb-0;
+    
+  }
+
+  main {
+    @apply mb-16 lg:mb-0;
+    
+  }
+
+  
+  #messages,
+  #actions {
+    @apply flex flex-col;
+    min-height: calc(100vh - 16rem);
+    @apply lg:h-[75vh];
+  }
+
+  @screen lg {
+    .messages-container {
+      height: calc(75vh - 8rem);
+      
+    }
+  }
+
+  
+  #calendarContainer {
+    @apply w-full overflow-x-auto pb-4 -mx-4 px-4;
+    @apply lg:mx-0 lg:px-0;
+  }
+
+  .calendar {
+    @apply min-w-[800px] w-full border-collapse;
+  }
+
+  .calendar th {
+    @apply p-2 text-center border border-base-300 bg-base-300;
+  }
+
+  .calendar td {
+    @apply p-2 border border-base-300 align-top bg-base-100;
+    @apply transition-colors hover:bg-base-300/30;
   }
 
   
   .sms {
-    @apply bg-white border border-gray-200 rounded-lg transition-all duration-200 p-4;
-  }
-
-  .toggle-button {
-    @apply inline-flex items-center justify-center w-8 h-8 rounded-full 
-           hover:bg-gray-100 transition-colors text-gray-600 hover:text-gray-800;
+    @apply bg-base-100 border border-base-300 rounded-lg p-4;
   }
 
   .email {
@@ -3202,47 +2919,22 @@ class EmailEventUpdater {
   }
 
   .email-header {
-    @apply mb-3 text-sm text-gray-600 space-y-1;
+    @apply mb-3 text-sm text-base-content/70 space-y-1;
   }
 
   .email-body {
-    @apply text-gray-800 whitespace-pre-line mt-4;
-  }
-
-
-
-  
-  .email-filters {
-    @apply flex items-center gap-4 mb-4 px-4 py-2 bg-gray-50 rounded-lg;
-  }
-
-  .toggle {
-    @apply relative inline-flex h-6 w-11 items-center rounded-full transition-colors;
-  }
-
-  .toggle-primary {
-    @apply bg-gray-200;
-  }
-
-  .toggle-primary:checked {
-    @apply bg-primary;
+    @apply text-base-content whitespace-pre-line mt-4;
   }
 
   
-  .email-icons {
-    @apply flex items-center gap-2 mb-2;
+  .icon-btn {
+    @apply inline-flex items-center justify-center w-8 h-8 rounded-full;
+    @apply hover:bg-base-200 transition-colors text-base-content/70 hover:text-base-content;
   }
 
-  .status-icon {
-    @apply inline-flex items-center justify-center w-6 h-6 rounded-full;
-  }
-
-  .unread-icon {
-    @apply text-warning;
-  }
-
-  .important-icon {
-    @apply text-danger;
+  
+  .aiChatReponse {
+    @apply bg-base-200 border border-base-300 rounded-lg p-4;
   }
 
   
@@ -3251,37 +2943,6 @@ class EmailEventUpdater {
   }
 
   
-  .btn {
-    @apply transition-all duration-200;
-  }
-
-  .btn:active {
-    @apply scale-95;
-  }
-
-  
-  #aiResult {
-    @apply space-y-4 bg-base-100;
-  }
-
-  .aiChatReponse {
-    @apply bg-base-200 border border-base-300 rounded-lg p-4;
-  }
-
-  
-  .calendar {
-    @apply w-full border-collapse;
-  }
-
-  .calendar th {
-    @apply p-2 text-center border border-base-300 bg-base-300;
-  }
-
-  .calendar td {
-    @apply p-2 border border-base-300 align-top bg-base-100;
-    @apply transition-colors hover:bg-base-300/30;
-  }
-
   .event-bar {
     @apply text-xs p-1 mt-1 rounded cursor-pointer truncate;
   }
@@ -3295,33 +2956,29 @@ class EmailEventUpdater {
   }
 
   
-  .custom-scrollbar::-webkit-scrollbar {
-    @apply w-2;
-  }
-
-  .custom-scrollbar::-webkit-scrollbar-track {
-    @apply bg-base-100;
-  }
-
-  .custom-scrollbar::-webkit-scrollbar-thumb {
-    @apply bg-base-300 rounded-full hover:bg-base-300/70;
+  @screen md {
+    main {
+      @apply pb-0;
+    }
   }
 
   
-  .fade-in {
-    animation: fadeIn 0.3s ease-in-out;
+  .modal {
+    @apply p-4;
   }
 
-  .slide-in {
-    animation: slideIn 0.3s ease-in-out;
+  .modal-box {
+    @apply max-h-[90vh] overflow-y-auto;
   }
 }
+
 
 @keyframes fadeIn {
   from {
     opacity: 0;
     transform: translateY(10px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -3333,18 +2990,98 @@ class EmailEventUpdater {
     transform: translateX(-10px);
     opacity: 0;
   }
+
   to {
     transform: translateX(0);
     opacity: 1;
   }
 }
 
-
-.hover-lift {
-  @apply transition-transform duration-200 hover:-translate-y-0.5;
+.fade-in {
+  animation: fadeIn 0.3s ease-in-out;
 }
 
-.icon-btn {
-  @apply inline-flex items-center justify-center w-8 h-8 rounded-full;
-  @apply hover:bg-gray-100 transition-colors text-gray-600 hover:text-gray-800;
+.slide-in {
+  animation: slideIn 0.3s ease-in-out;
+}
+
+//--- File: /home/luan_ngo/web/events/tailwind.config.js ---
+
+module.exports = {
+  content: [
+    "./src*.{html,js}",
+    "./public*.{html,js}",
+    "./index.html"
+  ],
+  theme: {
+    extend: {
+      
+      height: {
+        'screen-minus-nav': 'calc(100vh - 4rem)',
+        'screen-minus-header': 'calc(100vh - 8rem)',
+      },
+      
+      minHeight: {
+        'screen-minus-nav': 'calc(100vh - 4rem)',
+        'screen-minus-header': 'calc(100vh - 8rem)',
+      },
+      
+      spacing: {
+        'safe-bottom': 'env(safe-area-inset-bottom, 0px)',
+      },
+      
+      animation: {
+        'fade-in': 'fadeIn 0.3s ease-in-out',
+        'slide-in': 'slideIn 0.3s ease-in-out',
+        'press': 'press 0.2s ease-in-out',
+      },
+      keyframes: {
+        fadeIn: {
+          '0%': { opacity: '0', transform: 'translateY(10px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
+        slideIn: {
+          '0%': { transform: 'translateX(-10px)', opacity: '0' },
+          '100%': { transform: 'translateX(0)', opacity: '1' },
+        },
+        press: {
+          '0%, 100%': { transform: 'scale(1)' },
+          '50%': { transform: 'scale(0.95)' },
+        },
+      },
+      
+      screens: {
+        'xs': '475px',
+        
+        'calendar': '900px',
+      },
+    },
+  },
+  plugins: [
+    require("daisyui"),
+    
+    function({ addUtilities }) {
+      const newUtilities = {
+        '.safe-padding-bottom': {
+          paddingBottom: 'env(safe-area-inset-bottom, 16px)',
+        },
+        '.safe-margin-bottom': {
+          marginBottom: 'env(safe-area-inset-bottom, 16px)',
+        },
+        '.mobile-height': {
+          height: '-webkit-fill-available',
+        },
+      };
+      addUtilities(newUtilities);
+    },
+  ],
+  daisyui: {
+    themes: ["light", "dark", "cupcake"],
+    
+    styled: true,
+    base: true,
+    utils: true,
+    logs: true,
+    rtl: false,
+  },
 }

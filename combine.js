@@ -16,7 +16,7 @@ const filesToCombine = [
     "./routes/*.js",
     "./public/*",
     "./src/*",
-    "./app.js"
+    "./*.js"
 
 ];
 

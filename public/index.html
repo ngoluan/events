@@ -24,7 +24,7 @@
             <h1 class="text-2xl font-bold text-base-content">Event Management</h1>
         </div>
         <!-- Desktop Navigation -->
-        <div class=" lg:flex fixed top-4 right-4 gap-2 z-50">
+        <div class="hidden lg:flex fixed top-4 right-4 gap-2 z-50">
             <button class="btn btn-ghost btn-circle tooltip tooltip-left" data-tip="Contacts">
                 <i class="bi bi-address-book text-xl"></i>
             </button>
@@ -324,8 +324,8 @@
                 <!-- Messages and Actions Grid -->
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     <!-- Messages Section -->
-                    <section id="messages" class="card bg-base-100 shadow-lg">
-                        <div class="card-body">
+                    <section id="messages" class="card bg-base-100 shadow-lg h-[75vh]">
+                        <div class="card-body flex flex-col">
                             <div class="flex justify-between items-center mb-4">
                                 <h2 class="card-title text-lg">Messages</h2>
                                 <div class="flex gap-2">
@@ -419,11 +419,11 @@
             </main>
         </div>
         <div class="container py-6">
-            <section id="calendar" class="card bg-base-100 shadow-lg ">
+            <section id="calendar" class="card bg-base-100 shadow-lg">
                 <div class="card-body">
                     <h2 class="card-title text-lg mb-4">Calendar</h2>
                     <div id="calendarContainer" class="w-full">
-                        <!-- Calendar will be rendered here -->
+                        <!-- Calendar content -->
                     </div>
                 </div>
             </section>
@@ -431,28 +431,26 @@
     </div>
 
 
-
-    <!-- Mobile Bottom Navigation -->
-    <nav class="btm-nav lg:hidden">
-        <button class="active tooltip tooltip-top" data-tip="Contacts">
-            <i class="bi bi-address-book text-xl"></i>
+    <div class="md:hidden btm-nav "> <!-- Changed from lg:hidden to md:hidden -->
+        <button onclick="scrollToSection('contacts')" class="tooltip tooltip-top" data-tip="Contacts">
+            <i class="bi bi-people text-xl"></i> <!-- Changed to bi-people icon -->
         </button>
-        <button class="tooltip tooltip-top" data-tip="Event Details">
+        <button onclick="scrollToSection('info')" class="tooltip tooltip-top" data-tip="Event Details">
             <i class="bi bi-info-circle text-xl"></i>
         </button>
-        <button class="tooltip tooltip-top" data-tip="Messages">
+        <button onclick="scrollToSection('messages')" class="tooltip tooltip-top" data-tip="Messages">
             <i class="bi bi-envelope text-xl"></i>
         </button>
-        <button class="tooltip tooltip-top" data-tip="Actions">
+        <button onclick="scrollToSection('actions')" class="tooltip tooltip-top" data-tip="Actions">
             <i class="bi bi-list text-xl"></i>
         </button>
-        <button class="tooltip tooltip-top" data-tip="Calendar">
+        <button onclick="scrollToSection('calendar')" class="tooltip tooltip-top" data-tip="Calendar">
             <i class="bi bi-calendar text-xl"></i>
         </button>
         <button onclick="window.user_settings_modal.showModal()" class="tooltip tooltip-top" data-tip="Settings">
             <i class="bi bi-gear text-xl"></i>
         </button>
-    </nav>
+    </div>
     <dialog id="maximize_content_modal" class="modal">
         <div class="modal-box w-11/12 max-w-7xl h-[90vh]"> <!-- Changed max-w-5xl to max-w-7xl and h-5/6 to h-[90vh] -->
             <h3 class="font-bold text-lg mb-4" id="maximizeModalTitle">Content View</h3>

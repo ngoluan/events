@@ -60,6 +60,75 @@ export class EventManageApp {
         });
 
         this.initializeBackgroundInfo();
+        this.initializeMobileNavigation();
+
+    }
+
+    initializeMobileNavigation() {
+        window.scrollToSection = (sectionId) => {
+            const section = document.getElementById(sectionId);
+            if (section) {
+                // Remove active class from all buttons
+                document.querySelectorAll('.btm-nav button').forEach(btn => {
+                    btn.classList.remove('active');
+                });
+                
+                // Add active class to clicked button without affecting visibility
+                const button = document.querySelector(`.btm-nav button[onclick*="${sectionId}"]`);
+                if (button) {
+                    button.classList.add('active');
+                }
+        
+                // Scroll to section with offset for header
+                const headerOffset = 60; // Adjust this value based on your header height
+                const elementPosition = section.getBoundingClientRect().top;
+                const offsetPosition = elementPosition + window.pageYOffset - headerOffset;
+        
+                window.scrollTo({
+                    top: offsetPosition,
+                    behavior: 'smooth'
+                });
+            }
+        };
+    
+        // Add click handlers to all bottom nav buttons
+        document.querySelectorAll('.btm-nav button').forEach(button => {
+            button.addEventListener('click', function() {
+                // Remove active class from all buttons
+                document.querySelectorAll('.btm-nav button').forEach(btn => {
+                    btn.classList.remove('active');
+                });
+                
+                // Add active class to clicked button
+                this.classList.add('active');
+            });
+        });
+    
+        // Set initial active state based on scroll position
+        window.addEventListener('scroll', () => {
+            const sections = ['contacts', 'info', 'messages', 'actions', 'calendar'];
+            let currentSection = '';
+    
+            sections.forEach(sectionId => {
+                const section = document.getElementById(sectionId);
+                if (section) {
+                    const rect = section.getBoundingClientRect();
+                    if (rect.top <= 100 && rect.bottom >= 100) {
+                        currentSection = sectionId;
+                    }
+                }
+            });
+    
+            if (currentSection) {
+                document.querySelectorAll('.btm-nav button').forEach(btn => {
+                    btn.classList.remove('active');
+                });
+                const activeButton = document.querySelector(`.btm-nav button[onclick*="${currentSection}"]`);
+                if (activeButton) {
+                    activeButton.classList.add('active');
+                }
+            }
+        });
     }
     showReceiptManager() {
         if (this.currentId === -1) {

@@ -2,7 +2,21 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+
+  html,
+  body {
+    @apply overflow-x-hidden;
+  }
+
+  body {
+    @apply pb-16 lg:pb-0;
+    @apply bg-base-100;
+  }
+}
+
 @layer components {
+
   /* Card styling */
   .card {
     @apply bg-base-200 text-base-content border border-base-300;
@@ -29,34 +43,88 @@
     @apply disabled:bg-base-200 disabled:cursor-not-allowed;
   }
 
-  /* Messages Container */
+  /* Messages Container - Fixed scrolling issues */
   .messages-container {
-    @apply flex-1 overflow-y-auto overflow-x-hidden space-y-4;
-    min-height: 100px;
-    padding: 1rem;
+    @apply flex-1 overflow-y-auto overflow-x-hidden space-y-4 p-4;
+    height: calc(100vh - 16rem);
+    /* Adjusted for mobile */
+    -webkit-overflow-scrolling: touch;
   }
 
-  #messages, #actionss {
-    @apply flex flex-col h-full;
-    height: 75vh;
+  /* Navigation - Both top and bottom */
+  .top-nav {
+    @apply hidden lg:flex fixed top-4 right-4 gap-2 z-50;
   }
 
-  #messages .card-body {
-    @apply p-4;
+  .btm-nav {
+    @apply fixed bottom-0 left-0 right-0 z-[9999] bg-base-100 border-t border-base-200;
+    @apply flex flex-row justify-around items-center;
+    @apply lg:hidden;
+    /* Hide on large screens */
+    height: 4rem;
+    position: fixed !important;
+    /* Force fixed position */
   }
 
-  #messages .card-title {
-    @apply mb-4 flex justify-between items-center;
+  .btm-nav button {
+    @apply flex-1 flex flex-col items-center justify-center gap-1;
+    @apply transition-colors duration-200;
+    @apply text-base-content/70 hover:text-base-content;
+    min-height: 4rem;
+  }
+
+  .btm-nav button.active {
+    @apply text-primary bg-base-200 border-t-2 border-primary;
+  }
+
+  /* Ensure content doesn't hide behind the nav */
+  body {
+    @apply pb-16 lg:pb-0;
+    /* Add padding to body for bottom nav */
+  }
+
+  main {
+    @apply mb-16 lg:mb-0;
+    /* Add margin to main content */
+  }
+
+  /* Containers and Layout */
+  #messages,
+  #actions {
+    @apply flex flex-col;
+    min-height: calc(100vh - 16rem);
+    @apply lg:h-[75vh];
+  }
+
+  @screen lg {
+    .messages-container {
+      height: calc(75vh - 8rem);
+      /* Desktop height */
+    }
+  }
+
+  /* Calendar - Fixed overflow */
+  #calendarContainer {
+    @apply w-full overflow-x-auto pb-4 -mx-4 px-4;
+    @apply lg:mx-0 lg:px-0;
+  }
+
+  .calendar {
+    @apply min-w-[800px] w-full border-collapse;
+  }
+
+  .calendar th {
+    @apply p-2 text-center border border-base-300 bg-base-300;
+  }
+
+  .calendar td {
+    @apply p-2 border border-base-300 align-top bg-base-100;
+    @apply transition-colors hover:bg-base-300/30;
   }
 
   /* Email Items */
   .sms {
-    @apply bg-white border border-gray-200 rounded-lg transition-all duration-200 p-4;
-  }
-
-  .toggle-button {
-    @apply inline-flex items-center justify-center w-8 h-8 rounded-full 
-           hover:bg-gray-100 transition-colors text-gray-600 hover:text-gray-800;
+    @apply bg-base-100 border border-base-300 rounded-lg p-4;
   }
 
   .email {
@@ -69,86 +137,30 @@
   }
 
   .email-header {
-    @apply mb-3 text-sm text-gray-600 space-y-1;
+    @apply mb-3 text-sm text-base-content/70 space-y-1;
   }
 
   .email-body {
-    @apply text-gray-800 whitespace-pre-line mt-4;
+    @apply text-base-content whitespace-pre-line mt-4;
   }
 
-
-
-  /* Email Filters */
-  .email-filters {
-    @apply flex items-center gap-4 mb-4 px-4 py-2 bg-gray-50 rounded-lg;
+  /* Action Buttons */
+  .icon-btn {
+    @apply inline-flex items-center justify-center w-8 h-8 rounded-full;
+    @apply hover:bg-base-200 transition-colors text-base-content/70 hover:text-base-content;
   }
 
-  .toggle {
-    @apply relative inline-flex h-6 w-11 items-center rounded-full transition-colors;
-  }
-
-  .toggle-primary {
-    @apply bg-gray-200;
-  }
-
-  .toggle-primary:checked {
-    @apply bg-primary;
-  }
-
-  /* Icons and Status */
-  .email-icons {
-    @apply flex items-center gap-2 mb-2;
-  }
-
-  .status-icon {
-    @apply inline-flex items-center justify-center w-6 h-6 rounded-full;
-  }
-
-  .unread-icon {
-    @apply text-warning;
-  }
-
-  .important-icon {
-    @apply text-danger;
-  }
-
-  /* Contacts styling */
-  .contactCont {
-    @apply p-2 hover:bg-base-300/50 rounded-lg transition-colors;
-  }
-
-  /* Button enhancements */
-  .btn {
-    @apply transition-all duration-200;
-  }
-
-  .btn:active {
-    @apply scale-95;
-  }
-
-  /* AI conversation styling */
-  #aiResult {
-    @apply space-y-4 bg-base-100;
-  }
-
+  /* AI Chat Response */
   .aiChatReponse {
     @apply bg-base-200 border border-base-300 rounded-lg p-4;
   }
 
-  /* Calendar customization */
-  .calendar {
-    @apply w-full border-collapse;
+  /* Contacts */
+  .contactCont {
+    @apply p-2 hover:bg-base-300/50 rounded-lg transition-colors;
   }
 
-  .calendar th {
-    @apply p-2 text-center border border-base-300 bg-base-300;
-  }
-
-  .calendar td {
-    @apply p-2 border border-base-300 align-top bg-base-100;
-    @apply transition-colors hover:bg-base-300/30;
-  }
-
+  /* Events */
   .event-bar {
     @apply text-xs p-1 mt-1 rounded cursor-pointer truncate;
   }
@@ -161,34 +173,30 @@
     @apply bg-secondary/30 hover:bg-secondary/40;
   }
 
-  /* Custom scrollbar */
-  .custom-scrollbar::-webkit-scrollbar {
-    @apply w-2;
+  /* Main content padding adjustments for mobile */
+  @screen md {
+    main {
+      @apply pb-0;
+    }
   }
 
-  .custom-scrollbar::-webkit-scrollbar-track {
-    @apply bg-base-100;
+  /* Ensure proper spacing for modals */
+  .modal {
+    @apply p-4;
   }
 
-  .custom-scrollbar::-webkit-scrollbar-thumb {
-    @apply bg-base-300 rounded-full hover:bg-base-300/70;
-  }
-
-  /* Fade and Slide animations */
-  .fade-in {
-    animation: fadeIn 0.3s ease-in-out;
-  }
-
-  .slide-in {
-    animation: slideIn 0.3s ease-in-out;
+  .modal-box {
+    @apply max-h-[90vh] overflow-y-auto;
   }
 }
 
+/* Animations */
 @keyframes fadeIn {
   from {
     opacity: 0;
     transform: translateY(10px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -200,18 +208,17 @@
     transform: translateX(-10px);
     opacity: 0;
   }
+
   to {
     transform: translateX(0);
     opacity: 1;
   }
 }
 
-/* Additional utility classes */
-.hover-lift {
-  @apply transition-transform duration-200 hover:-translate-y-0.5;
+.fade-in {
+  animation: fadeIn 0.3s ease-in-out;
 }
 
-.icon-btn {
-  @apply inline-flex items-center justify-center w-8 h-8 rounded-full;
-  @apply hover:bg-gray-100 transition-colors text-gray-600 hover:text-gray-800;
+.slide-in {
+  animation: slideIn 0.3s ease-in-out;
 }
