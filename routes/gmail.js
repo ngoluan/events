@@ -39,29 +39,58 @@ module.exports = (googleAuth) => {
             });
         }
     });
-    // In your Express routes (gmail.js)
     router.get('/readGmail', async (req, res) => {
         try {
             const type = req.query.type || 'all';
             const email = req.query.email;
             const forceRefresh = req.query.forceRefresh === 'true';
-    
+
             let emails;
-            if (type === 'contact' && email) {
+            if (type === 'interac') {
+                // Handle Interac e-Transfer emails specifically
+                emails = await gmail.getAllEmails(100, false, forceRefresh, "in:inbox-deposits");
+                emails = emails.filter(email => {
+                    const subject = email.subject?.toLowerCase() || '';
+                    return subject.includes('interac');
+                });
+            } else if (type === 'contact' && email) {
                 emails = await gmail.getEmailsForContact(email);
             } else {
                 emails = await gmail.getAllEmails(50, false, forceRefresh);
             }
-    
-            // filter for labels inbox
-            emails = emails.filter(email => email.labels.includes('INBOX'));
-    
+
+            // Apply inbox filter except for Interac emails
+            if (type !== 'interac') {
+                emails = emails.filter(email => email.labels.includes('INBOX'));
+            }
+
             res.json(emails);
         } catch (error) {
             console.error('Error reading Gmail:', error);
             res.status(500).json({
                 error: 'Error reading Gmail',
                 details: error.message,
+            });
+        }
+    });
+    router.post('/forwardEmail', async (req, res) => {
+        try {
+            const { messageId, to } = req.body;
+            const message = await gmail.getMessage(messageId);
+
+            // Forward the email
+            await gmail.sendEmail(
+                to,
+                `Fwd: ${message.payload.headers.find(h => h.name === 'Subject')?.value}`,
+                message.parsedContent.html || message.parsedContent.text
+            );
+
+            res.json({ success: true });
+        } catch (error) {
+            console.error('Error forwarding email:', error);
+            res.status(500).json({
+                error: 'Error forwarding email',
+                details: error.message
             });
         }
     });

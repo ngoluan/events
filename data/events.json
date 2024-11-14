@@ -17195,7 +17195,7 @@
       "partyType": "birthday",
       "attendance": "",
       "source": "",
-      "notes": "[11/10/2024 23:21] Update from email:\n- Attendance updated to 45-48 people.\n- Catering preferences confirmed: Plated buffet to include grilled veggies, mixed greens, Mexican bruschetta, French fries, tortillas, steak skewers with grilled veggies, jerk chicken, grilled shrimp, churros, and flan. \n- Special dietary accommodations: Birthday woman and daughters are gluten-free, dairy-free, and no corn (excluding tortillas and bruschetta). \n- Request for an open bar with a limit on drink selections to options not exceeding $15 per drink. \n- Request for setup transition from the Moonlight Lounge (7-10 PM) to the Dining Room until 1 AM.\n\n\n$450 deposit to book; will purchase drink and catering packages. ",
+      "notes": "[11/13/2024 22:54] Update from email:\n- Updated attendance to 43 people.\n- Request for an open bar with a limit on drink selections to options not exceeding $15 per drink.\n\n[11/10/2024 23:21] Update from email:\n- Attendance updated to 45-48 people.\n- Catering preferences confirmed: Plated buffet to include grilled veggies, mixed greens, Mexican bruschetta, French fries, tortillas, steak skewers with grilled veggies, jerk chicken, grilled shrimp, churros, and flan. \n- Special dietary accommodations: Birthday woman and daughters are gluten-free, dairy-free, and no corn (excluding tortillas and bruschetta). \n- Request for an open bar with a limit on drink selections to options not exceeding $15 per drink. \n- Request for setup transition from the Moonlight Lounge (7-10 PM) to the Dining Room until 1 AM.\n\n\n$450 deposit to book; will purchase drink and catering packages. ",
       "createdAt": "2024-11-11T04:11:20.280Z"
     },
     {
@@ -17463,14 +17463,15 @@
       "room": "DiningRoom",
       "name": "Stephanie Mitchell",
       "email": "stephanie.mitchell@zenogroup.com",
-      "startTime": "2024-12-05 19:00",
-      "endTime": "2024-12-06 00:00",
+      "startTime": "2024-12-05T19:00",
+      "endTime": "2024-12-06T00:00",
       "rentalRate": "500",
       "minSpend": "1000",
       "partyType": "Holiday Party",
       "attendance": "50",
       "source": "",
-      "notes": "$250 deposit to book"
+      "notes": "[11/13/2024 22:46] Update from email:\n- Catering preferences: Taco and appetizer options confirmed, including French Fries, Elotes, Crispy Cauliflower Wings, Mexican Bruschetta, and the following tacos: Cajun Cod, Jerk Chicken, Steak Asada, Grilled Shrimp, Butternut Squash, and Tofu Taco. Dessert options: Affogato and Churros.\n- Drink selections: No shots allowed; request to order wine by the bottle and have it chilled when opened.\n- Inquiry about an in-house DJ and pricing availability.\n\n$250 deposit to book",
+      "createdAt": "2024-11-14T03:38:09.445Z"
     },
     {
       "phone": "16476699738",
@@ -18097,15 +18098,16 @@
       "room": "DiningRoom",
       "name": "Carmen",
       "email": "carmenye287@gmail.com",
-      "startTime": "2024-11-16 12:00",
-      "endTime": "2024-11-16 16:00",
+      "startTime": "2024-11-16T12:00",
+      "endTime": "2024-11-16T16:00",
       "rentalRate": "300",
       "minSpend": "400",
       "partyType": "International Dinner",
       "attendance": "25",
       "source": "",
-      "notes": "$150 deposit to book",
-      "summary": "Carmen is inquiring about booking the venue for an International Dinner event with approximately 25 guests on November 16, 2024, requesting information regarding the booking process and confirmation of details."
+      "notes": "[11/13/2024 22:48] Update from email:\n- Updated attendance to 40 guests.\n- Catering preferences: \n  - Appetizers: Crispy cauliflower wings, Quesadillas, Elotes, Jalapeno poppers, Nachos.\n  - Tacos: Teriyaki mushroom taco, Beyond beef taco, Cauliflower taco, Beef birria taco, Grilled chicken asado taco, Spicy beef barbacoa taco.\n- Special accommodations for allergies, ensuring cilantro is served on the side for all tacos.\n- Confirmation needed for the total count of tacos and appetizers for the new head count.\n\n$150 deposit to book",
+      "summary": "Carmen is inquiring about booking the venue for an International Dinner event with approximately 25 guests on November 16, 2024, requesting information regarding the booking process and confirmation of details.",
+      "createdAt": "2024-11-14T03:38:09.445Z"
     },
     {
       "phone": "14165577408",
@@ -18805,7 +18807,7 @@
     {
       "phone": "14168355162",
       "id": 1153,
-      "status": "contractSent",
+      "status": "reserved",
       "services": "bar;lights;audio;music;kareoke;catering",
       "room": "DiningRoom",
       "name": "Dina Kulik",
@@ -18962,7 +18964,7 @@
       "messageCount": 3,
       "historyIncluded": false,
       "id": 1161,
-      "status": "",
+      "status": "reserved",
       "rentalRate": "400",
       "minSpend": "500",
       "createdAt": "2024-11-10T23:39:25.617Z"
@@ -19057,7 +19059,7 @@
       "messageCount": 3,
       "historyIncluded": false,
       "id": 1166,
-      "status": "",
+      "status": "reserved",
       "rentalRate": "500",
       "minSpend": "1000",
       "createdAt": "2024-11-13T21:30:29.362Z"
@@ -19079,6 +19081,24 @@
       "status": "",
       "rentalRate": "450",
       "minSpend": "1000"
+    },
+    {
+      "name": "Cardiff Lee",
+      "email": "Cardiff.lee23@gmail.com",
+      "phone": "6477831227",
+      "partyType": "birthday party",
+      "startTime": "2025-02-01T20:00",
+      "endTime": "2025-02-02T02:30",
+      "room": "Lounge",
+      "attendance": "",
+      "services": "bar;lights;audio;music",
+      "notes": "$406.25 deposit to book.",
+      "messageCount": 3,
+      "historyIncluded": false,
+      "id": 1168,
+      "status": "",
+      "rentalRate": "812.5",
+      "minSpend": "1750"
     }
   ]
 }

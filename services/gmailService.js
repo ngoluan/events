@@ -138,11 +138,15 @@ class GmailService {
                 })
             ).then(messages => messages.filter(msg => msg !== null));
 
+            let query = options.email ? `{to:${options.email} from:${options.email}}` : 'in:inbox';
+            if(options.query) {
+                query = ` ${options.query}`;
+            }
             // Now get inbox messages
             const inboxResponse = await gmail.users.messages.list({
                 userId: 'me',
                 maxResults: options.maxResults || 100,
-                q: options.email ? `{to:${options.email} from:${options.email}}` : 'in:inbox',
+                q: query,
                 orderBy: 'internalDate desc'
             });
 
@@ -595,7 +599,7 @@ class GmailService {
             });
         }
     }
-    async getAllEmails(maxResults = 100, onlyImportant = false) {
+    async getAllEmails(maxResults = 100, onlyImportant = false, forcedRefresh=false, query=null) {
         try {
             // First load from cache
             let cachedEmails = this.loadEmailsFromCache();
@@ -606,14 +610,15 @@ class GmailService {
             const needsUpdate = !cachedEmails.length || lastRetrievalDate.isBefore(now, 'minute');
     
             // If no update needed, return cached emails
-            if (!needsUpdate) {
+            if (!needsUpdate && !forcedRefresh) {
                 return cachedEmails;
             }
     
             // If update needed, fetch and process new emails
             const processedMessages = await this.listMessages({
                 maxResults,
-                onlyImportant
+                onlyImportant,
+                query
             });
     
             // Merge new emails with cached ones, maintaining order
