@@ -1,7 +1,8 @@
 [
+  "services/eventService.js",
+  "routes/events.js",
   "public/scripts.js",
   "public/index.html",
-  "public/calendar.js",
   "public/EmailProcessor.js",
   "src/styles.css",
   "tailwind.config.js"

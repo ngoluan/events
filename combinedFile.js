@@ -1,4 +1,619 @@
 
+//--- File: /home/luan_ngo/web/events/services/eventService.js ---
+
+const fs = require('fs');
+const path = require('path');
+const axios = require('axios');
+const gmailService = require('./gmailService');
+const GoogleCalendarService = require('./googleCalendarService');
+const aiService = require('./aiService');
+const moment = require('moment-timezone');
+class EventService {
+  constructor(googleAuth) {
+    this.eventsFilePath = path.join(__dirname, '..', 'data', 'events.json');
+    this.remoteApiGetUrl = 'https:
+    this.remoteApiUpdateUrl = 'https:
+    this.gmail = new gmailService(googleAuth);
+    this.calendarService = new GoogleCalendarService(googleAuth);
+
+    this.initializeEventsFile();
+  }
+
+  initializeEventsFile() {
+    const dataDir = path.dirname(this.eventsFilePath);
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+
+    if (!fs.existsSync(this.eventsFilePath)) {
+      this.saveEvents({ contacts: [] });
+    } else {
+      try {
+        const content = fs.readFileSync(this.eventsFilePath, 'utf8');
+        JSON.parse(content);
+      } catch (error) {
+        console.error('Error reading events file, reinitializing:', error);
+        this.saveEvents({ contacts: [] });
+      }
+    }
+  }
+  async getEventSummary(id) {
+    try {
+      
+      const contact = this.getEvent(id);
+      if (!contact) {
+        throw new Error('Event not found');
+      }
+
+      
+      const emails = await this.gmail.getEmailsForContact(contact.email);
+
+      
+      const sortedEmails = emails.sort((a, b) =>
+        new Date(a.internalDate) - new Date(b.internalDate)
+      );
+
+      
+      const firstEmail = sortedEmails[0];
+      const emailContent = firstEmail?.text || firstEmail?.html || '';
+
+      
+      const contactSummary = {
+        name: contact.name,
+        email: contact.email,
+        phone: contact.phone,
+        startTime: contact.startTime,
+        endTime: contact.endTime,
+        room: Array.isArray(contact.room) ? contact.room.join(', ') : contact.room,
+        attendance: contact.attendance,
+        partyType: contact.partyType,
+        services: Array.isArray(contact.services) ? contact.services.join(', ') : contact.services,
+        notes: contact.notes
+      };
+
+      
+      const prompt = `Summarize this event. In particular, tell me:
+        - Event organizer (no contact info)
+        - Time and date
+        - Room booked
+        - Number of attendees
+        - Event type
+        - Catering or drink packages and choices. If they choose catering or drink packages, be careful and detailed with their choices.
+        - Special requests in the notes
+        - When the organizer last emailed
+        - Payment information (but no etransfer information).
+
+          Respond in bullet points or short sentences.
+          Be detalied about special requests by organizers. 
+
+        Event details: ${JSON.stringify(contactSummary)}
+        Recent email conversation: ${emailContent}`;
+
+      
+      const { response } = await aiService.generateResponse([
+
+        {
+          role: 'user',
+          content: prompt
+        }
+      ], {
+        includeBackground: false,
+        resetHistory: true
+      });
+
+      return {
+        success: true,
+        summary: response,
+        metadata: {
+          emailCount: sortedEmails.length,
+          firstEmailDate: firstEmail?.timestamp,
+          lastEmailDate: sortedEmails[sortedEmails.length - 1]?.timestamp,
+          contactInfo: contactSummary
+        }
+      };
+
+    } catch (error) {
+      console.error('Error generating event summary:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+  async updateRemoteEvent(contact) {
+    try {
+      const response = await axios.post(this.remoteApiUpdateUrl, contact);
+      const remoteEvents = response.data;
+      console.log(`Updated ${remoteEvents.length} events from remote successfully`);
+      return true;
+    } catch (error) {
+      console.error('Error updating remote events:', error);
+      return false;
+    }
+  }
+  async syncWithRemote() {
+    try {
+      
+      const response = await axios.get(this.remoteApiGetUrl);
+      const remoteEvents = response.data;
+
+      
+      let localEvents = this.loadEvents();
+
+      
+      const localEventsMap = new Map(localEvents.map(event => [event.id, event]));
+
+      
+      remoteEvents.forEach(remoteEvent => {
+        const existingEvent = localEventsMap.get(remoteEvent.id);
+
+        if (existingEvent) {
+          
+          
+          localEventsMap.set(remoteEvent.id, { ...existingEvent, ...remoteEvent });
+        } else {
+          
+          localEventsMap.set(remoteEvent.id, remoteEvent);
+        }
+      });
+
+      
+      const mergedEvents = Array.from(localEventsMap.values());
+      this.saveEvents(mergedEvents);
+
+      console.log(`Synced ${mergedEvents.length} events successfully`);
+      return true;
+    } catch (error) {
+      console.error('Error syncing with remote:', error);
+      return false;
+    }
+  }
+
+  loadEvents() {
+    try {
+      const data = fs.readFileSync(this.eventsFilePath, 'utf8');
+      const events = JSON.parse(data);
+      return events.contacts || [];
+    } catch (error) {
+      console.error('Error loading events:', error);
+      return [];
+    }
+  }
+
+  saveEvents(events) {
+    try {
+      
+      const dataToSave = Array.isArray(events) ? { contacts: events } : events;
+      fs.writeFileSync(this.eventsFilePath, JSON.stringify(dataToSave, null, 2), 'utf8');
+      return true;
+    } catch (error) {
+      console.error('Error saving events:', error);
+      return false;
+    }
+  }
+
+  getEvent(id) {
+    try {
+      const events = this.loadEvents();
+      return events.find(event => event.id === parseInt(id)) || null;
+    } catch (error) {
+      console.error('Error getting event:', error);
+      return null;
+    }
+  }
+
+  createEvent(eventData) {
+    try {
+      const events = this.loadEvents();
+
+      
+      let newId;
+      if (eventData.id !== undefined && eventData.id !== null) {
+        newId = parseInt(eventData.id);
+        const existingEvent = events.find(event => event.id === newId);
+        if (existingEvent) {
+          throw new Error('Event with this ID already exists');
+        }
+      } else {
+        
+        newId = events.length > 0 ? Math.max(...events.map(e => e.id)) + 1 : 0;
+      }
+
+      const newEvent = {
+        id: newId,
+        name: eventData.name,
+        email: eventData.email,
+        phone: eventData.phone || '',
+        startTime: eventData.startTime,
+        endTime: eventData.endTime,
+        status: Array.isArray(eventData.status) ? eventData.status.join(';') : (eventData.status || ''),
+        services: Array.isArray(eventData.services) ? eventData.services.join(';') : (eventData.services || ''),
+        room: Array.isArray(eventData.room) ? eventData.room.join(';') : (eventData.room || ''),
+        rentalRate: eventData.rentalRate || '',
+        partyType: eventData.partyType || '',
+        attendance: eventData.attendance || '',
+        notes: eventData.notes || ''
+      };
+
+      events.push(newEvent);
+      this.saveEvents(events);
+      return newEvent;
+    } catch (error) {
+      console.error('Error creating event:', error);
+      return null;
+    }
+  }
+
+
+  updateEvent(id, eventData) {
+    try {
+      const events = this.loadEvents();
+      const index = events.findIndex(event => event.id === parseInt(id));
+
+      if (index === -1) {
+        
+        const newEvent = { ...eventData, id: parseInt(id) };
+        events.push(newEvent);
+        this.saveEvents(events);
+        return newEvent;
+      }
+
+      
+      events[index] = {
+        ...events[index],
+        ...eventData,
+        id: parseInt(id), 
+        status: Array.isArray(eventData.status) ? eventData.status.join(';') : eventData.status,
+        services: Array.isArray(eventData.services) ? eventData.services.join(';') : eventData.services,
+        room: Array.isArray(eventData.room) ? eventData.room.join(';') : eventData.room
+      };
+
+      this.saveEvents(events);
+      return events[index];
+    } catch (error) {
+      console.error('Error updating or creating event:', error);
+      return null;
+    }
+  }
+
+
+  deleteEvent(id) {
+    try {
+      const events = this.loadEvents();
+      const filteredEvents = events.filter(event => event.id !== parseInt(id));
+      return this.saveEvents(filteredEvents);
+    } catch (error) {
+      console.error('Error deleting event:', error);
+      return false;
+    }
+  }
+  async generateWeeklySummary() {
+    try {
+      
+      const calendarEvents = await this.calendarService.listEvents();
+
+      
+      const localEvents = this.loadEvents();
+
+      
+      const startOfWeek = moment().tz('America/New_York').startOf('day').add(1, 'day');
+      const endOfWeek = moment().tz('America/New_York').add(7, 'days').endOf('day');
+
+      const upcomingEvents = calendarEvents.filter(event => {
+        const eventStart = moment(event.start.dateTime || event.start.date);
+        return eventStart.isBetween(startOfWeek, endOfWeek);
+      });
+
+      if (upcomingEvents.length === 0) {
+        const noEventsEmail = {
+          subject: 'Weekly Event Summary - No Upcoming Events',
+          html: 'No events scheduled for the upcoming week.'
+        };
+
+        await this.gmail.sendEmail('info@eattaco.ca', noEventsEmail.subject, noEventsEmail.html);
+        return noEventsEmail;
+      }
+
+      let eventSummaries = [];
+
+      
+      for (const event of upcomingEvents) {
+        const eventName = event.summary || 'Unnamed Event';
+        const eventStart = moment(event.start.dateTime || event.start.date);
+        const eventStartFormatted = eventStart.format('MMMM Do YYYY, h:mm a');
+        const eventStartDate = eventStart.format('YYYY-MM-DD');
+
+        
+        const localEvent = localEvents.find(e => {
+          if (typeof e.name === 'undefined') return false;
+          const localEventName = e.name.toLowerCase();
+          const localEventDate = moment(e.startTime).format('YYYY-MM-DD');
+          return eventName.toLowerCase().includes(localEventName) &&
+            localEventDate === eventStartDate;
+        });
+
+        let eventDetails = 'Event found in calendar but no matching contact details in system.';
+        let cateringStatus = 'Unknown';
+        let followUpMailto = '';
+
+        if (localEvent) {
+          try {
+            
+            const summaryResponse = await axios.get(`${process.env.HOST}/api/events/${localEvent.id}/summary`);
+            eventDetails = summaryResponse.data.summary;
+
+            
+            cateringStatus = localEvent.services &&
+              Array.isArray(localEvent.services) &&
+              localEvent.services.includes('catering')
+              ? 'Requested' : 'Not Requested';
+
+            
+            const followUpPrompt = `
+                        Generate a follow-up email for an upcoming event. The email should:
+                        1. Express excitement for their event
+                        2. Confirm the event date and time
+                        3. Ask for an updated attendee count
+                        Based on the email summary, if catering is requested, a package has been picked and the individual choices(i.e. types of tacos or types of appetizers) have been picked, then confirm the choices. 
+                        
+                        If catering is requested and a package has been picked, but individual options (like tacos or buffet choices) have not been picked, ask for the choices. We need it about 72 hours before the event.
+                        
+                        If they don't mention catering, ask if they would be interested in our catering services, mentioning our $6 light appetizers option'
+                        
+                        4. Be concise - no more than 3-4 short paragraphs. Don't add a subject line.
+                        
+                        Event Summary: ${eventDetails}
+                        Event Date: ${eventStartFormatted}
+                        Client Name: ${localEvent.name}
+                    `;
+
+            const { response: emailContent } = await aiService.generateResponse([
+              {
+                role: 'system',
+                content: 'You are a friendly venue coordinator writing follow-up emails.'
+              },
+              {
+                role: 'user',
+                content: followUpPrompt
+              }
+            ], {
+              includeBackground: true,
+              resetHistory: true,
+              provider: 'google',
+              model: 'gemini-1.5-flash'
+            });
+
+
+            
+            const subject = `Excited for your event on ${eventStart.format('MMMM Do')}`;
+
+            
+            const encodedEmail = encodeURIComponent(localEvent.email);
+            const encodedSubject = encodeURIComponent(subject);
+            const encodedBody = encodeURIComponent(emailContent);
+
+            
+            followUpMailto = `mailto:${encodedEmail}?subject=${encodedSubject}&body=${encodedBody}`;
+
+          } catch (error) {
+            console.error(`Error processing event ${localEvent.id}:`, error);
+            eventDetails = 'Error retrieving event details';
+          }
+        }
+
+        eventSummaries.push({
+          name: eventName,
+          email: localEvent?.email || 'No email found',
+          date: eventStartFormatted,
+          details: eventDetails,
+          catering: cateringStatus,
+          followUpMailto: followUpMailto
+        });
+      }
+
+      
+      const emailHtml = `
+            <h2>Weekly Event Summary</h2>
+            <p>Here are the upcoming events for the next week:</p>
+            ${eventSummaries.map(event => `
+                <div style="margin-bottom: 30px; padding: 15px; border: 1px solid #ddd; border-radius: 5px;">
+                    <h3>${event.name}</h3>
+                    <p><strong>Date:</strong> ${event.date}</p>
+                    <p><strong>Email:</strong> ${event.email}</p>
+                    <div style="margin: 10px 0;">
+                        <h4>Event Details:</h4>
+                        <p>${event.details}</p>
+                    </div>
+                    ${event.followUpMailto ? `
+                       <a href="${event.followUpMailto}" 
+                          style="display: inline-block; padding: 10px 20px; 
+                                background-color: #007bff; color: white; 
+                                text-decoration: none; border-radius: 5px;">
+                          Send Follow-up Email
+                      </a>
+                    ` : ''}
+                </div>
+            `).join('')}
+        `;
+
+      const emailData = {
+        subject: `Weekly Event Summary - ${upcomingEvents.length} Upcoming Events`,
+        html: emailHtml
+      };
+
+      
+      await this.gmail.sendEmail('info@eattaco.ca', emailData.subject, emailData.html);
+
+      return emailData;
+    } catch (error) {
+      console.error('Error generating weekly summary:', error);
+      throw error;
+    }
+  }
+}
+
+module.exports = EventService;
+
+//--- File: /home/luan_ngo/web/events/routes/events.js ---
+
+
+const express = require('express');
+const router = express.Router();
+const EventService = require('../services/eventService');
+const pdfService = require('../services/pdfService');
+module.exports = (googleAuth) => {
+
+  const eventService = new EventService(googleAuth);
+
+  router.get('/api/events/weekly-summary', async (req, res) => {
+    try {
+      const summary = await eventService.generateWeeklySummary();
+      res.json({
+        message: 'Weekly summary generated and sent successfully',
+        summary: summary
+      });
+    } catch (error) {
+      console.error('Error generating weekly summary:', error);
+      res.status(500).json({
+        error: 'Failed to generate weekly summary',
+        details: error.message
+      });
+    }
+  });
+  router.post('/api/createEventContract', async (req, res) => {
+    const data = req.body
+    const contractData = await pdfService.createEventContract(data, res);
+  });
+
+  router.get('/api/events/:id/summary', async (req, res) => {
+    try {
+      const summary = await eventService.getEventSummary(req.params.id);
+
+      if (!summary.success) {
+        return res.status(500).json({ error: summary.error });
+      }
+
+
+      res.json(summary);
+    } catch (error) {
+      console.error('Error getting event summary:', error);
+      res.status(500).json({ error: 'Failed to generate event summary' });
+    }
+  });
+  
+  router.get('/api/events', (req, res) => {
+    try {
+      const events = eventService.loadEvents();
+      res.json(events);
+    } catch (error) {
+      console.error('Error getting events:', error);
+      res.status(500).json({ error: 'Failed to get events' });
+    }
+  });
+
+  
+  router.get('/api/events/:id', (req, res) => {
+    try {
+      const event = eventService.getEvent(req.params.id);
+      if (event) {
+        res.json(event);
+      } else {
+        res.status(404).json({ error: 'Event not found' });
+      }
+    } catch (error) {
+      console.error('Error getting event:', error);
+      res.status(500).json({ error: 'Failed to get event' });
+    }
+  });
+
+  
+  router.post('/api/events/sync', async (req, res) => {
+    try {
+      const success = await eventService.syncWithRemote();
+      if (success) {
+        res.json({ message: 'Sync completed successfully' });
+      } else {
+        res.status(500).json({ error: 'Sync failed' });
+      }
+    } catch (error) {
+      console.error('Error during sync:', error);
+      res.status(500).json({ error: 'Sync failed' });
+    }
+  });
+
+  
+  router.put('/api/events/:id', async (req, res) => {
+    try {
+      
+      const requiredFields = ['name', 'email', 'startTime', 'endTime'];
+      for (const field of requiredFields) {
+        if (!req.body[field]) {
+          return res.status(400).json({ error: `Missing required field: ${field}` });
+        }
+      }
+
+      let updatedEvent = eventService.updateEvent(req.params.id, req.body);
+
+      if (updatedEvent) {
+        await eventService.updateRemoteEvent(updatedEvent, req.body);
+        res.json(updatedEvent);
+      } else {
+        
+        const newEventData = { ...req.body, id: parseInt(req.params.id) };
+        const newEvent = eventService.createEvent(newEventData);
+
+        if (newEvent) {
+          res.status(201).json(newEvent);
+        } else {
+          res.status(500).json({ error: 'Failed to create event' });
+        }
+      }
+    } catch (error) {
+      console.error('Error updating or creating event:', error);
+      res.status(500).json({ error: 'Failed to update or create event' });
+    }
+  });
+
+  
+  router.post('/api/events', (req, res) => {
+    try {
+      
+      const requiredFields = ['name', 'email', 'startTime', 'endTime'];
+      for (const field of requiredFields) {
+        if (!req.body[field]) {
+          return res.status(400).json({ error: `Missing required field: ${field}` });
+        }
+      }
+
+      const newEvent = eventService.createEvent(req.body);
+      if (newEvent) {
+        res.status(201).json(newEvent);
+      } else {
+        res.status(500).json({ error: 'Failed to create event' });
+      }
+    } catch (error) {
+      console.error('Error creating event:', error);
+      res.status(500).json({ error: 'Failed to create event' });
+    }
+  });
+
+  
+  router.delete('/api/events/:id', (req, res) => {
+    try {
+      const success = eventService.deleteEvent(req.params.id);
+      if (success) {
+        res.status(204).send();
+      } else {
+        res.status(404).json({ error: 'Event not found' });
+      }
+    } catch (error) {
+      console.error('Error deleting event:', error);
+      res.status(500).json({ error: 'Failed to delete event' });
+    }
+  });
+  return router;
+}
+
 //--- File: /home/luan_ngo/web/events/public/scripts.js ---
 
 
@@ -80,9 +695,16 @@ export class EventManageApp {
                 if (button) {
                     button.classList.add('active');
                 }
-    
+        
                 
-                section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                const headerOffset = 60; 
+                const elementPosition = section.getBoundingClientRect().top;
+                const offsetPosition = elementPosition + window.pageYOffset - headerOffset;
+        
+                window.scrollTo({
+                    top: offsetPosition,
+                    behavior: 'smooth'
+                });
             }
         };
     
@@ -2170,7 +2792,7 @@ export class EventManageApp {
     </div>
 
 
-    <nav class="btm-nav md:hidden"> 
+    <div class="md:hidden btm-nav "> 
         <button onclick="scrollToSection('contacts')" class="tooltip tooltip-top" data-tip="Contacts">
             <i class="bi bi-people text-xl"></i> 
         </button>
@@ -2189,7 +2811,7 @@ export class EventManageApp {
         <button onclick="window.user_settings_modal.showModal()" class="tooltip tooltip-top" data-tip="Settings">
             <i class="bi bi-gear text-xl"></i>
         </button>
-    </nav>
+    </div>
     <dialog id="maximize_content_modal" class="modal">
         <div class="modal-box w-11/12 max-w-7xl h-[90vh]"> 
             <h3 class="font-bold text-lg mb-4" id="maximizeModalTitle">Content View</h3>
@@ -2305,286 +2927,6 @@ export class EventManageApp {
 </body>
 
 </html>
-
-//--- File: /home/luan_ngo/web/events/public/calendar.js ---
-class Calendar {
-    constructor(containerId) {
-        this.containerId = containerId;
-        this.currentDate = new Date();
-        this.events = [];
-        this.weatherData = new Map();
-        $(document).ready(() => this.initialize());
-    }
-    
-    showModal(eventDetails) {
-        
-        eventDetails.labelEndTime = eventDetails.labelEndTime || eventDetails.endTime;
-
-        const modalHTML = `
-        <div class="modal fade" id="eventModal" tabindex="-1" aria-labelledby="eventModalLabel" aria-hidden="true">
-            <div class="modal-dialog">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title" id="eventModalLabel">${eventDetails.title}</h5>
-                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
-                            <span aria-hidden="true">&times;</span>
-                        </button>
-                    </div>
-                    <div class="modal-body">
-                        <p><strong>Room:</strong> ${eventDetails.room}</p>
-                        <p><strong>Time:</strong> ${moment(eventDetails.startTime).format('hh:mm')} - ${moment(eventDetails.labelEndTime).format('hh:mm')}</p>
-                        <p><strong>Description:</strong> ${eventDetails.description}</p>
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-primary" id="bookNowButton">Book Now</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-        `;
-
-        
-        $('body').append(modalHTML);
-        $('#eventModal').modal('show');
-
-        
-        $('#eventModal').on('hidden.bs.modal', function () {
-            $('#eventModal').remove();
-        });
-
-        
-        $('#bookNowButton').click(() => {
-            alert('Book now action not implemented.');
-            $('#eventModal').modal('hide'); 
-        });
-    }
-
-    
-    eventClickHandler(eventId) {
-        const eventDetails = this.events.find(event => event.id === eventId);
-        if (eventDetails) {
-            this.showModal(eventDetails);
-        }
-    }
-    constructHTML() {
-        const html = `
-        <div class="calendar-header">
-            <h4 class="calendar-month-year">
-                <span id="month" class="calendar-month"></span>
-                <span id="year" class="calendar-year"></span>
-                <div class="calendar-nav" style="display: inline-block;">
-                    <a id="left" href="#" class="btn btn-outline-primary btn-sm" data-tip="tooltip" title="Previous Month">
-                        <i class="bi bi-chevron-left"></i>
-                    </a>
-                    <a id="right" href="#" class="btn btn-outline-primary btn-sm" data-tip="tooltip" title="Next Month">
-                        <i class="bi bi-chevron-right"></i>
-                    </a>
-                </div>
-            </h4>
-        </div>
-        <div class="row">
-            <div class="col-12">
-                <table class="table table-bordered">
-                    
-                </table>
-            </div>
-        </div>
-        `;
-        $('#' + this.containerId).html(html);
-    }
-
-    loadEvents(events) {
-        this.events = events;
-        this.refreshCalendar();
-    }
-
-    refreshCalendar() {
-        this.generateCalendar(this.currentDate);
-    }
-    getWMOIcon(code) {
-        
-        const weatherCodes = {
-            0: { icon: 'bi-sun-fill', class: 'text-yellow-500' },  
-            1: { icon: 'bi-sun-fill', class: 'text-yellow-500' },  
-            2: { icon: 'bi-cloud-sun-fill', class: 'text-gray-500' },  
-            3: { icon: 'bi-cloud-fill', class: 'text-gray-500' },  
-
-            
-            45: { icon: 'bi-cloud-haze-fill', class: 'text-gray-400' },  
-            48: { icon: 'bi-cloud-haze-fill', class: 'text-gray-400' },  
-
-            
-            51: { icon: 'bi-cloud-drizzle-fill', class: 'text-blue-400' },  
-            53: { icon: 'bi-cloud-drizzle-fill', class: 'text-blue-400' },  
-            55: { icon: 'bi-cloud-drizzle-fill', class: 'text-blue-400' },  
-
-            
-            56: { icon: 'bi-cloud-sleet-fill', class: 'text-blue-300' },  
-            57: { icon: 'bi-cloud-sleet-fill', class: 'text-blue-300' },  
-
-            
-            61: { icon: 'bi-cloud-rain-fill', class: 'text-blue-500' },  
-            63: { icon: 'bi-cloud-rain-fill', class: 'text-blue-500' },  
-            65: { icon: 'bi-cloud-rain-heavy-fill', class: 'text-blue-600' },  
-
-            
-            66: { icon: 'bi-cloud-sleet-fill', class: 'text-blue-300' },  
-            67: { icon: 'bi-cloud-sleet-fill', class: 'text-blue-300' },  
-
-            
-            71: { icon: 'bi-snow', class: 'text-blue-200' },  
-            73: { icon: 'bi-snow', class: 'text-blue-200' },  
-            75: { icon: 'bi-snow-fill', class: 'text-blue-200' },  
-
-            
-            77: { icon: 'bi-snow', class: 'text-blue-200' },  
-
-            
-            80: { icon: 'bi-cloud-rain-fill', class: 'text-blue-500' },  
-            81: { icon: 'bi-cloud-rain-fill', class: 'text-blue-500' },  
-            82: { icon: 'bi-cloud-rain-heavy-fill', class: 'text-blue-600' },  
-
-            
-            85: { icon: 'bi-snow', class: 'text-blue-200' },  
-            86: { icon: 'bi-snow-fill', class: 'text-blue-200' },  
-
-            
-            95: { icon: 'bi-cloud-lightning-fill', class: 'text-yellow-600' },  
-            96: { icon: 'bi-cloud-lightning-rain-fill', class: 'text-yellow-600' },  
-            99: { icon: 'bi-cloud-lightning-rain-fill', class: 'text-yellow-600' }   
-        };
-
-        return weatherCodes[code] || { icon: 'bi-question-circle', class: 'text-gray-500' };
-    }
-
-    async fetchWeatherData() {
-        try {
-            const response = await fetch('https:
-            const data = await response.json();
-
-            
-            data.daily.time.forEach((date, index) => {
-                this.weatherData.set(date, {
-                    weatherCode: data.daily.weather_code[index],
-                    maxTemp: Math.round(data.daily.temperature_2m_max[index]),
-                    minTemp: Math.round(data.daily.temperature_2m_min[index])
-                });
-            });
-        } catch (error) {
-            console.error('Error fetching weather data:', error);
-        }
-    }
-
-    generateCalendar(d) {
-        const firstDayOfMonth = new Date(d.getFullYear(), d.getMonth(), 1).getDay();
-        const totalDays = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-        let html = '<table class="table calendar"><thead><tr>';
-
-        for (let i = 0; i < 7; i++) {
-            html += `<th>${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][i]}</th>`;
-        }
-        html += '</tr></thead><tbody><tr>';
-
-        
-        for (let i = 0; i < firstDayOfMonth; i++) {
-            html += '<td></td>';
-        }
-
-        for (let day = 1; day <= totalDays; day++) {
-            const dayDate = new Date(d.getFullYear(), d.getMonth(), day);
-            const dateStr = moment(dayDate).format('YYYY-MM-DD');
-            const weather = this.weatherData.get(dateStr);
-
-            if ((day + firstDayOfMonth - 1) % 7 === 0 && day > 1) {
-                html += '</tr><tr>';
-            }
-
-            html += `
-                <td class="day relative" data-date="${dateStr}">
-                    <div class="flex justify-between items-start">
-                        <span class="font-bold">${day}</span>
-                        ${weather ? `
-                            <div class="weather-info text-xs flex flex-col items-end">
-                                <div class="flex items-center gap-1">
-                                    <i class="bi ${this.getWMOIcon(weather.weatherCode).icon} ${this.getWMOIcon(weather.weatherCode).class}"></i>
-                                </div>
-                                <div class="text-right">
-                                    <span class="text-red-500">${weather.maxTemp}°</span>
-                                    <span class="text-blue-500">${weather.minTemp}°</span>
-                                </div>
-                            </div>
-                        ` : ''}
-                    </div>`;
-
-            
-            const eventsForDay = this.events.filter(event => {
-                const eventStart = new Date(event.startTime).setHours(0, 0, 0, 0);
-                const eventEnd = new Date(event.endTime).setHours(23, 59, 59, 999);
-                return dayDate >= eventStart && dayDate <= eventEnd;
-            });
-
-            eventsForDay.forEach(event => {
-                html += `
-                    <div class="event-bar mt-2" data-eventid="${event.id}" title="${event.title}">
-                        ${event.title}
-                    </div>`;
-            });
-
-            html += `</td>`;
-        }
-
-        
-        const lastDayOfMonth = new Date(d.getFullYear(), d.getMonth(), totalDays).getDay();
-        for (let i = lastDayOfMonth; i < 6; i++) {
-            html += '<td></td>';
-        }
-
-        html += '</tr></tbody></table>';
-        $('#' + this.containerId + ' .col-12').html(html);
-
-        
-        $('.event-bar').click((e) => {
-            const eventId = $(e.target).data('eventid');
-            this.eventClickHandler(eventId);
-        });
-
-        this.updateMonthYear(d);
-    }
-
-    updateMonthYear(d) {
-        $('#month', '#' + this.containerId).text(['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'][d.getMonth()]);
-        $('#year', '#' + this.containerId).text(d.getFullYear());
-
-        $('#left', '#' + this.containerId).off('click').click((e) => {
-            e.preventDefault();
-            this.changeMonth(-1);
-        });
-
-        $('#right', '#' + this.containerId).off('click').click((e) => {
-            e.preventDefault();
-            this.changeMonth(1);
-        });
-    }
-
-    async changeMonth(offset) {
-        this.currentDate.setMonth(this.currentDate.getMonth() + offset);
-        await this.fetchWeatherData(); 
-        this.refreshCalendar();
-    }
-
-    async initialize() {
-        await this.fetchWeatherData();
-        this.constructHTML();
-        this.refreshCalendar();
-    }
-}
-
-
-
-
-
-
-
 
 //--- File: /home/luan_ngo/web/events/public/EmailProcessor.js ---
 class EmailProcessor {
@@ -2787,12 +3129,11 @@ class EmailProcessor {
 
   html,
   body {
-    @apply h-full overflow-x-hidden;
+    @apply overflow-x-hidden;
   }
 
   body {
     @apply pb-16 lg:pb-0;
-    
     @apply bg-base-100;
   }
 }

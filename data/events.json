@@ -19059,7 +19059,8 @@
       "id": 1166,
       "status": "",
       "rentalRate": "500",
-      "minSpend": "1000"
+      "minSpend": "1000",
+      "createdAt": "2024-11-13T21:30:29.362Z"
     },
     {
       "name": "Rai Hsu",
