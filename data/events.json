@@ -19088,17 +19088,37 @@
       "phone": "6477831227",
       "partyType": "birthday party",
       "startTime": "2025-02-01T20:00",
-      "endTime": "2025-02-02T02:30",
+      "endTime": "2025-02-02T02:00",
       "room": "Lounge",
       "attendance": "",
       "services": "bar;lights;audio;music",
-      "notes": "$406.25 deposit to book.",
+      "notes": "$375.00 deposit to book.",
       "messageCount": 3,
       "historyIncluded": false,
       "id": 1168,
       "status": "",
-      "rentalRate": "812.5",
-      "minSpend": "1750"
+      "rentalRate": "750",
+      "minSpend": "1750",
+      "createdAt": "2024-11-14T17:11:23.276Z"
+    },
+    {
+      "name": "Elvan Tayhani",
+      "email": "elvantayhani@gmail.com",
+      "phone": "14167786705",
+      "partyType": "40th birthday party",
+      "startTime": "2025-02-07T20:00",
+      "endTime": "2025-02-08T00:00",
+      "room": "DiningRoom",
+      "attendance": "",
+      "services": "bar;lights;audio;music",
+      "notes": "$250.00 deposit to book.",
+      "messageCount": 3,
+      "historyIncluded": false,
+      "id": 1169,
+      "status": "",
+      "rentalRate": "500",
+      "minSpend": "1000",
+      "createdAt": "2024-11-14T17:24:05.435Z"
     }
   ]
 }
