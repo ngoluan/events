@@ -150,9 +150,18 @@ class AIService {
             parsedData = result.choices[0].message.parsed;
             response = parsedData;
           } else {
+            const contents = contextualizedMessages.map(msg => {
+              if (typeof msg.content === 'object' && msg.content !== null) {
+                msg.content = JSON.stringify(msg.content);
+              }
+              return {
+                role: msg.role ,
+               content:msg.content
+              };F
+            });
             const result = await this.providers.openai.chat.completions.create({
               model,
-              messages: contextualizedMessages,
+              messages: contents,
               ...(maxTokens && { max_tokens: maxTokens })
             });
             response = result.choices[0].message.content;
@@ -170,10 +179,15 @@ class AIService {
 
         case 'google':
           const geminiModel = this.providers.google.getGenerativeModel({ model });
-          const contents = contextualizedMessages.map(msg => ({
-            role: msg.role === 'assistant' ? 'model' : (msg.role === 'system' ? 'user' : msg.role),
-            parts: [{ text: msg.content }]
-          }));
+          const contents = contextualizedMessages.map(msg => {
+            if (typeof msg.content === 'object' && msg.content !== null) {
+              msg.content = JSON.stringify(msg.content);
+            }
+            return {
+              role: msg.role === 'assistant' ? 'model' : (msg.role === 'system' ? 'user' : msg.role),
+              parts: [{ text: msg.content }]
+            };
+          });
           const geminiResult = await geminiModel.generateContent({ contents });
           response = geminiResult.response.text();
           break;

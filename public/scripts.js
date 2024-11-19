@@ -692,6 +692,11 @@ export class EventManageApp {
             this.appendConfirmationPrompt();
         });
 
+        document.getElementById('aiText').addEventListener('paste', (e) => {
+            e.preventDefault();
+            const text = e.clipboardData.getData('text/plain');
+            document.execCommand('insertText', false, text);
+        });
         $(document).on("click", "#actionSendAI", (e) => {
             e.preventDefault();
             const val = $("#aiText").text() + `\n\nBe concise and semi-formal in the response.`;
@@ -921,7 +926,7 @@ export class EventManageApp {
                     showReplied: this.emailFilters.showReplied
                 });
             }
-    
+
             if (Array.isArray(response)) {
                 if ($('#messages').data('currentView') === 'interac') {
                     this.processInteracEmails(response);
@@ -931,7 +936,7 @@ export class EventManageApp {
             } else {
                 throw new Error("Invalid response format");
             }
-    
+
             return response;
         } catch (error) {
             console.error("Failed to read Gmail:", error);
@@ -1397,45 +1402,45 @@ export class EventManageApp {
             });
         }
     }
-processInteracEmails(data) {
-    if (!Array.isArray(data)) {
-        console.error("Invalid data format:", data);
-        return;
-    }
+    processInteracEmails(data) {
+        if (!Array.isArray(data)) {
+            console.error("Invalid data format:", data);
+            return;
+        }
 
-    let html = '';
-    data.forEach((email) => {
-        // Extract Interac details using regex
-        const emailContent = email.text || email.html;
-        const nameMatch = emailContent.match(/Sent From:\s*(.*?)(?:\n|$)/);
-        const amountMatch = emailContent.match(/Amount:\s*\$([\d.]+)/);
-        
-        const senderName = nameMatch ? nameMatch[1].trim() : 'Unknown';
-        const amount = amountMatch ? amountMatch[1] : '0.00';
+        let html = '';
+        data.forEach((email) => {
+            // Extract Interac details using regex
+            const emailContent = email.text || email.html;
+            const nameMatch = emailContent.match(/Sent From:\s*(.*?)(?:\n|$)/);
+            const amountMatch = emailContent.match(/Amount:\s*\$([\d.]+)/);
 
-        // Get timestamp
-        const timestamp = moment.tz(email.timestamp, 'America/New_York');
-        const timeDisplay = timestamp.format("MM/DD/YYYY HH:mm");
-        const timeAgo = timestamp.fromNow();
+            const senderName = nameMatch ? nameMatch[1].trim() : 'Unknown';
+            const amount = amountMatch ? amountMatch[1] : '0.00';
 
-        // Find matching contacts using Fuse
-        let matchingContactsHtml = '';
-        if (this.fuse) {
-            const matches = this.fuse.search(senderName);
-            const contact = matches.length > 0 ? matches[0].item : null;
-            if (contact) {
-                const depositPw = this.calcDepositPassword(contact);
-                matchingContactsHtml = `
+            // Get timestamp
+            const timestamp = moment.tz(email.timestamp, 'America/New_York');
+            const timeDisplay = timestamp.format("MM/DD/YYYY HH:mm");
+            const timeAgo = timestamp.fromNow();
+
+            // Find matching contacts using Fuse
+            let matchingContactsHtml = '';
+            if (this.fuse) {
+                const matches = this.fuse.search(senderName);
+                const contact = matches.length > 0 ? matches[0].item : null;
+                if (contact) {
+                    const depositPw = this.calcDepositPassword(contact);
+                    matchingContactsHtml = `
                     <div class="alert alert-success mt-2">
                         <i class="bi bi-check-circle"></i> 
                         Matching contact: ${contact.name}<br>
                         Deposit Password: ${depositPw}
                     </div>
                 `;
+                }
             }
-        }
 
-        html += `
+            html += `
             <div class="sms" data-id="${email.id}" data-name="${_.escape(senderName)}" data-amount="${amount}">
                 <div class="flex items-center justify-between mb-2">
                     <div class="text-xl font-bold text-success">
@@ -1461,37 +1466,37 @@ processInteracEmails(data) {
                 </div>
             </div>
         `;
-    });
+        });
 
-    if (html) {
-        $(".messages-container").html(html);
-        this.initializeForwardButtons();
-    } else {
-        $(".messages-container").html(`
+        if (html) {
+            $(".messages-container").html(html);
+            this.initializeForwardButtons();
+        } else {
+            $(".messages-container").html(`
             <div class="alert alert-info">
                 <i class="bi bi-info-circle"></i>
                 No Interac e-Transfer emails found
             </div>
         `);
+        }
     }
-}
-initializeForwardButtons() {
-    $('.forward-etransfer').off('click').on('click', async (e) => {
-        const $container = $(e.target).closest('.sms');
-        const senderName = $container.data('name');
-        const amount = $container.data('amount');
-        const emailId = $container.data('id');
+    initializeForwardButtons() {
+        $('.forward-etransfer').off('click').on('click', async (e) => {
+            const $container = $(e.target).closest('.sms');
+            const senderName = $container.data('name');
+            const amount = $container.data('amount');
+            const emailId = $container.data('id');
 
-        try {
-            const staffResponse = await $.get('https://eattaco.ca/api/getStaff');
-            const activeStaff = staffResponse.filter(staff => staff.active);
-            const matches = this.fuse ? this.fuse.search(senderName) : [];
+            try {
+                const staffResponse = await $.get('https://eattaco.ca/api/getStaff');
+                const activeStaff = staffResponse.filter(staff => staff.active);
+                const matches = this.fuse ? this.fuse.search(senderName) : [];
 
-            const modal = document.getElementById('etransfer_modal') || document.createElement('dialog');
-            modal.id = 'etransfer_modal';
-            modal.className = 'modal';
-            
-            modal.innerHTML = `
+                const modal = document.getElementById('etransfer_modal') || document.createElement('dialog');
+                modal.id = 'etransfer_modal';
+                modal.className = 'modal';
+
+                modal.innerHTML = `
                 <div class="modal-box">
                     <h3 class="font-bold text-lg">Forward eTransfer</h3>
                     <div class="py-4 space-y-4">
@@ -1506,14 +1511,14 @@ initializeForwardButtons() {
                             <select class="select select-bordered" id="matchingContacts">
                                 <option value="">Select contact...</option>
                                 ${matches.map(match => {
-                                    const depositPw = this.calcDepositPassword(match.item);
-                                    return `
+                    const depositPw = this.calcDepositPassword(match.item);
+                    return `
                                         <option value="${match.item.id}" 
                                                 data-password="${depositPw}">
                                             ${match.item.name} (${moment(match.item.startTime).format('MM/DD/YYYY')})
                                         </option>
                                     `;
-                                }).join('')}
+                }).join('')}
                             </select>
                         </div>
 
@@ -1540,52 +1545,52 @@ initializeForwardButtons() {
                 </div>
             `;
 
-            document.body.appendChild(modal);
-            modal.showModal();
+                document.body.appendChild(modal);
+                modal.showModal();
 
-            $('#sendEtransfer').off('click').on('click', async () => {
-                const selectedStaff = $('#sendStaffSelect').val();
-                const selectedStaffPhone = $('#sendStaffSelect option:selected').data('phone');
-                const selectedStaffName = $('#sendStaffSelect option:selected').text();
-                const depositPw = $('#matchingContacts option:selected').data('password');
+                $('#sendEtransfer').off('click').on('click', async () => {
+                    const selectedStaff = $('#sendStaffSelect').val();
+                    const selectedStaffPhone = $('#sendStaffSelect option:selected').data('phone');
+                    const selectedStaffName = $('#sendStaffSelect option:selected').text();
+                    const depositPw = $('#matchingContacts option:selected').data('password');
 
-                if (!selectedStaff || !depositPw) {
-                    this.showToast('Please select both a contact and staff member', 'error');
-                    return;
-                }
+                    if (!selectedStaff || !depositPw) {
+                        this.showToast('Please select both a contact and staff member', 'error');
+                        return;
+                    }
 
-                try {
-                    // Forward email
-                    await $.post('/gmail/forwardEmail', {
-                        messageId: emailId,
-                        to: selectedStaff
-                    });
+                    try {
+                        // Forward email
+                        await $.post('/gmail/forwardEmail', {
+                            messageId: emailId,
+                            to: selectedStaff
+                        });
 
-                    // Send SMS
-                    const smsData = {
-                        to: selectedStaffPhone,
-                        message: `This is Luan from TacoTaco. The PW to the etransfer for ${senderName} is ${depositPw}. Please confirm after you've deposited. If there is a problem, message Luan on Whatsapp.`,
-                        fromName: 'Luan',
-                        amount: amount,
-                        toName: selectedStaffName
-                    };
+                        // Send SMS
+                        const smsData = {
+                            to: selectedStaffPhone,
+                            message: `This is Luan from TacoTaco. The PW to the etransfer for ${senderName} is ${depositPw}. Please confirm after you've deposited. If there is a problem, message Luan on Whatsapp.`,
+                            fromName: 'Luan',
+                            amount: amount,
+                            toName: selectedStaffName
+                        };
 
-                    await $.post('https://eattaco.ca/api/sendStaffSMSInterac', smsData);
+                        await $.post('https://eattaco.ca/api/sendStaffSMSInterac', smsData);
 
-                    this.showToast('eTransfer forwarded and SMS sent successfully', 'success');
-                    modal.close();
-                } catch (error) {
-                    console.error('Error forwarding eTransfer:', error);
-                    this.showToast('Error forwarding eTransfer', 'error');
-                }
-            });
+                        this.showToast('eTransfer forwarded and SMS sent successfully', 'success');
+                        modal.close();
+                    } catch (error) {
+                        console.error('Error forwarding eTransfer:', error);
+                        this.showToast('Error forwarding eTransfer', 'error');
+                    }
+                });
 
-        } catch (error) {
-            console.error('Error loading staff data:', error);
-            this.showToast('Error loading staff data', 'error');
-        }
-    });
-}
+            } catch (error) {
+                console.error('Error loading staff data:', error);
+                this.showToast('Error loading staff data', 'error');
+            }
+        });
+    }
     async createCalendar() {
         this.mainCalendar = new Calendar('calendar');
         try {

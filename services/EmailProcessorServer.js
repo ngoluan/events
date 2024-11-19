@@ -29,11 +29,15 @@ class EmailProcessorServer {
     getRouter() {
         return this.router;
     }
-    async checkAvailabilityAI(date, emailText) {
+
+    async checkAvailabilityAI(firstResponse, emailText) {
         try {
             const calendarEvents = await this.googleCalendarService.listEvents();
 
-            const targetDate = moment(date).startOf('day');
+            const targetDate = moment(firstResponse.date).startOf('day');
+
+            //is the day a weekend?
+            const isWeekend = targetDate.day() === 5 || targetDate.day() === 6; // 5 = Friday, 6 = Saturday
             const relevantEvents = calendarEvents.filter(event => {
                 const eventDate = moment(event.start.dateTime || event.start.date).startOf('day');
                 return eventDate.isSame(targetDate);
@@ -46,31 +50,69 @@ class EmailProcessorServer {
                 room: event.location || 'Unspecified'
             }));
 
-            const prompt = `
-                Please analyze the availability for an event request based on the following:
+            // first check what room should we recommend
+            const { roomResponse } = await aiService.generateResponse([
 
-                Current bookings for ${targetDate.format('YYYY-MM-DD')}:
-                ${JSON.stringify(formattedEvents, null, 2)}
+                {
+                    role: 'user',
+                    content: `Client Inquiry: ${emailText}. Which room are they asking for? Moonlight Lounge or TacoTaco Dining Room (aka Tropical Event Space). If they don't specify, if party is 50 and larger, recommend Moonlight Lounge. If party is below 50, then recommend dining room.`
+                }
+            ], {
+                includeBackground: false,
+                resetHistory: false, provider: 'google',
+                model: 'gemini-1.5-flash'
+            });
 
-                Client Inquiry:
-                ${emailText}
 
-                You are a event venue coordinator. Draft a response to the client inquiry. If they dont specify a room, suggest the room most appropriate for their party size. If they are interested in booking, tell them if the venue is available 
-                the day that they want. Provide information on services if venue is available.  Provide information on catering and drink packages if they ask.
-                Be concise and semi formal. 
-            `;
+            const { availiabiltyResponse } = await aiService.generateResponse([
+
+                {
+                    role: 'user',
+                    content: `
+                        Please analyze the availability for an event request based on the following:
+
+                        Current bookings for ${targetDate.format('YYYY-MM-DD')}:
+                        ${JSON.stringify(formattedEvents, null, 2)}
+
+                        The recommended room is ${roomResponse}.
+                        
+                        Their requested time is ${firstResponse.time}
+
+                        Is there avaialblity or is it already booked?
+                    `
+                }
+            ], {
+                includeBackground: false,
+                resetHistory: false, provider: 'google',
+                model: 'gemini-1.5-flash'
+            });
 
             const { response } = await aiService.generateResponse([
 
                 {
                     role: 'user',
-                    content: prompt
+                    content: `
+                        Draft a response to the inquiry. Here's the email: ${emailText}
+
+                        We recommend the following room ${roomResponse}
+
+                        Here's the availablity information ${availiabiltyResponse}.
+
+                        If available, provide informatoin on rates and services that we provide.
+
+                        If asked, provide information on packages.
+
+                        The requested day is a weekend: ${isWeekend}.
+
+                        Don't respond with a subject heading or start with Dear.
+                    `
                 }
             ], {
-                includeBackground: true
+                includeBackground: true,
+                resetHistory: false
             });
 
-            return {response};
+            return { response };
 
         } catch (error) {
             console.error('Error checking availability:', error);
@@ -163,21 +205,17 @@ class EmailProcessorServer {
 
                 const { text } = req.body;
 
-                const prompt = `
+                const { response } = await aiService.generateResponse([
+
+                    {
+                        role: 'user', content: `
                     Summarize this email chain between the client and venue coordinator.
                     Focus on: organizer, event type, timing, rooms, guest count, 
                     catering, AV needs, drink packages, layout, and special requests.
 
                     Email content:
                     ${text}
-                `;
-
-                const { response } = await aiService.generateResponse([
-                    {
-                        role: 'system',
-                        content: 'You are a venue coordinator who summarizes email conversations clearly and concisely.'
-                    },
-                    { role: 'user', content: prompt }
+                ` }
                 ], {
                     includeHistory: false,
                     resetHistory: true,
@@ -197,18 +235,18 @@ class EmailProcessorServer {
 
         this.router.post('/api/getAIEmail', async (req, res) => {
             try {
-                let { aiText, emailText } = req.body;
+                let { instructions, emailText } = req.body;
 
                 const inquirySchema = z.object({
                     inquiryType: z.enum(['availability', 'food and drink packages', 'confirmEvent', 'other']),
                     date: z.string().optional(),
                     time: z.string().optional(),
-                    isWeekend: z.boolean().optional(),
                     fromEmail: z.string().optional(),
                     summary: z.string(),
                 });
 
-                aiText += `. If no year is specified, assume it's ${moment().year()}. `;
+                emailText += instructions;
+
 
                 const messages = [
                     {
@@ -217,7 +255,14 @@ class EmailProcessorServer {
                     },
                     {
                         role: 'user',
-                        content: `${aiText}\n\nEmail content: ${emailText}`
+                        content: `Email content: ${emailText}. Date should be MM/DD/YYYY.
+                        
+                        inquiryTypes: 
+                        - availability: if it's a new event inquiry and/or guest is asking for availabity for a certain date
+                        - food and drink packages: if it is not a new inquiry, and guests are asking for drink and food packages
+                        - confirmEvent: if the guest is emailing indicating that they've sent the etransfer and/or accept the contract.
+                        
+                        `
                     }
                 ];
 
@@ -233,18 +278,18 @@ class EmailProcessorServer {
                 let followUpResponse;
                 switch (response.inquiryType) {
                     case "availability":
-                        followUpResponse = await this.checkAvailabilityAI(response.date, emailText);
+                        followUpResponse = await this.checkAvailabilityAI(response, emailText);
                         break;
                     case "confirmEvent":
                         followUpResponse = await aiService.generateResponse([
                             {
                                 role: 'user',
-                                content: `Generate a confirmation email response for: ${emailText}`
+                                content: `Generate a confirmation email response for: ${emailText}. Say that you're now booked.`
                             }
                         ], {
                             includeBackground: true,
-                            provider:'google',
-                            model:'gemini-1.5-flash'
+                            provider: 'google',
+                            model: 'gemini-1.5-flash'
                         });
                         break;
                     default:

@@ -1,9 +1,7 @@
 [
+  "public/styles.css",
+  "public/scripts.js",
   "public/index.html",
-  "public/calendar.js",
-  "public/ReceiptManager.js",
   "public/EmailProcessor.js",
-  "public/EmailEventUpdater.js",
-  "src/styles.css",
   "tailwind.config.js"
 ]

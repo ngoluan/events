@@ -3676,11 +3676,6 @@ main {
 }
 
 @media (min-width: 1024px) {
-  #messages,
-  #actions {
-    height: 75vh;
-  }
-
   .messages-container {
     height: calc(75vh - 8rem);
     /* Desktop height */
@@ -4356,11 +4351,6 @@ main {
 
 .font-semibold {
   font-weight: 600;
-}
-
-.text-accent {
-  --tw-text-opacity: 1;
-  color: var(--fallback-a,oklch(var(--a)/var(--tw-text-opacity)));
 }
 
 .text-base-content {
