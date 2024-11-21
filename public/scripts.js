@@ -9,7 +9,6 @@ export class EventManageApp {
         this.contacts = [];
         this.currentId = -1;
         this.emailProcessor = new EmailProcessor(this);
-        this.templates = {};
         this.userEmail = '';
         const showRepliedSetting = localStorage.getItem('showRepliedEmails');
         this.emailFilters = {
@@ -31,19 +30,13 @@ export class EventManageApp {
         this.initializeMaximizeButtons();
         await this.initializeFuse();
 
-
-
-        // Load AI templates
-        await this.loadTemplates();
-
         // Set up event listeners
         this.registerEvents();
 
         // Load initial data
-        this.getAllContacts();
+        await this.getAllContacts();
         this.createCalendar();
-        //this.readGmail("all", false);
-        await this.loadInitialEmails();
+        this.loadInitialEmails();
 
 
         const urlParams = new URLSearchParams(window.location.search);
@@ -505,7 +498,7 @@ export class EventManageApp {
         }
 
         // Re-render the contacts list
-        this.renderContactsWithCalendarSync();
+        //this.renderContactsWithCalendarSync();
         this.showToast(`Sorted by ${criteria.replace(/([A-Z])/g, ' $1').toLowerCase()}`, 'success');
     }
     // In EventManageApp class
@@ -1161,7 +1154,7 @@ export class EventManageApp {
 
 
     // Modify getAllContacts to use the new API endpoint
-    getAllContacts() {
+    async getAllContacts() {
         fetch("/api/events")
             .then(response => response.json())
             .then(contacts => {
@@ -1170,7 +1163,8 @@ export class EventManageApp {
                     ...contact,
                     createdAt: contact.createdAt || new Date().toISOString()
                 }));
-                this.renderContactsWithCalendarSync();
+                return this.contacts;
+                //this.renderContactsWithCalendarSync();
             })
             .catch(error => {
                 console.error("Error getting contacts:", error);
@@ -1181,29 +1175,49 @@ export class EventManageApp {
         this.mainCalendar = new Calendar('calendar');
         try {
             const data = await $.get("/calendar/getEventCalendar");
-
+            const timezone = 'America/New_York';
+    
+            // Create a map of contacts by date for faster lookup
+            const contactsByDate = {};
+            this.contacts.forEach(contact => {
+                if (contact.startTime && contact.name) {
+                    const contactDate = moment.tz(contact.startTime, timezone).format('YYYY-MM-DD');
+                    if (!contactsByDate[contactDate]) {
+                        contactsByDate[contactDate] = [];
+                    }
+                    contactsByDate[contactDate].push({
+                        name: contact.name.toLowerCase(),
+                        attendance: contact.attendance
+                    });
+                }
+            });
+    
             // Transform calendar events
             this.calendarEvents = data.map((event, index) => {
-                const timezone = 'America/New_York';
                 const startTime = moment.tz(event.start.dateTime || event.start.date, timezone);
                 const endTime = moment.tz(event.end.dateTime || event.end.date, timezone);
-
-                // Find matching contact for attendance info
-                const contact = this.contacts.find(c => {
-                    const contactDate = moment.tz(c.startTime, timezone).format('YYYY-MM-DD');
-                    const eventDate = startTime.format('YYYY-MM-DD');
-                    return c.name && event.summary.toLowerCase().includes(c.name.toLowerCase()) && contactDate === eventDate;
-                });
-
+                const eventDate = startTime.format('YYYY-MM-DD');
+                const eventName = event.summary.toLowerCase();
+    
+                // Find matching contact
+                let matchingContact = null;
+                const contactsOnDate = contactsByDate[eventDate] || [];
+                for (const contact of contactsOnDate) {
+                    if (eventName.includes(contact.name)) {
+                        matchingContact = contact;
+                        break;
+                    }
+                }
+    
                 // Add attendance to summary if available
-                const attendanceInfo = contact?.attendance ? ` (${contact.attendance} ppl)` : '';
+                const attendanceInfo = matchingContact?.attendance ? ` (${matchingContact.attendance} ppl)` : '';
                 event.summary = `${event.summary} <br>${startTime.format("HHmm")}-${endTime.format("HHmm")}${attendanceInfo}`;
-
+    
                 let calendarEnd = endTime.clone();
                 if (endTime.isAfter(startTime.clone().hour(23).minute(59))) {
                     calendarEnd = startTime.clone().hour(23).minute(59);
                 }
-
+    
                 return {
                     id: index,
                     title: event.summary || 'No Title',
@@ -1211,18 +1225,18 @@ export class EventManageApp {
                     endTime: calendarEnd.format(),
                     description: event.description || '',
                     room: event.location || '',
-                    attendance: contact?.attendance
+                    attendance: matchingContact?.attendance
                 };
             });
-
+    
             // Load events into calendar
             this.mainCalendar.loadEvents(this.calendarEvents);
-
+    
             // Refresh contacts display if needed
             if (this.contacts.length > 0) {
                 this.renderContactsWithCalendarSync();
             }
-
+    
         } catch (error) {
             console.error('Error loading calendar events:', error);
             this.showToast('Failed to load calendar events', 'error');
@@ -1230,17 +1244,22 @@ export class EventManageApp {
     }
 
     renderContactsWithCalendarSync() {
-        // Create map of calendar events
-        const eventMap = new Map();
+        // Create map of calendar events organized by date
+        const eventsByDate = {};
         this.calendarEvents.forEach(event => {
+            // Skip events without start time
+            if (!event?.startTime) return;
+
             const eventDate = moment.tz(event.startTime, 'America/New_York').format('YYYY-MM-DD');
-            const eventKey = `${event.title.toLowerCase()}_${eventDate}`;
-            eventMap.set(eventKey, event);
+            if (!eventsByDate[eventDate]) {
+                eventsByDate[eventDate] = [];
+            }
+            // Ensure event has a summary
+            event.summary = event.summary || '';
+            eventsByDate[eventDate].push(event);
         });
 
-        // Render contacts
-        const $contactsContent = $("#contacts");
-        $contactsContent.empty();
+        // Build all HTML at once
         let html = '';
 
         this.contacts.slice().reverse().forEach(contact => {
@@ -1248,13 +1267,26 @@ export class EventManageApp {
 
             const contactDate = moment.tz(contact.startTime, 'America/New_York');
             const formattedDate = contactDate.format("MM/DD/YYYY");
-            const lookupKey = `${contact.name.toLowerCase()}_${contactDate.format('YYYY-MM-DD')}`;
+            const lookupDate = contactDate.format('YYYY-MM-DD');
+
+            // Get first word of contact name for comparison
+            const contactFirstWord = contact.name.toLowerCase().split(' ')[0];
 
             let colour = "blue";
             let statusIcons = '';
+            let hasCalendarEntry = false;
 
-            // Check calendar entry
-            const hasCalendarEntry = eventMap.has(lookupKey);
+            // Check if there are any events on this date
+            const eventsOnDate = eventsByDate[lookupDate] || [];
+            if (eventsOnDate.length > 0) {
+                // Look for matching first word in event names
+                hasCalendarEntry = eventsOnDate.some(event => {
+                    // Safely handle missing or null summary
+                    const eventTitle = event.title || '';
+                    const eventFirstWord = eventTitle.toLowerCase().split(' ')[0];
+                    return eventFirstWord === contactFirstWord;
+                });
+            }
 
             if (hasCalendarEntry) {
                 statusIcons += '<i class="bi bi-calendar-check-fill text-success ml-2"></i>';
@@ -1288,9 +1320,9 @@ export class EventManageApp {
                 </div>`;
         });
 
-        $contactsContent.append(html);
+        // Write to DOM once
+        $("#contacts").empty().append(html);
     }
-
 
     loadContact(id) {
         const contact = _.find(this.contacts, ["id", id]);
@@ -1591,57 +1623,7 @@ export class EventManageApp {
             }
         });
     }
-    async createCalendar() {
-        this.mainCalendar = new Calendar('calendar');
-        try {
-            const data = await $.get("/calendar/getEventCalendar");
 
-            // Transform calendar events
-            this.calendarEvents = data.map((event, index) => {
-                const timezone = 'America/New_York';
-                const startTime = moment.tz(event.start.dateTime || event.start.date, timezone);
-                const endTime = moment.tz(event.end.dateTime || event.end.date, timezone);
-
-                // Find matching contact for attendance info
-                const contact = this.contacts.find(c => {
-                    const contactDate = moment.tz(c.startTime, timezone).format('YYYY-MM-DD');
-                    const eventDate = startTime.format('YYYY-MM-DD');
-                    return c.name && event.summary.toLowerCase().includes(c.name.toLowerCase()) && contactDate === eventDate;
-                });
-
-                // Add attendance to summary if available
-                const attendance = contact?.attendance ? ` (${contact.attendance} ppl)` : '';
-                event.summary = `${event.summary} <br>${startTime.format("HHmm")}-${endTime.format("HHmm")}${attendance}`;
-
-                let calendarEnd = endTime.clone();
-                if (endTime.isAfter(startTime.clone().hour(23).minute(59))) {
-                    calendarEnd = startTime.clone().hour(23).minute(59);
-                }
-
-                return {
-                    id: index,
-                    title: event.summary || 'No Title',
-                    startTime: startTime.format(),
-                    endTime: calendarEnd.format(),
-                    description: event.description || '',
-                    room: event.location || '',
-                    attendance: contact?.attendance
-                };
-            });
-
-            // Load events into calendar
-            this.mainCalendar.loadEvents(this.calendarEvents);
-
-            // Refresh contacts display if needed
-            if (this.contacts.length > 0) {
-                this.renderContactsWithCalendarSync();
-            }
-
-        } catch (error) {
-            console.error('Error loading calendar events:', error);
-            this.showToast('Failed to load calendar events', 'error');
-        }
-    }
 
 
     /*** Contact Methods ***/

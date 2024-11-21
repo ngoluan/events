@@ -48,7 +48,7 @@ module.exports = (googleAuth) => {
             let emails;
             if (type === 'interac') {
                 // Handle Interac e-Transfer emails specifically
-                emails = await gmail.getAllEmails(100, false, forceRefresh, "in:inbox-deposits");
+                emails = await gmail.getAllEmails(50, false, forceRefresh, "in:inbox-deposits");
                 emails = emails.filter(email => {
                     const subject = email.subject?.toLowerCase() || '';
                     return subject.includes('interac');

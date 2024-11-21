@@ -16,13 +16,6 @@ class EmailProcessorServer {
         this.router.use(express.urlencoded({ extended: true }));
         this.googleCalendarService = new GoogleCalendarService(googleAuth);
 
-        try {
-            const templatesPath = path.join(__dirname, '..', 'data', 'eventPrompts.json');
-            this.templates = JSON.parse(fs.readFileSync(templatesPath, 'utf8'));
-        } catch (error) {
-            console.error('Error loading templates:', error);
-            this.templates = {};
-        }
 
         this.setupRoutes();
     }
