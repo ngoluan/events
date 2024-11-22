@@ -3,19 +3,62 @@ const path = require('path');
 const fs = require('fs');
 const moment = require('moment');
 const cheerio = require('cheerio');
+const { z } = require('zod');
+
 class GmailService {
-    constructor(auth) {
+    constructor(auth, eventService = null) {
         this.auth = auth;
         this.cacheFilePath = path.join(__dirname, '..', 'data', 'emails.json');
         this.lastRetrievalPath = path.join(__dirname, '..', 'data', 'lastRetrieval.json');
-        this.emailCache = new Map();
+        
+        // Initialize all caches
+        this.emailCache = new Map();  // Add this line to initialize emailCache
+        this.eventsCache = [];
+        this.emailToEventMap = new Map();
+        
+        // Initialize timestamps
+        this.lastEventsCacheUpdate = 0;
         this.lastRetrievalDate = this.loadLastRetrievalDate();
+
+        // Initialize services
+        this.aiService = require('./aiService');
+        this.eventService = eventService;
 
         // Ensure data directory exists
         const dataDir = path.join(__dirname, '..', 'data');
         if (!fs.existsSync(dataDir)) {
             fs.mkdirSync(dataDir, { recursive: true });
         }
+
+        // Load cached emails into memory
+        this.loadEmailsFromCache();
+    }
+
+    setEventService(eventService) {
+        this.eventService = eventService;
+        this.refreshEventsCache();
+    }
+    async refreshEventsCache() {
+        if (this.eventService) {
+            this.eventsCache = this.eventService.loadEvents();
+
+            // Rebuild the email-to-event map
+            this.emailToEventMap.clear();
+            this.eventsCache
+                .filter(event => event.email && event.email.trim() !== '')
+                .forEach(event => {
+                    this.emailToEventMap.set(event.email.toLowerCase().trim(), event);
+                });
+
+            this.lastEventsCacheUpdate = Date.now();
+        }
+    }
+
+
+    // Helper to check if events cache needs refresh (e.g., if it's older than 5 minutes)
+    shouldRefreshEventsCache() {
+        const CACHE_LIFETIME = 5 * 60 * 1000; // 5 minutes in milliseconds
+        return Date.now() - this.lastEventsCacheUpdate > CACHE_LIFETIME;
     }
     // In gmailService.js class
     async sendEmail(to, subject, html) {
@@ -68,7 +111,7 @@ class GmailService {
         // Default to 30 minutes ago if no date found
         return moment().subtract(30, 'minutes').format('YYYY-MM-DD HH:mm:ss');
     }
-    
+
     saveLastRetrievalDate() {
         try {
             const data = {
@@ -139,7 +182,7 @@ class GmailService {
             ).then(messages => messages.filter(msg => msg !== null));
 
             let query = options.email ? `{to:${options.email} from:${options.email}}` : 'in:inbox';
-            if(options.query) {
+            if (options.query) {
                 query = ` ${options.query}`;
             }
             // Now get inbox messages
@@ -298,6 +341,38 @@ class GmailService {
         }
         return { html: htmlContent, text: textContent };
     }
+    async categorizeEmail(emailData) {
+        try {
+            const prompt = `
+                Analyze this email and categorize it into one of these categories:
+                - event_platform: Emails mentioning Tagvenue or Peerspace
+                - event: Emails related to event bookings, inquiries, or coordination
+                - other: Any other type of email
+    
+                Email Subject: ${emailData.subject}
+                Email Content: ${emailData.text || emailData.snippet}
+            `;
+
+            // Correctly define the schema using Zod
+            const categorySchema = z.object({
+                category: z.enum(['event', 'event_platform', 'other']),
+            });
+
+            const { parsedData } = await this.aiService.generateResponse(
+                [{ role: 'user', content: prompt }],
+                {
+                    schema: categorySchema,
+                    schemaName: 'EmailCategory',
+                    resetHistory: true,
+                }
+            );
+
+            return parsedData.category;
+        } catch (error) {
+            console.error('Error categorizing email:', error);
+            return 'other';
+        }
+    }
     async processMessageBatch(messages, sentMessages) {
         if (!messages || !messages.length) return [];
 
@@ -310,7 +385,6 @@ class GmailService {
                 let emailData;
 
                 if (fullMessage?.payload?.headers) {
-                    // Process message with headers
                     const headers = fullMessage.payload.headers;
                     const replied = this.checkIfReplied(fullMessage, sentMessages);
 
@@ -328,8 +402,19 @@ class GmailService {
                         snippet: fullMessage.snippet || '',
                         replied
                     };
+
+                    // Process email categorization and event association in parallel
+                    const [eventAssociation, category] = await Promise.all([
+                        this.checkEventAssociation(emailData),
+                        this.categorizeEmail(emailData)
+                    ]);
+
+                    // Merge results
+                    emailData.associatedEventId = eventAssociation.eventId;
+                    emailData.associatedEventName = eventAssociation.eventName;
+                    emailData.category = category;
+
                 } else {
-                    // Process message without headers by using direct properties
                     emailData = {
                         id: fullMessage.id || message.id,
                         threadId: fullMessage.threadId || '',
@@ -342,11 +427,13 @@ class GmailService {
                         html: fullMessage.html || fullMessage?.parsedContent?.html || '',
                         labels: fullMessage.labels || fullMessage.labelIds || [],
                         snippet: fullMessage.snippet || '',
-                        replied: fullMessage.replied || this.checkIfReplied(fullMessage, sentMessages) || false
+                        replied: fullMessage.replied || this.checkIfReplied(fullMessage, sentMessages) || false,
+                        category: 'other',
+                        associatedEventId: null,
+                        associatedEventName: null
                     };
                 }
 
-                // Update cache with processed email data
                 this.emailCache.set(message.id, emailData);
                 processedEmails.push(emailData);
 
@@ -379,6 +466,44 @@ class GmailService {
 
         return plainText;
     }
+    async checkEventAssociation(emailData) {
+        try {
+            if (this.shouldRefreshEventsCache()) {
+                await this.refreshEventsCache();
+            }
+
+            // Extract and normalize email addresses
+            const fromEmail = emailData.from.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)?.[0]?.toLowerCase();
+            const toEmail = emailData.to.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)?.[0]?.toLowerCase();
+
+            // Check map for matches (O(1) lookups)
+            let matchingEvent = null;
+            if (fromEmail && this.emailToEventMap.has(fromEmail)) {
+                matchingEvent = this.emailToEventMap.get(fromEmail);
+            } else if (toEmail && this.emailToEventMap.has(toEmail)) {
+                matchingEvent = this.emailToEventMap.get(toEmail);
+            }
+
+            if (matchingEvent) {
+                return {
+                    eventId: matchingEvent.id,
+                    eventName: matchingEvent.name
+                };
+            }
+
+            return {
+                eventId: null,
+                eventName: null
+            };
+        } catch (error) {
+            console.error('Error checking event association:', error);
+            return {
+                eventId: null,
+                eventName: null
+            };
+        }
+    }
+
 
     convertHtmlToText(html) {
         try {
@@ -599,31 +724,31 @@ class GmailService {
             });
         }
     }
-    async getAllEmails(maxResults = 100, onlyImportant = false, forcedRefresh=false, query=null) {
+    async getAllEmails(maxResults = 100, onlyImportant = false, forcedRefresh = false, query = null) {
         try {
             // First load from cache
             let cachedEmails = this.loadEmailsFromCache();
-    
+
             // Check if we need to fetch new emails
             const lastRetrievalDate = moment(this.loadLastRetrievalDate(), "YYYY-MM-DD HH:mm");
             const now = moment();
             const needsUpdate = !cachedEmails.length || lastRetrievalDate.isBefore(now, 'minute');
-    
+
             // If no update needed, return cached emails
             if (!needsUpdate && !forcedRefresh) {
                 return cachedEmails;
             }
-    
+
             // If update needed, fetch and process new emails
             const processedMessages = await this.listMessages({
                 maxResults,
                 onlyImportant,
                 query
             });
-    
+
             // Merge new emails with cached ones, maintaining order
             const allEmails = this.mergeEmails(cachedEmails, processedMessages);
-    
+
             // Save updated cache
             this.saveEmailsToCache(allEmails);
 

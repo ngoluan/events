@@ -2,7 +2,6 @@
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
-const gmailService = require('./gmailService');
 const GoogleCalendarService = require('./googleCalendarService');
 const aiService = require('./aiService');
 const moment = require('moment-timezone');
@@ -11,12 +10,18 @@ class EventService {
     this.eventsFilePath = path.join(__dirname, '..', 'data', 'events.json');
     this.remoteApiGetUrl = 'https://eattaco.ca/api/getEventsContacts';
     this.remoteApiUpdateUrl = 'https://eattaco.ca/api/updateEventContact';
-    this.gmail = new gmailService(googleAuth);
     this.calendarService = new GoogleCalendarService(googleAuth);
+
+    // Initialize without gmail service
+    this.gmailService = null;
 
     this.initializeEventsFile();
   }
 
+  // Add method to set Gmail service
+  setGmailService(gmailService) {
+    this.gmailService = gmailService;
+  }
   initializeEventsFile() {
     const dataDir = path.dirname(this.eventsFilePath);
     if (!fs.existsSync(dataDir)) {
@@ -44,7 +49,7 @@ class EventService {
       }
 
       // Get all emails for this contact
-      const emails = await this.gmail.getEmailsForContact(contact.email);
+      const emails = await this.gmailService.getEmailsForContact(contact.email);
 
       // Sort emails by date
       const sortedEmails = emails.sort((a, b) =>
@@ -308,7 +313,7 @@ class EventService {
           html: 'No events scheduled for the upcoming week.'
         };
 
-        await this.gmail.sendEmail('info@eattaco.ca', noEventsEmail.subject, noEventsEmail.html);
+        await this.gmailService.sendEmail('info@eattaco.ca', noEventsEmail.subject, noEventsEmail.html);
         return noEventsEmail;
       }
 
@@ -440,7 +445,7 @@ class EventService {
       };
 
       // Send email using the gmail service
-      await this.gmail.sendEmail('info@eattaco.ca', emailData.subject, emailData.html);
+      await this.gmailService.sendEmail('info@eattaco.ca', emailData.subject, emailData.html);
 
       return emailData;
     } catch (error) {

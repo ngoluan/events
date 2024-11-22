@@ -4,84 +4,281 @@ class Calendar {
         this.currentDate = new Date();
         this.events = [];
         this.weatherData = new Map();
+        this.isMobile = window.innerWidth < 768;
+        this.viewType = this.isMobile ? 'agenda' : 'month';
+
+        // Handle resize events for responsive behavior
+        window.addEventListener('resize', () => {
+            const wasMobile = this.isMobile;
+            this.isMobile = window.innerWidth < 768;
+            if (wasMobile !== this.isMobile) {
+                this.viewType = this.isMobile ? 'agenda' : 'month';
+                this.refreshCalendar();
+            }
+        });
+
         $(document).ready(() => this.initialize());
     }
-    // Method to create and show the modal with event details
+
     showModal(eventDetails) {
-        // Create the modal HTML
+        // Format end time if not provided
         eventDetails.labelEndTime = eventDetails.labelEndTime || eventDetails.endTime;
 
         const modalHTML = `
-        <div class="modal fade" id="eventModal" tabindex="-1" aria-labelledby="eventModalLabel" aria-hidden="true">
-            <div class="modal-dialog">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title" id="eventModalLabel">${eventDetails.title}</h5>
-                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
-                            <span aria-hidden="true">&times;</span>
-                        </button>
+            <dialog id="eventModal" class="modal">
+                <div class="modal-box">
+                    <h3 class="font-bold text-lg">${eventDetails.title}</h3>
+                    <div class="py-4 space-y-2">
+                        ${eventDetails.room ? `
+                            <p class="flex items-center gap-2">
+                                <i class="bi bi-geo-alt"></i>
+                                <span>${eventDetails.room}</span>
+                            </p>
+                        ` : ''}
+                        <p class="flex items-center gap-2">
+                            <i class="bi bi-clock"></i>
+                            <span>${moment(eventDetails.startTime).format('h:mm A')} - ${moment(eventDetails.labelEndTime).format('h:mm A')}</span>
+                        </p>
+                        ${eventDetails.description ? `
+                            <p class="flex items-center gap-2">
+                                <i class="bi bi-card-text"></i>
+                                <span>${eventDetails.description}</span>
+                            </p>
+                        ` : ''}
                     </div>
-                    <div class="modal-body">
-                        <p><strong>Room:</strong> ${eventDetails.room}</p>
-                        <p><strong>Time:</strong> ${moment(eventDetails.startTime).format('hh:mm')} - ${moment(eventDetails.labelEndTime).format('hh:mm')}</p>
-                        <p><strong>Description:</strong> ${eventDetails.description}</p>
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-primary" id="bookNowButton">Book Now</button>
+                    <div class="modal-action">
+                        <form method="dialog">
+                            <button class="btn">Close</button>
+                        </form>
                     </div>
                 </div>
-            </div>
-        </div>
+            </dialog>
         `;
 
-        // Append the modal to the body and show it
+        // Remove any existing modal
+        $('#eventModal').remove();
+
+        // Add and show new modal
         $('body').append(modalHTML);
-        $('#eventModal').modal('show');
-
-        // Event listener for modal close or hide to remove it
-        $('#eventModal').on('hidden.bs.modal', function () {
-            $('#eventModal').remove();
-        });
-
-        // Bind the "Book Now" button event here, if needed
-        $('#bookNowButton').click(() => {
-            alert('Book now action not implemented.');
-            $('#eventModal').modal('hide'); // Hide modal after booking
-        });
+        document.getElementById('eventModal').showModal();
     }
 
-    // Event handler function to open modal with event details
     eventClickHandler(eventId) {
         const eventDetails = this.events.find(event => event.id === eventId);
         if (eventDetails) {
             this.showModal(eventDetails);
         }
     }
+
     constructHTML() {
         const html = `
-        <div class="calendar-header">
-            <h4 class="calendar-month-year">
-                <span id="month" class="calendar-month"></span>
-                <span id="year" class="calendar-year"></span>
-                <div class="calendar-nav" style="display: inline-block;">
-                    <a id="left" href="#" class="btn btn-outline-primary btn-sm" data-tip="tooltip" title="Previous Month">
-                        <i class="bi bi-chevron-left"></i>
-                    </a>
-                    <a id="right" href="#" class="btn btn-outline-primary btn-sm" data-tip="tooltip" title="Next Month">
-                        <i class="bi bi-chevron-right"></i>
-                    </a>
+            <div class="calendar-container">
+                <div class="calendar-header">
+                    <div class="flex justify-between items-center mb-4">
+                        <h4 class="calendar-month-year">
+                            <span id="month" class="calendar-month"></span>
+                            <span id="year" class="calendar-year"></span>
+                        </h4>
+                        <div class="flex items-center gap-2">
+                            ${!this.isMobile ? `
+                                <div class="btn-group">
+                                    <button class="btn btn-sm" id="viewMonth">Month</button>
+                                    <button class="btn btn-sm" id="viewAgenda">Agenda</button>
+                                </div>
+                            ` : ''}
+                            <div class="btn-group">
+                                <button id="left" class="btn btn-sm">
+                                    <i class="bi bi-chevron-left"></i>
+                                </button>
+                                <button id="today" class="btn btn-sm">Today</button>
+                                <button id="right" class="btn btn-sm">
+                                    <i class="bi bi-chevron-right"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-            </h4>
-        </div>
-        <div class="row">
-            <div class="col-12">
-                <table class="table table-bordered">
-                    <!-- Calendar Table Content -->
-                </table>
+                <div class="calendar-body"></div>
             </div>
-        </div>
         `;
-        $('#' + this.containerId).html(html);
+        $(`#${this.containerId}`).html(html);
+
+        this.bindViewControls();
+    }
+
+    bindViewControls() {
+        $('#viewMonth', `#${this.containerId}`).on('click', () => {
+            this.viewType = 'month';
+            this.refreshCalendar();
+            $('#viewMonth').addClass('btn-active');
+            $('#viewAgenda').removeClass('btn-active');
+        });
+
+        $('#viewAgenda', `#${this.containerId}`).on('click', () => {
+            this.viewType = 'agenda';
+            this.refreshCalendar();
+            $('#viewAgenda').addClass('btn-active');
+            $('#viewMonth').removeClass('btn-active');
+        });
+
+        $('#today', `#${this.containerId}`).on('click', () => {
+            this.currentDate = new Date();
+            this.refreshCalendar();
+        });
+    }
+
+    generateMonthView(d) {
+        const firstDayOfMonth = new Date(d.getFullYear(), d.getMonth(), 1).getDay();
+        const totalDays = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+        let html = '<table class="table calendar"><thead><tr>';
+
+        // Add day headers
+        ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].forEach(day => {
+            html += `<th>${day}</th>`;
+        });
+        html += '</tr></thead><tbody><tr>';
+
+        // Add empty cells for days before the first of the month
+        for (let i = 0; i < firstDayOfMonth; i++) {
+            html += '<td class="bg-base-200/50"></td>';
+        }
+
+        // Add days of the month
+        for (let day = 1; day <= totalDays; day++) {
+            const dayDate = moment(new Date(d.getFullYear(), d.getMonth(), day));
+            const dateStr = dayDate.format('YYYY-MM-DD');
+            const isToday = dayDate.isSame(moment(), 'day');
+            const weather = this.weatherData.get(dateStr);
+
+            if ((day + firstDayOfMonth - 1) % 7 === 0 && day > 1) {
+                html += '</tr><tr>';
+            }
+
+            // Filter events for this day
+            const dayEvents = this.events.filter(event => {
+                const eventDate = moment(event.startTime);
+                return eventDate.format('YYYY-MM-DD') === dateStr;
+            });
+
+            html += `
+                <td class="relative ${isToday ? 'bg-primary/5' : ''}" data-date="${dateStr}">
+                    <div class="flex justify-between items-start">
+                        <span class="font-bold ${isToday ? 'text-primary' : ''}">${day}</span>
+                        ${weather ? `
+                            <div class="weather-info text-xs flex flex-col items-end">
+                                <i class="bi ${this.getWMOIcon(weather.weatherCode).icon} ${this.getWMOIcon(weather.weatherCode).class}"></i>
+                                <div class="text-right">
+                                    <span class="text-red-500">${weather.maxTemp}°</span>
+                                    <span class="text-blue-500">${weather.minTemp}°</span>
+                                </div>
+                            </div>
+                        ` : ''}
+                    </div>
+                    <div class="space-y-1 mt-1">
+                        ${dayEvents.map(event => `
+                            <div class="event-bar bg-primary/10 hover:bg-primary/20 cursor-pointer p-1 rounded text-xs" 
+                                 data-eventid="${event.id}" 
+                                 title="${event.title}">
+                                ${moment(event.startTime).format('HH:mm')} ${event.title}
+                            </div>
+                        `).join('')}
+                    </div>
+                </td>
+            `;
+        }
+
+        // Add empty cells for days after the last day of the month
+        const lastDayOfMonth = new Date(d.getFullYear(), d.getMonth(), totalDays).getDay();
+        for (let i = lastDayOfMonth; i < 6; i++) {
+            html += '<td class="bg-base-200/50"></td>';
+        }
+
+        html += '</tr></tbody></table>';
+        return html;
+    }
+
+    generateAgendaView() {
+        const startOfMonth = moment(this.currentDate).startOf('month');
+        const endOfMonth = moment(this.currentDate).endOf('month');
+
+        // Filter events for current month and sort by date
+        const monthEvents = this.events
+            .filter(event => {
+                const eventDate = moment(event.startTime);
+                return eventDate.isBetween(startOfMonth, endOfMonth, 'day', '[]');
+            })
+            .sort((a, b) => moment(a.startTime).valueOf() - moment(b.startTime).valueOf());
+
+        if (monthEvents.length === 0) {
+            return `
+                <div class="text-center p-8 text-base-content/70">
+                    <i class="bi bi-calendar-x text-4xl mb-2"></i>
+                    <p>No events scheduled this month</p>
+                </div>
+            `;
+        }
+
+        // Group events by date
+        const groupedEvents = monthEvents.reduce((groups, event) => {
+            const dateKey = moment(event.startTime).format('YYYY-MM-DD');
+            if (!groups[dateKey]) {
+                groups[dateKey] = [];
+            }
+            groups[dateKey].push(event);
+            return groups;
+        }, {});
+
+        // Generate HTML for grouped events
+        let html = '<div class="space-y-4">';
+
+        Object.entries(groupedEvents).forEach(([date, dateEvents]) => {
+            const momentDate = moment(date);
+            const isToday = momentDate.isSame(moment(), 'day');
+            const weather = this.weatherData.get(date);
+
+            html += `
+                <div class="agenda-day ${isToday ? 'border-l-4 border-primary pl-2' : ''}">
+                    <div class="flex justify-between items-center mb-2">
+                        <h3 class="font-bold text-lg">
+                            ${momentDate.format('ddd, MMM D')}
+                            ${isToday ? ' <span class="badge badge-primary">Today</span>' : ''}
+                        </h3>
+                        ${weather ? `
+                            <div class="flex items-center gap-2 text-sm">
+                                <i class="bi ${this.getWMOIcon(weather.weatherCode).icon} ${this.getWMOIcon(weather.weatherCode).class}"></i>
+                                <span class="text-red-500">${weather.maxTemp}°</span>
+                                <span class="text-blue-500">${weather.minTemp}°</span>
+                            </div>
+                        ` : ''}
+                    </div>
+                    <div class="space-y-2">
+                        ${dateEvents.map(event => `
+                            <div class="card bg-base-100 p-3 cursor-pointer hover:shadow-md transition-shadow" 
+                                 data-eventid="${event.id}"
+                                 onclick="window.app.mainCalendar.eventClickHandler(${event.id})">
+                                <div class="flex justify-between items-start">
+                                    <div>
+                                        <p class="font-medium">${event.title}</p>
+                                        <p class="text-sm text-base-content/70">
+                                            ${moment(event.startTime).format('h:mm A')} - 
+                                            ${moment(event.endTime).format('h:mm A')}
+                                        </p>
+                                        ${event.room ? `
+                                            <p class="text-sm text-base-content/70">
+                                                <i class="bi bi-geo-alt"></i> ${event.room}
+                                            </p>
+                                        ` : ''}
+                                    </div>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        });
+
+        html += '</div>';
+        return html;
     }
 
     loadEvents(events) {
@@ -90,59 +287,55 @@ class Calendar {
     }
 
     refreshCalendar() {
-        this.generateCalendar(this.currentDate);
+        if (this.viewType === 'agenda' || this.isMobile) {
+            $('.calendar-body', `#${this.containerId}`).html(this.generateAgendaView());
+        } else {
+            $('.calendar-body', `#${this.containerId}`).html(this.generateMonthView(this.currentDate));
+
+            // Bind event click handlers for month view
+            $('.event-bar').on('click', (e) => {
+                const eventId = $(e.currentTarget).data('eventid');
+                this.eventClickHandler(eventId);
+            });
+        }
+
+        this.updateMonthYear(this.currentDate);
+
+        // Update view toggle buttons
+        if (!this.isMobile) {
+            $(`#viewMonth`).toggleClass('btn-active', this.viewType === 'month');
+            $(`#viewAgenda`).toggleClass('btn-active', this.viewType === 'agenda');
+        }
     }
+
+    updateMonthYear(d) {
+        const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+            'July', 'August', 'September', 'October', 'November', 'December'];
+
+        $('#month', `#${this.containerId}`).text(monthNames[d.getMonth()]);
+        $('#year', `#${this.containerId}`).text(d.getFullYear());
+    }
+
     getWMOIcon(code) {
-        // WMO Weather interpretation codes (https://open-meteo.com/en/docs)
         const weatherCodes = {
-            0: { icon: 'bi-sun-fill', class: 'text-yellow-500' },  // Clear sky
-            1: { icon: 'bi-sun-fill', class: 'text-yellow-500' },  // Mainly clear
-            2: { icon: 'bi-cloud-sun-fill', class: 'text-gray-500' },  // Partly cloudy
-            3: { icon: 'bi-cloud-fill', class: 'text-gray-500' },  // Overcast
-
-            // Fog codes
-            45: { icon: 'bi-cloud-haze-fill', class: 'text-gray-400' },  // Foggy
-            48: { icon: 'bi-cloud-haze-fill', class: 'text-gray-400' },  // Depositing rime fog
-
-            // Drizzle codes
-            51: { icon: 'bi-cloud-drizzle-fill', class: 'text-blue-400' },  // Light drizzle
-            53: { icon: 'bi-cloud-drizzle-fill', class: 'text-blue-400' },  // Moderate drizzle
-            55: { icon: 'bi-cloud-drizzle-fill', class: 'text-blue-400' },  // Dense drizzle
-
-            // Freezing Drizzle codes
-            56: { icon: 'bi-cloud-sleet-fill', class: 'text-blue-300' },  // Light freezing drizzle
-            57: { icon: 'bi-cloud-sleet-fill', class: 'text-blue-300' },  // Dense freezing drizzle
-
-            // Rain codes
-            61: { icon: 'bi-cloud-rain-fill', class: 'text-blue-500' },  // Slight rain
-            63: { icon: 'bi-cloud-rain-fill', class: 'text-blue-500' },  // Moderate rain
-            65: { icon: 'bi-cloud-rain-heavy-fill', class: 'text-blue-600' },  // Heavy rain
-
-            // Freezing Rain codes
-            66: { icon: 'bi-cloud-sleet-fill', class: 'text-blue-300' },  // Light freezing rain
-            67: { icon: 'bi-cloud-sleet-fill', class: 'text-blue-300' },  // Heavy freezing rain
-
-            // Snow codes
-            71: { icon: 'bi-snow', class: 'text-blue-200' },  // Slight snow fall
-            73: { icon: 'bi-snow', class: 'text-blue-200' },  // Moderate snow fall
-            75: { icon: 'bi-snow-fill', class: 'text-blue-200' },  // Heavy snow fall
-
-            // Snow grains
-            77: { icon: 'bi-snow', class: 'text-blue-200' },  // Snow grains
-
-            // Rain showers
-            80: { icon: 'bi-cloud-rain-fill', class: 'text-blue-500' },  // Slight rain showers
-            81: { icon: 'bi-cloud-rain-fill', class: 'text-blue-500' },  // Moderate rain showers
-            82: { icon: 'bi-cloud-rain-heavy-fill', class: 'text-blue-600' },  // Violent rain showers
-
-            // Snow showers
-            85: { icon: 'bi-snow', class: 'text-blue-200' },  // Slight snow showers
-            86: { icon: 'bi-snow-fill', class: 'text-blue-200' },  // Heavy snow showers
-
-            // Thunderstorm
-            95: { icon: 'bi-cloud-lightning-fill', class: 'text-yellow-600' },  // Thunderstorm
-            96: { icon: 'bi-cloud-lightning-rain-fill', class: 'text-yellow-600' },  // Thunderstorm with slight hail
-            99: { icon: 'bi-cloud-lightning-rain-fill', class: 'text-yellow-600' }   // Thunderstorm with heavy hail
+            0: { icon: 'bi-sun-fill', class: 'text-yellow-500' },
+            1: { icon: 'bi-sun-fill', class: 'text-yellow-500' },
+            2: { icon: 'bi-cloud-sun-fill', class: 'text-gray-500' },
+            3: { icon: 'bi-cloud-fill', class: 'text-gray-500' },
+            45: { icon: 'bi-cloud-haze-fill', class: 'text-gray-400' },
+            48: { icon: 'bi-cloud-haze-fill', class: 'text-gray-400' },
+            51: { icon: 'bi-cloud-drizzle-fill', class: 'text-blue-400' },
+            53: { icon: 'bi-cloud-drizzle-fill', class: 'text-blue-400' },
+            55: { icon: 'bi-cloud-drizzle-fill', class: 'text-blue-400' },
+            61: { icon: 'bi-cloud-rain-fill', class: 'text-blue-500' },
+            63: { icon: 'bi-cloud-rain-fill', class: 'text-blue-500' },
+            65: { icon: 'bi-cloud-rain-heavy-fill', class: 'text-blue-600' },
+            71: { icon: 'bi-snow', class: 'text-blue-200' },
+            73: { icon: 'bi-snow', class: 'text-blue-200' },
+            75: { icon: 'bi-snow-fill', class: 'text-blue-200' },
+            95: { icon: 'bi-cloud-lightning-fill', class: 'text-yellow-600' },
+            96: { icon: 'bi-cloud-lightning-rain-fill', class: 'text-yellow-600' },
+            99: { icon: 'bi-cloud-lightning-rain-fill', class: 'text-yellow-600' }
         };
 
         return weatherCodes[code] || { icon: 'bi-question-circle', class: 'text-gray-500' };
@@ -150,10 +343,16 @@ class Calendar {
 
     async fetchWeatherData() {
         try {
-            const response = await fetch('https://api.open-meteo.com/v1/forecast?latitude=43.7001&longitude=-79.4163&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=America%2FNew_York');
+            const response = await fetch('https://api.open-meteo.com/v1/forecast?' + new URLSearchParams({
+                latitude: '43.65',  // Toronto coordinates
+                longitude: '-79.38',
+                daily: ['weather_code', 'temperature_2m_max', 'temperature_2m_min'],
+                timezone: 'America/New_York'
+            }));
+
             const data = await response.json();
 
-            // Process and store weather data
+            // Map the weather data by date
             data.daily.time.forEach((date, index) => {
                 this.weatherData.set(date, {
                     weatherCode: data.daily.weather_code[index],
@@ -166,116 +365,56 @@ class Calendar {
         }
     }
 
-    generateCalendar(d) {
-        const firstDayOfMonth = new Date(d.getFullYear(), d.getMonth(), 1).getDay();
-        const totalDays = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-        let html = '<table class="table calendar"><thead><tr>';
-
-        for (let i = 0; i < 7; i++) {
-            html += `<th>${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][i]}</th>`;
-        }
-        html += '</tr></thead><tbody><tr>';
-
-        // Empty cells for days before start of month
-        for (let i = 0; i < firstDayOfMonth; i++) {
-            html += '<td></td>';
-        }
-
-        for (let day = 1; day <= totalDays; day++) {
-            const dayDate = new Date(d.getFullYear(), d.getMonth(), day);
-            const dateStr = moment(dayDate).format('YYYY-MM-DD');
-            const weather = this.weatherData.get(dateStr);
-
-            if ((day + firstDayOfMonth - 1) % 7 === 0 && day > 1) {
-                html += '</tr><tr>';
-            }
-
-            html += `
-                <td class="day relative" data-date="${dateStr}">
-                    <div class="flex justify-between items-start">
-                        <span class="font-bold">${day}</span>
-                        ${weather ? `
-                            <div class="weather-info text-xs flex flex-col items-end">
-                                <div class="flex items-center gap-1">
-                                    <i class="bi ${this.getWMOIcon(weather.weatherCode).icon} ${this.getWMOIcon(weather.weatherCode).class}"></i>
-                                </div>
-                                <div class="text-right">
-                                    <span class="text-red-500">${weather.maxTemp}°</span>
-                                    <span class="text-blue-500">${weather.minTemp}°</span>
-                                </div>
-                            </div>
-                        ` : ''}
-                    </div>`;
-
-            // Add events for this day
-            const eventsForDay = this.events.filter(event => {
-                const eventStart = new Date(event.startTime).setHours(0, 0, 0, 0);
-                const eventEnd = new Date(event.endTime).setHours(23, 59, 59, 999);
-                return dayDate >= eventStart && dayDate <= eventEnd;
-            });
-
-            eventsForDay.forEach(event => {
-                html += `
-                    <div class="event-bar mt-2" data-eventid="${event.id}" title="${event.title}">
-                        ${event.title}
-                    </div>`;
-            });
-
-            html += `</td>`;
-        }
-
-        // Fill in remaining cells
-        const lastDayOfMonth = new Date(d.getFullYear(), d.getMonth(), totalDays).getDay();
-        for (let i = lastDayOfMonth; i < 6; i++) {
-            html += '<td></td>';
-        }
-
-        html += '</tr></tbody></table>';
-        $('#' + this.containerId + ' .col-12').html(html);
-
-        // Add event listeners
-        $('.event-bar').click((e) => {
-            const eventId = $(e.target).data('eventid');
-            this.eventClickHandler(eventId);
-        });
-
-        this.updateMonthYear(d);
-    }
-
-    updateMonthYear(d) {
-        $('#month', '#' + this.containerId).text(['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'][d.getMonth()]);
-        $('#year', '#' + this.containerId).text(d.getFullYear());
-
-        $('#left', '#' + this.containerId).off('click').click((e) => {
-            e.preventDefault();
-            this.changeMonth(-1);
-        });
-
-        $('#right', '#' + this.containerId).off('click').click((e) => {
-            e.preventDefault();
-            this.changeMonth(1);
-        });
-    }
-
     async changeMonth(offset) {
         this.currentDate.setMonth(this.currentDate.getMonth() + offset);
-        await this.fetchWeatherData(); // Fetch weather data for new month
+        await this.fetchWeatherData();
         this.refreshCalendar();
+    }
+
+    bindEventHandlers() {
+        // Navigation handlers
+        $('#left', `#${this.containerId}`).off('click').on('click', () => this.changeMonth(-1));
+        $('#right', `#${this.containerId}`).off('click').on('click', () => this.changeMonth(1));
+
+        // View type handlers
+        if (!this.isMobile) {
+            $('#viewMonth, #viewAgenda', `#${this.containerId}`).off('click').on('click', (e) => {
+                const viewType = e.currentTarget.id.replace('view', '').toLowerCase();
+                this.viewType = viewType;
+                this.refreshCalendar();
+            });
+        }
+
+        // Today button handler
+        $('#today', `#${this.containerId}`).off('click').on('click', () => {
+            this.currentDate = new Date();
+            this.refreshCalendar();
+        });
+
+        // Event click handlers
+        $('.event-bar, .agenda-event').off('click').on('click', (e) => {
+            const eventId = $(e.currentTarget).data('eventid');
+            this.eventClickHandler(eventId);
+        });
     }
 
     async initialize() {
         await this.fetchWeatherData();
         this.constructHTML();
+        this.bindEventHandlers();
         this.refreshCalendar();
+
+        // Re-bind event handlers whenever the calendar is refreshed
+        this.bindEventHandlers();
+
+        // Handle window resize for responsive layout
+        $(window).on('resize', _.debounce(() => {
+            const newIsMobile = window.innerWidth < 768;
+            if (this.isMobile !== newIsMobile) {
+                this.isMobile = newIsMobile;
+                this.viewType = this.isMobile ? 'agenda' : 'month';
+                this.refreshCalendar();
+            }
+        }, 250));
     }
 }
-
-// Example usage:
-//const myCalendar = new Calendar('calendar');
-/*
-const newEvents = [
-    { id:0,title: "Multi-Day Event", room: "101", startTime: "2024-03-10T00:00:00", endTime: "2024-03-11T23:59:59", description: "This is a multi-day event." },
-    { id:1,title: "Single Day Event", room: "102", startTime: "2024-03-10T09:00:00", endTime: "2024-03-12T17:00:00", description: "This is a single-day event." }
-]; */
-
-//myCalendar.loadEvents(newEvents);

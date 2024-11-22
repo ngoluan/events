@@ -3682,59 +3682,49 @@ main {
   }
 }
 
-/* Calendar - Fixed overflow */
+/* Add these styles to your styles.css file */
 
-#calendarContainer {
-  margin-left: -1rem;
-  margin-right: -1rem;
-  width: 100%;
-  overflow-x: auto;
-  padding-left: 1rem;
-  padding-right: 1rem;
-  padding-bottom: 1rem;
-}
-
-@media (min-width: 1024px) {
-  #calendarContainer {
-    margin-left: 0px;
-    margin-right: 0px;
-    padding-left: 0px;
-    padding-right: 0px;
-  }
-}
-
-.calendar {
-  width: 100%;
-  min-width: 800px;
-  border-collapse: collapse;
-}
-
-.calendar th {
-  border-width: 1px;
-  --tw-border-opacity: 1;
-  border-color: var(--fallback-b3,oklch(var(--b3)/var(--tw-border-opacity)));
-  --tw-bg-opacity: 1;
-  background-color: var(--fallback-b3,oklch(var(--b3)/var(--tw-bg-opacity)));
-  padding: 0.5rem;
-  text-align: center;
-}
-
-.calendar td {
-  border-width: 1px;
+.calendar-header {
+  position: sticky;
+  top: 0px;
+  z-index: 10;
+  border-bottom-width: 1px;
   --tw-border-opacity: 1;
   border-color: var(--fallback-b3,oklch(var(--b3)/var(--tw-border-opacity)));
   --tw-bg-opacity: 1;
   background-color: var(--fallback-b1,oklch(var(--b1)/var(--tw-bg-opacity)));
-  padding: 0.5rem;
-  vertical-align: top;
-  transition-property: color, background-color, border-color, text-decoration-color, fill, stroke;
-  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-  transition-duration: 150ms;
+  padding-left: 1rem;
+  padding-right: 1rem;
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
 }
 
-.calendar td:hover {
-  background-color: var(--fallback-b3,oklch(var(--b3)/0.3));
+/* Month view styles */
+
+.calendar {
+  width: 100%;
+  border-collapse: collapse;
 }
+
+.calendar th {
+  padding: 0.5rem;
+  text-align: center;
+  font-weight: 500;
+  color: var(--fallback-bc,oklch(var(--bc)/0.7));
+}
+
+.calendar td {
+  height: 6rem;
+  border-width: 1px;
+  --tw-border-opacity: 1;
+  border-color: var(--fallback-b3,oklch(var(--b3)/var(--tw-border-opacity)));
+  padding: 0.5rem;
+  vertical-align: top;
+}
+
+/* Agenda view styles */
+
+/* Responsive adjustments */
 
 /* Email Items */
 

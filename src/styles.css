@@ -101,26 +101,53 @@
       /* Desktop height */
     }
   }
+/* Add these styles to your styles.css file */
 
-  /* Calendar - Fixed overflow */
-  #calendarContainer {
-    @apply w-full overflow-x-auto pb-4 -mx-4 px-4;
-    @apply lg:mx-0 lg:px-0;
+.calendar-container {
+  @apply w-full;
+}
+
+.calendar-header {
+  @apply sticky top-0 bg-base-100 z-10 px-4 py-2 border-b border-base-300;
+}
+
+.calendar-body {
+  @apply p-4;
+}
+
+/* Month view styles */
+.calendar {
+  @apply w-full border-collapse;
+}
+
+.calendar th {
+  @apply p-2 text-center font-medium text-base-content/70;
+}
+
+.calendar td {
+  @apply p-2 border border-base-300 h-24 align-top;
+}
+
+/* Agenda view styles */
+.agenda-day {
+  @apply bg-base-200 rounded-lg p-4;
+}
+
+.event-card {
+  @apply bg-base-100 rounded-lg p-3 hover:shadow-md transition-shadow;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .calendar-container {
+      @apply h-[calc(100vh-16rem)];
+      @apply flex flex-col;
   }
-
-  .calendar {
-    @apply min-w-[800px] w-full border-collapse;
+  
+  .calendar-body {
+      @apply flex-1 overflow-y-auto;
   }
-
-  .calendar th {
-    @apply p-2 text-center border border-base-300 bg-base-300;
-  }
-
-  .calendar td {
-    @apply p-2 border border-base-300 align-top bg-base-100;
-    @apply transition-colors hover:bg-base-300/30;
-  }
-
+}
   /* Email Items */
   .sms {
     @apply bg-base-100 border border-base-300 rounded-lg p-4;

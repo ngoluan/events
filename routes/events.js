@@ -4,9 +4,8 @@ const express = require('express');
 const router = express.Router();
 const EventService = require('../services/eventService');
 const pdfService = require('../services/pdfService');
-module.exports = (googleAuth) => {
+module.exports = (googleAuth, eventService) => {
 
-  const eventService = new EventService(googleAuth);
 
   router.get('/api/events/weekly-summary', async (req, res) => {
     try {

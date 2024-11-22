@@ -1,13 +1,8 @@
 const express = require('express');
-const router = express.Router();
-const path = require('path');
-const fs = require('fs');
 const moment = require('moment-timezone');
 const { z } = require('zod');
 const aiService = require('./aiService');
 const GoogleCalendarService = require('./googleCalendarService');
-const backgroundService = require('./BackgroundService');
-const { reset } = require('nodemon');
 
 class EmailProcessorServer {
     constructor(googleAuth) {

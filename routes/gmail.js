@@ -1,13 +1,12 @@
 const express = require('express');
 const router = express.Router();
-const gmailService = require('../services/gmailService');
 
-module.exports = (googleAuth) => {
-    const gmail = new gmailService(googleAuth);
+module.exports = (googleAuth, gmailService) => {
+
     router.post('/archiveEmail/:id', async (req, res) => {
         try {
             const messageId = req.params.id;
-            await gmail.archiveEmail(messageId);
+            await gmailService.archiveEmail(messageId);
             res.json({ success: true });
         } catch (error) {
             console.error('Error archiving email:', error);
@@ -29,7 +28,7 @@ module.exports = (googleAuth) => {
                 });
             }
 
-            const result = await gmail.sendEmail(to, subject, html);
+            const result = await gmailService.sendEmail(to, subject, html);
             res.json({ success: true, messageId: result.id });
         } catch (error) {
             console.error('Error in send email route:', error);
@@ -48,15 +47,15 @@ module.exports = (googleAuth) => {
             let emails;
             if (type === 'interac') {
                 // Handle Interac e-Transfer emails specifically
-                emails = await gmail.getAllEmails(50, false, forceRefresh, "in:inbox-deposits");
+                emails = await gmailService.getAllEmails(50, false, forceRefresh, "in:inbox-deposits");
                 emails = emails.filter(email => {
                     const subject = email.subject?.toLowerCase() || '';
                     return subject.includes('interac');
                 });
             } else if (type === 'contact' && email) {
-                emails = await gmail.getEmailsForContact(email);
+                emails = await gmailService.getEmailsForContact(email);
             } else {
-                emails = await gmail.getAllEmails(50, false, forceRefresh);
+                emails = await gmailService.getAllEmails(50, false, forceRefresh);
             }
 
             // Apply inbox filter except for Interac emails
@@ -76,10 +75,10 @@ module.exports = (googleAuth) => {
     router.post('/forwardEmail', async (req, res) => {
         try {
             const { messageId, to } = req.body;
-            const message = await gmail.getMessage(messageId);
+            const message = await gmailService.getMessage(messageId);
 
             // Forward the email
-            await gmail.sendEmail(
+            await gmailService.sendEmail(
                 to,
                 `Fwd: ${message.payload.headers.find(h => h.name === 'Subject')?.value}`,
                 message.parsedContent.html || message.parsedContent.text
@@ -97,8 +96,8 @@ module.exports = (googleAuth) => {
 
     router.get('/messages/:id', async (req, res) => {
         try {
-            const message = await gmail.getMessage(req.params.id);
-            const content = await gmail.parseEmailContent(message);
+            const message = await gmailService.getMessage(req.params.id);
+            const content = await gmailService.parseEmailContent(message);
             res.json({
                 id: message.id,
                 from: message.payload.headers.find(h => h.name === 'From')?.value || '',
@@ -131,7 +130,7 @@ module.exports = (googleAuth) => {
 
         for (const [threadId, threadEmails] of threadGroups) {
             try {
-                const threadMessages = await gmail.getThreadMessages(threadId);
+                const threadMessages = await gmailService.getThreadMessages(threadId);
 
                 // Only get sent messages for comparison
                 const sentMessages = threadMessages.filter(msg => msg.labelIds.includes('SENT'));

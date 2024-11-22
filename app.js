@@ -7,13 +7,23 @@ const session = require('express-session');
 const GoogleAuth = require('./services/GoogleAuth');
 const EmailProcessorServer = require('./services/EmailProcessorServer');
 const backgroundRoutes = require('./routes/BackgroundRoutes');
+const GmailService = require('./services/gmailService');
+const EventService = require('./services/eventService');
 
 // Initialize GoogleAuth
 const googleAuth = new GoogleAuth();
-const emailProcessor = new EmailProcessorServer(googleAuth);
 
 // Initialize app
 const app = express();
+
+const gmailService = new GmailService(googleAuth);
+const eventService = new EventService(googleAuth);
+
+
+gmailService.setEventService(eventService);
+eventService.setGmailService(gmailService);
+
+const emailProcessor = new EmailProcessorServer(googleAuth);
 
 // Middleware
 app.use(bodyParser.json());
@@ -25,11 +35,10 @@ app.use(session({
   saveUninitialized: true,
 }));
 
-// Routes with googleAuth passed in
 const oauthRoutes = require('./routes/oauth')(googleAuth);
-const gmailRoutes = require('./routes/gmail')(googleAuth);
+const gmailRoutes = require('./routes/gmail')(googleAuth, gmailService);
 const calendarRoutes = require('./routes/calendar')(googleAuth);
-const eventsRoutes = require('./routes/events')(googleAuth);
+const eventsRoutes = require('./routes/events')(googleAuth, eventService);
 const aiRoutes = require('./routes/ai');
 
 // Use the routers

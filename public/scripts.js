@@ -498,7 +498,7 @@ export class EventManageApp {
         }
 
         // Re-render the contacts list
-        //this.renderContactsWithCalendarSync();
+        this.renderContactsWithCalendarSync();
         this.showToast(`Sorted by ${criteria.replace(/([A-Z])/g, ' $1').toLowerCase()}`, 'success');
     }
     // In EventManageApp class
