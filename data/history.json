@@ -266,5 +266,41 @@
     "emailRecipient": "info@eattaco.ca",
     "timestamp": "2024-11-22T02:55:20.738Z",
     "id": "1732244120738"
+  },
+  {
+    "type": "sendSMS",
+    "to": "14162771856<14167389954",
+    "messageLength": 795,
+    "summary": "SMS notification sent",
+    "messageId": [
+      "2779f149-be5d-44d3-af7f-da13bf9bd47b",
+      "d5008925-a40e-4431-b595-1e6c80f5c214"
+    ],
+    "status": "2 message(s) queued. Details mentioned in the respective fields.",
+    "timestamp": "2024-11-22T03:00:03.288Z",
+    "id": "1732244403288"
+  },
+  {
+    "type": "sendSMS",
+    "to": "14162771856<14167389954",
+    "messageLength": 374,
+    "summary": "SMS notification sent",
+    "messageId": [
+      "88a1ec1a-7fd2-459b-a858-bad5fc459f2c",
+      "941c5f7e-4645-4108-b765-1bbe3b4113ed"
+    ],
+    "status": "2 message(s) queued. Details mentioned in the respective fields.",
+    "timestamp": "2024-11-22T03:00:03.568Z",
+    "id": "1732244403568"
+  },
+  {
+    "type": "pendingEmailResponse",
+    "shortId": "1193",
+    "emailId": "19350903c685c632",
+    "proposedEmail": "This email is irrelevant to booking events at TacoTaco.  It appears to be a pre-shift digest from a restaurant's reservation system (OpenTable), not an inquiry about booking our venue.  It contains information about a reservation for two people at a different restaurant in San Francisco. No action is required.\n",
+    "emailSubject": "Re: Pre-shift Digest - 1 reservation(s) for your upcoming shift at TacoTaco\n",
+    "emailRecipient": "restaurant-insights@reporting.opentable.com",
+    "timestamp": "2024-11-22T03:00:03.568Z",
+    "id": "1732244403568"
   }
 ]

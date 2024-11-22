@@ -7,7 +7,7 @@ var plivo = require('plivo');
 const historyManager = require('./HistoryManager');
 
 class EmailProcessorServer {
-    constructor(googleAuth, gmailService,eventService) {  // Add gmailService parameter
+    constructor(googleAuth, gmailService, eventService) {  // Add gmailService parameter
         this.router = express.Router();
         this.router.use(express.json());
         this.router.use(express.urlencoded({ extended: true }));
@@ -186,6 +186,19 @@ class EmailProcessorServer {
 
 
     setupRoutes() {
+        this.router.get('/api/triggerEmailSuggestions', async (req, res) => {
+            try {
+                const result = await this.getAndMakeSuggestionsFromEmails();
+                res.json(result);
+            } catch (error) {
+                console.error('Error triggering email suggestions:', error);
+                res.status(500).json({
+                    success: false,
+                    error: error.message
+                });
+            }
+        });
+
         this.router.post('/api/smsReply', async (req, res) => {
             try {
                 const { From, To, Text } = req.body;
@@ -256,7 +269,7 @@ class EmailProcessorServer {
 
         this.router.post('/api/getAIEmail', async (req, res) => {
             try {
-                let { instructions, emailText, eventDetails } = req.body;
+                let { emailText, eventDetails } = req.body;
 
                 const inquirySchema = z.object({
                     inquiryType: z.enum(['availability', 'food and drink packages', 'confirmEvent', 'other']),
@@ -268,19 +281,21 @@ class EmailProcessorServer {
 
                 // Include event details in the prompt if available
                 let prompt = `
-        Email content: ${emailText}.
-        `;
+                Email content: ${emailText}.
+                `;
 
                 if (eventDetails) {
                     prompt += `
-        Associated Event Details:
-        ${JSON.stringify(eventDetails, null, 2)}
-        `;
+                    Associated Event Details:
+                    ${JSON.stringify(eventDetails, null, 2)}
+                    `;
                 }
 
                 prompt += `
-        Please analyze the email and determine the inquiry type. Provide a summary.
-        `;
+                Please analyze the email and determine the inquiry type. Provide a summary.
+                Inquiry types:
+                - 
+                `;
 
                 const messages = [
                     {
@@ -505,16 +520,16 @@ class EmailProcessorServer {
     async getAndMakeSuggestionsFromEmails() {
         try {
             const newEmails = await this.gmailService.getAllEmails(25, false, true);
-    
+
             // Get only the first unnotified event email
             const eventEmail = newEmails
-            .filter(email =>
-                email.category === 'event' &&
-                !email.hasNotified &&
-                !email.labels.includes('SENT') && // Filter out sent emails
-                email.labels.includes('INBOX')  // Ensure it's in inbox
-            )[0];
-            
+                .filter(email =>
+                    email.category === 'event' &&
+                    !email.hasNotified &&
+                    !email.labels.includes('SENT') && // Filter out sent emails
+                    email.labels.includes('INBOX')  // Ensure it's in inbox
+                )[0];
+
             if (!eventEmail) {
                 console.log('No new unnotified event-related emails to process.');
                 return {
@@ -523,7 +538,7 @@ class EmailProcessorServer {
                     processedCount: 0
                 };
             }
-    
+
             try {
                 let eventDetails = null;
                 if (eventEmail.associatedEventId) {
@@ -532,13 +547,13 @@ class EmailProcessorServer {
                         eventDetails = await this.eventService.getEvent(eventId);
                     }
                 }
-    
+
                 // Get the email thread to find previous messages
                 const threadMessages = await this.gmailService.getThreadMessages(eventEmail.threadId);
                 const previousMessage = threadMessages
                     .filter(msg => msg.id !== eventEmail.id)
                     .sort((a, b) => Number(b.internalDate) - Number(a.internalDate))[0];
-    
+
                 // Generate context-aware summary
                 const summaryResponse = await aiService.generateResponse([
                     {
@@ -575,16 +590,16 @@ class EmailProcessorServer {
                     provider: 'google',
                     model: 'gemini-1.5-flash'
                 });
-    
+
                 const shortId = `1${eventEmail.id.substring(0, 3)}`;
-    
+
                 // Generate AI response for the email
                 const aiEmailResponse = await this.getAIEmail({
                     emailText: eventEmail.text || eventEmail.snippet || '',
                     eventDetails: eventDetails || {},
                     instructions: ''
                 });
-    
+
                 // Send initial email details with enhanced summary
                 const detailsContent = `
                 New Event Email (Part 1/2):
@@ -599,24 +614,24 @@ class EmailProcessorServer {
                 EDIT${shortId} - Modify response
                 VIEW${shortId} - See full response
                 `.trim();
-                
+
                 await this.sendSMS({
                     to: process.env.NOTIFICATION_PHONE_NUMBER,
                     message: detailsContent
                 });
-    
+
                 // Send proposed response in second message
                 const responseContent = `
                 Proposed Response (Part 2/2):
                 
                 ${this.truncateText(aiEmailResponse.response, 1400)}
                 `.trim();
-    
+
                 await this.sendSMS({
                     to: process.env.NOTIFICATION_PHONE_NUMBER,
                     message: responseContent
                 });
-    
+
                 // Store the proposed email data in history
                 historyManager.addEntry({
                     type: 'pendingEmailResponse',
@@ -627,22 +642,22 @@ class EmailProcessorServer {
                     emailRecipient: eventEmail.from.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)?.[0],
                     timestamp: new Date().toISOString()
                 });
-    
+
                 // Mark email as notified
                 eventEmail.hasNotified = true;
                 await this.gmailService.updateEmailInCache(eventEmail);
-    
+
                 return {
                     success: true,
                     message: `Processed new email`,
                     processedCount: 1
                 };
-    
+
             } catch (emailError) {
                 console.error(`Error processing email ${eventEmail.id}:`, emailError);
                 throw emailError;
             }
-    
+
         } catch (error) {
             console.error('Error in getAndMakeSuggestionsFromEmails:', error);
             return {
@@ -656,10 +671,10 @@ class EmailProcessorServer {
     // Helper method to truncate text while keeping whole words
     truncateText(text, maxLength) {
         if (text.length <= maxLength) return text;
-        
+
         const truncated = text.slice(0, maxLength - 3);
         const lastSpace = truncated.lastIndexOf(' ');
-        
+
         if (lastSpace === -1) return truncated + '...';
         return truncated.slice(0, lastSpace) + '...';
     }
@@ -823,21 +838,6 @@ class EmailProcessorServer {
     }
 
 
-    setupRoutes() {
-        this.router.get('/api/triggerEmailSuggestions', async (req, res) => {
-            try {
-                const result = await this.getAndMakeSuggestionsFromEmails();
-                res.json(result);
-            } catch (error) {
-                console.error('Error triggering email suggestions:', error);
-                res.status(500).json({
-                    success: false,
-                    error: error.message
-                });
-            }
-        });
-
-    }
 }
 
 module.exports = EmailProcessorServer;

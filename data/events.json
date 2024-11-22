@@ -19273,6 +19273,24 @@
       "notes": "$200.00 deposit to book.",
       "summary": "Enterparin is inquiring about booking a party for 40 people on January 18. They have confirmed that the front dining space is available and would like to clarify pricing details, including tax inclusion.",
       "createdAt": "2024-11-21T01:39:54.665Z"
+    },
+    {
+      "phone": "15197720325",
+      "id": 1178,
+      "status": "contractSent",
+      "services": "bar;lights;audio;music;kareoke",
+      "room": "DiningRoom",
+      "name": "Fatima Mian",
+      "email": "Fatima.Mian@D2L.com",
+      "startTime": "2024-12-11 17:00",
+      "endTime": "2024-12-11 19:00",
+      "rentalRate": "250",
+      "minSpend": "750",
+      "partyType": "event",
+      "attendance": "30",
+      "source": "",
+      "notes": "$125 deposit to book",
+      "summary": "Fatima Mian inquired about booking the dining room for a buffet event on December 12th from 5 to 7 PM. The dining space is booked on that date, and an alternative date (January 11th) was suggested."
     }
   ]
 }

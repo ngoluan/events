@@ -2,10 +2,10 @@
   "services/gmailService.js",
   "services/eventService.js",
   "services/aiService.js",
-  "services/HistoryManager.js",
   "services/EmailProcessorServer.js",
   "routes/gmail.js",
   "routes/events.js",
   "routes/ai.js",
-  "app.js"
+  "public/scripts.js",
+  "public/EmailProcessor.js"
 ]
