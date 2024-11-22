@@ -1,0 +1,270 @@
+[
+  {
+    "type": "sendSMS_failed",
+    "to": "14162771856",
+    "error": "text parameter length exceeds 1600 bytes of GSM encoded text.",
+    "messageLength": 2009,
+    "timestamp": "2024-11-22T02:29:14.797Z",
+    "id": "1732242554797"
+  },
+  {
+    "type": "sendSMS",
+    "to": "14162771856",
+    "messageLength": 1055,
+    "summary": "SMS notification sent",
+    "messageId": [
+      "36d5d5a4-aa58-4f74-92a7-c6b4a65f0687"
+    ],
+    "status": "message(s) queued",
+    "timestamp": "2024-11-22T02:30:30.160Z",
+    "id": "1732242630160"
+  },
+  {
+    "type": "pendingEmailResponse",
+    "shortId": "11935",
+    "emailId": "19351b0a666a5fd2",
+    "proposedEmail": "Subject: Re: When do I pick the menu?\n\nHi Dina,\n\nThanks for your email!  We're so excited for your event on November 24th.  Since you've already sent your deposit and ID, your booking is confirmed and you'll receive a formal event invitation shortly.\n\nYou can choose your menu at any time.  Our full menu with pricing is available online at eattaco.ca/menu.  We offer several packages to suit different needs and budgets, ranging from light appetizers to full plated buffets.  Popular choices include our jerk chicken, beef brisket, and butternut squash tacos, along with loaded nachos and jalapeno poppers.  We also have a variety of vegetarian options.\n\nPlease let us know if you have any questions or would like to discuss your menu choices further.\n\nBest,\n\nTacoTaco Events Team\n647-692-4768\n",
+    "emailSubject": "Re: Re: Event Contract 11/24/2024",
+    "emailRecipient": "drdinakulik@gmail.com",
+    "timestamp": "2024-11-22T02:30:30.161Z",
+    "id": "1732242630161"
+  },
+  {
+    "type": "sendSMS_failed",
+    "to": "14162771856",
+    "error": "text parameter length exceeds 1600 bytes of GSM encoded text.",
+    "messageLength": 1910,
+    "timestamp": "2024-11-22T02:30:33.829Z",
+    "id": "1732242633829"
+  },
+  {
+    "type": "sendSMS",
+    "to": "14162771856",
+    "messageLength": 638,
+    "summary": "SMS notification sent",
+    "messageId": [
+      "d5b6b818-a9d7-4391-bef9-87d2a959ae90"
+    ],
+    "status": "message(s) queued",
+    "timestamp": "2024-11-22T02:30:35.067Z",
+    "id": "1732242635067"
+  },
+  {
+    "type": "pendingEmailResponse",
+    "shortId": "31935",
+    "emailId": "193502d5a791584e",
+    "proposedEmail": "Subject: Re: Event Contract 01/25/2025\n\nHi Marytoni,\n\nThis email confirms receipt of your email.  We're glad to hear everything looks good!\n\nYour event is confirmed for January 25th, 2025, at the Dining Room.  You will receive a formal event invitation shortly.\n\nWe look forward to celebrating with you!\n\n\nSincerely,\n\nTacoTaco Events Team\n647-692-4768\n",
+    "emailSubject": "Re: RE: RE: Event Contract 01/25/2025",
+    "emailRecipient": "Marytoni.DelosReyes@tdsb.on.ca",
+    "timestamp": "2024-11-22T02:30:35.068Z",
+    "id": "1732242635068"
+  },
+  {
+    "type": "sendSMS",
+    "to": "14162771856",
+    "messageLength": 857,
+    "summary": "SMS notification sent",
+    "messageId": [
+      "d4954061-e668-4476-8cf3-b272d153d5cd"
+    ],
+    "status": "message(s) queued",
+    "timestamp": "2024-11-22T02:38:56.230Z",
+    "id": "1732243136230"
+  },
+  {
+    "type": "sendSMS",
+    "to": "14162771856",
+    "messageLength": 1461,
+    "summary": "SMS notification sent",
+    "messageId": [
+      "d805d567-4108-46b1-8b31-6ca3e729bf3a"
+    ],
+    "status": "message(s) queued",
+    "timestamp": "2024-11-22T02:38:56.432Z",
+    "id": "1732243136432"
+  },
+  {
+    "type": "pendingEmailResponse",
+    "shortId": "11935",
+    "emailId": "19351ace6cbd0aad",
+    "proposedEmail": "Subject: Re: Your Birthday Celebration at TacoTaco Events!\n\nHi Sylvie,\n\nThanks for your email and for speaking with Chuchu! We're thrilled you're considering TacoTaco Events for your birthday celebration on December 21st.\n\nDecember 21st falls on a Friday, so here's a breakdown of the costs and next steps for booking the Moonlight Lounge or Dining Room:\n\n\n**Moonlight Lounge:**\n\n* **Rental Rate:** $150/hour x 5 hours = $750 (11 pm - 2 am, plus 30 minutes setup)\n* **Minimum Spend:** $2000 (This covers food and drinks)\n* **Capacity:** Comfortably fits 150 guests; maximum capacity is 194.\n\n**Dining Room:**\n\n* **Rental Rate:** $125/hour x 5 hours = $625 (11 pm - 2 am, plus 30 minutes setup)\n* **Minimum Spend:** $1000 (This covers food and drinks)\n* **Capacity:**  Fits up to 50 guests.\n\n\nTo help me provide a more accurate quote, could you please tell me:\n\n* **Approximate number of guests:** This will help us determine which space is best suited for your event and suggest appropriate food and beverage options.\n* **Your preferred food and beverage choices:**  Please refer to our menu (eattaco.ca/menu) for pricing and options.  We offer light appetizers, tacos & appetizers (ranging from $10-$16 per person), and full plated buffet catering ($30 per person).  Remember, we don't allow outside alcohol. We can discuss options like a cash bar, drink tickets ($8 pre-tax & tip, $10 post-tax & tip), or open tabs with limits.\n\nOnce I have this information, I can prepare a detailed proposal.  \n\nTo secure your booking, a 50% deposit of the rental rate is required.  After receiving your deposit and a copy of your ID, you'll be confirmed and receive your event invite shortly.\n\nWe look forward to hearing from you soon!\n\n\nSincerely,\n\nTacoTaco Events Team\n647-692-4768\n",
+    "emailSubject": "Re: Booking moonlight lounge",
+    "emailRecipient": "szamroutian2@gmail.com",
+    "timestamp": "2024-11-22T02:38:56.432Z",
+    "id": "1732243136432"
+  },
+  {
+    "type": "sendSMS",
+    "to": "14162771856",
+    "messageLength": 926,
+    "summary": "SMS notification sent",
+    "messageId": [
+      "330eccb7-2302-4c61-b7a5-9b313637859e"
+    ],
+    "status": "message(s) queued",
+    "timestamp": "2024-11-22T02:42:21.096Z",
+    "id": "1732243341096"
+  },
+  {
+    "type": "sendSMS",
+    "to": "14162771856",
+    "messageLength": 831,
+    "summary": "SMS notification sent",
+    "messageId": [
+      "662422e6-309c-482b-8cd7-2922ffab1e8c"
+    ],
+    "status": "message(s) queued",
+    "timestamp": "2024-11-22T02:42:21.281Z",
+    "id": "1732243341281"
+  },
+  {
+    "type": "pendingEmailResponse",
+    "shortId": "11935",
+    "emailId": "19351b0a666a5fd2",
+    "proposedEmail": "Subject: Re: When do I pick the menu?\n\nHi Dina,\n\nThanks for your email!  We're so excited for your event on November 24th.  Since we've received your deposit and ID, you're all set and will receive a formal event invitation shortly.\n\nYou can choose your menu at any time.  Our full menu with pricing is available online at [eattaco.ca/menu](eattaco.ca/menu).  We offer several packages to suit different needs and budgets, ranging from light appetizers to a full plated buffet.  We also have a wide variety of popular taco and appetizer choices.  Please review the menu and let us know your selection as soon as possible,  so we can finalize the catering arrangements.\n\nIf you have any questions, please don't hesitate to ask.\n\nBest,\n\nTacoTaco Events Team\n647-692-4768\n",
+    "emailSubject": "Re: Re: Event Contract 11/24/2024",
+    "emailRecipient": "drdinakulik@gmail.com",
+    "timestamp": "2024-11-22T02:42:21.282Z",
+    "id": "1732243341282"
+  },
+  {
+    "type": "sendSMS",
+    "to": "14162771856",
+    "messageLength": 849,
+    "summary": "SMS notification sent",
+    "messageId": [
+      "4dfc36da-d892-453c-8ffd-bc31584ab778"
+    ],
+    "status": "message(s) queued",
+    "timestamp": "2024-11-22T02:44:46.362Z",
+    "id": "1732243486362"
+  },
+  {
+    "type": "sendSMS",
+    "to": "14162771856",
+    "messageLength": 1456,
+    "summary": "SMS notification sent",
+    "messageId": [
+      "01255ac5-abe9-436e-9103-9308eaccd8df"
+    ],
+    "status": "message(s) queued",
+    "timestamp": "2024-11-22T02:44:46.501Z",
+    "id": "1732243486501"
+  },
+  {
+    "type": "pendingEmailResponse",
+    "shortId": "11935",
+    "emailId": "19351ace6cbd0aad",
+    "proposedEmail": "Subject: Re: Your Birthday Celebration at TacoTaco!\n\nHi Sylvie,\n\nThanks for your email and for chatting with Chuchu! We're so glad you're considering TacoTaco for your birthday celebration on December 21st.\n\nDecember 21st falls on a Friday, so here's the relevant information based on your desired timeframe of 11 pm to 2 am:\n\n**Venue Options:**\n\n* **Moonlight Lounge:** This space can comfortably accommodate 150 guests and has a great atmosphere for a party.  The rental cost would be $150/hour for a total of $450. There is also a minimum spend of $2000.\n* **Dining Room:** This is a more intimate setting, perfect for smaller gatherings, with a maximum capacity of 50 guests. The rental cost would be $125/hour for a total of $375. The minimum spend is $1000.\n\n**Next Steps:**\n\n1. **Choose your venue:** Please let us know whether you prefer the Moonlight Lounge or the Dining Room. This will help us finalize the booking details.\n2. **Guest Count:**  Knowing your estimated guest count will help us determine the best food and beverage options.\n3. **Food & Beverage:**  We offer a range of options, from light appetizers ($6/person) to full plated buffets ($30/person), as well as various taco platters ($10-$16/person). We also offer drink tickets ($8 before tax and tip, or $10 after) and open bar options. Check out our full menu at eattaco.ca/menu for more details.\n4. **Contract & Deposit:** Once we have the above information, we can draft a contract for you. To secure your booking, a 50% deposit of the rental fee is required.\n\nYour desired setup time of approximately 10:30 pm is possible; you can arrive 30 minutes prior to your event time to set up.\n\nWe look forward to hearing from you so we can start planning your special birthday bash!\n\nBest,\n\nTacoTaco Events Team\n647-692-4768\n",
+    "emailSubject": "Re: Booking moonlight lounge",
+    "emailRecipient": "szamroutian2@gmail.com",
+    "timestamp": "2024-11-22T02:44:46.501Z",
+    "id": "1732243486501"
+  },
+  {
+    "type": "sendSMS",
+    "to": "14162771856",
+    "messageLength": 1047,
+    "summary": "SMS notification sent",
+    "messageId": [
+      "1d4c8592-5f21-4da7-8ed8-c01b3d3274e1"
+    ],
+    "status": "message(s) queued",
+    "timestamp": "2024-11-22T02:48:46.453Z",
+    "id": "1732243726453"
+  },
+  {
+    "type": "sendSMS",
+    "to": "14162771856",
+    "messageLength": 835,
+    "summary": "SMS notification sent",
+    "messageId": [
+      "799422dd-5004-428d-b133-341dd43c54e7"
+    ],
+    "status": "message(s) queued",
+    "timestamp": "2024-11-22T02:48:46.586Z",
+    "id": "1732243726586"
+  },
+  {
+    "type": "pendingEmailResponse",
+    "shortId": "11935",
+    "emailId": "1935140d645c1af0",
+    "proposedEmail": "Subject: Re: Drinks and Bottle Options\n\n\nHi Nya,\n\nThanks for your email!\n\nWe're happy to confirm your event is set for November 22nd from 9 PM to 1 AM in the Moonlight Lounge.  We received your deposit and ID, so you're all confirmed. You'll receive a formal event invite shortly.\n\nRegarding your drink questions:  We don't currently stock Soju, but we're happy to explore creating the Somaek and French 75 cocktails you suggested. We'll confirm with our bartenders tomorrow if we can source the necessary ingredients and let you know. If they are possible, feel free to bring in a small sign to promote them at the bar.  We do not sell bottles of alcohol, only drinks by the glass.\n\n\nLet me know if you have any other questions.\n\n\nBest,\n\nTacoTaco Events Team\n647-692-4768\n",
+    "emailSubject": "Re: Re: Excited for your event on November 22nd",
+    "emailRecipient": "nyamunnick@gmail.com",
+    "timestamp": "2024-11-22T02:48:46.587Z",
+    "id": "1732243726587"
+  },
+  {
+    "type": "sendSMS",
+    "to": "14162771856<14167389954",
+    "messageLength": 1002,
+    "summary": "SMS notification sent",
+    "messageId": [
+      "dd8fce9d-3dc7-4c37-910d-35569b5a55b1",
+      "a0182765-cbc4-45ea-9bef-143e28436c74"
+    ],
+    "status": "2 message(s) queued. Details mentioned in the respective fields.",
+    "timestamp": "2024-11-22T02:52:45.652Z",
+    "id": "1732243965652"
+  },
+  {
+    "type": "sendSMS",
+    "to": "14162771856<14167389954",
+    "messageLength": 939,
+    "summary": "SMS notification sent",
+    "messageId": [
+      "726c8843-8d38-44b4-9731-326a695a5008",
+      "d5a36044-ee81-4403-9bfd-95fe3e3a9e4d"
+    ],
+    "status": "2 message(s) queued. Details mentioned in the respective fields.",
+    "timestamp": "2024-11-22T02:52:45.831Z",
+    "id": "1732243965831"
+  },
+  {
+    "type": "pendingEmailResponse",
+    "shortId": "1193",
+    "emailId": "19351c8f8693efa7",
+    "proposedEmail": "Subject: Re: Event Catering - November 24th\n\nHi Dina,\n\nYes, we can definitely add catering to your booking for November 24th.  You mentioned needing to choose this week;  please let us know your preferred menu option and number of guests as soon as possible so we can finalize everything.  \n\nTo help you decide, here's a quick summary of our catering packages:\n\n* **$6 per person:** Light appetizers (perfect for birthdays and late-night snacks)\n* **$10 per person:** One taco and appetizers\n* **$16 per person:** Two tacos and appetizers (a more substantial meal)\n\nYou can view the full menu with all options and pricing details here: [eattaco.ca/menu](eattaco.ca/menu)\n\nWe've received your deposit and ID and your event is confirmed. You'll receive a formal event invite shortly. Please let us know if you have any other questions.\n\n\nBest,\n\nTacoTaco Events Team\n647-692-4768\n",
+    "emailSubject": "Re: Re: Event Contract 11/24/2024",
+    "emailRecipient": "drdinakulik@gmail.com",
+    "timestamp": "2024-11-22T02:52:45.832Z",
+    "id": "1732243965832"
+  },
+  {
+    "type": "sendSMS",
+    "to": "14162771856<14167389954",
+    "messageLength": 794,
+    "summary": "SMS notification sent",
+    "messageId": [
+      "4bf20a68-d348-4fa3-af01-deaa8cd9b066",
+      "71b33951-bf94-4f04-a668-719e4a85c146"
+    ],
+    "status": "2 message(s) queued. Details mentioned in the respective fields.",
+    "timestamp": "2024-11-22T02:55:20.575Z",
+    "id": "1732244120575"
+  },
+  {
+    "type": "sendSMS",
+    "to": "14162771856<14167389954",
+    "messageLength": 727,
+    "summary": "SMS notification sent",
+    "messageId": [
+      "9ec0e003-a727-464f-9fdf-5bf64cf3f32d",
+      "684fb02c-ee8a-4365-95ee-653a4d015f86"
+    ],
+    "status": "2 message(s) queued. Details mentioned in the respective fields.",
+    "timestamp": "2024-11-22T02:55:20.737Z",
+    "id": "1732244120737"
+  },
+  {
+    "type": "pendingEmailResponse",
+    "shortId": "1193",
+    "emailId": "1935141b94ea4b83",
+    "proposedEmail": "Subject: Re: Confirmed for the French 75!\n\nHi Nya,\n\nThanks for confirming!  We're thrilled to host your birthday celebration.\n\nGreat news, we can make both the French 75 and the Somaek (we'll need to verify the exact grape soju brand you'd prefer to ensure availability).  Feel free to bring a mini-sign to promote them at the bar.\n\nYes, we do sell bottles.  We'll send you our bottle list shortly.\n\nSince you've confirmed you sent the deposit and attached your ID, you're all set! You'll receive a formal event invitation shortly with all the final details.\n\nPlease let us know if you have any other questions.\n\nBest,\n\nTacoTaco Events Team\n647-692-4768\neattaco.ca\n",
+    "emailSubject": "Re: Re: Excited for your event on November 22nd",
+    "emailRecipient": "info@eattaco.ca",
+    "timestamp": "2024-11-22T02:55:20.738Z",
+    "id": "1732244120738"
+  }
+]

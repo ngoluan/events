@@ -10,12 +10,15 @@ class GmailService {
         this.auth = auth;
         this.cacheFilePath = path.join(__dirname, '..', 'data', 'emails.json');
         this.lastRetrievalPath = path.join(__dirname, '..', 'data', 'lastRetrieval.json');
-        
+
         // Initialize all caches
-        this.emailCache = new Map();  // Add this line to initialize emailCache
+        // In constructor
+        this.emailCache = new Map();
+        this.messageCache = new Map(); // Add this line
         this.eventsCache = [];
         this.emailToEventMap = new Map();
-        
+        this.threadCache = new Map(); // Add this line
+
         // Initialize timestamps
         this.lastEventsCacheUpdate = 0;
         this.lastRetrievalDate = this.loadLastRetrievalDate();
@@ -213,62 +216,51 @@ class GmailService {
         }
     }
 
-    checkIfReplied(inboxMessage, sentMessages) {
+    async checkIfReplied(inboxMessage) {
         try {
             const threadId = inboxMessage.threadId;
-            let messageId = '';
 
-            // Get Message-ID either from headers or directly from the message
-            if (inboxMessage?.payload?.headers) {
-                messageId = inboxMessage.payload.headers.find(h => h.name === 'Message-ID')?.value || '';
+            // Check if thread messages are already cached
+            let threadMessages = this.threadCache.get(threadId);
+            if (!threadMessages) {
+                threadMessages = await this.getThreadMessages(threadId);
+                this.threadCache.set(threadId, threadMessages);
             }
 
+            // Check for replies in the thread
+            const sentMessages = threadMessages.filter(msg => msg.labelIds.includes('SENT'));
+
+            const messageId = inboxMessage.payload.headers.find(h => h.name === 'Message-ID')?.value || '';
+
             const hasReply = sentMessages.some(sentMessage => {
-                // Check if the sent message is in the same thread
-                if (sentMessage.threadId !== threadId) {
-                    return false;
-                }
+                const inReplyTo = sentMessage.payload.headers.find(h => h.name === 'In-Reply-To')?.value || '';
+                const references = sentMessage.payload.headers.find(h => h.name === 'References')?.value || '';
 
-                let inReplyTo = '';
-                let references = '';
-
-                // Get References and In-Reply-To either from headers or direct properties
-                if (sentMessage?.payload?.headers) {
-                    inReplyTo = sentMessage.payload.headers.find(h => h.name === 'In-Reply-To')?.value || '';
-                    references = sentMessage.payload.headers.find(h => h.name === 'References')?.value || '';
-                } else {
-                    inReplyTo = sentMessage.inReplyTo || '';
-                    references = sentMessage.references || '';
-                }
-
-                // Check message header references if messageId exists
                 if (messageId && (inReplyTo.includes(messageId) || references.includes(messageId))) {
                     return true;
                 }
 
-                // Check if sent message is newer than inbox message
-                const sentDate = new Date(sentMessage.internalDate);
-                const inboxDate = new Date(inboxMessage.internalDate);
+                const sentDate = new Date(Number(sentMessage.internalDate));
+                const inboxDate = new Date(Number(inboxMessage.internalDate));
 
-                // If in same thread and sent message is newer, consider it a reply
                 return sentDate > inboxDate;
             });
 
             return hasReply;
-
         } catch (error) {
             console.error('Error checking if replied:', error);
             return false;
         }
     }
 
+
     async getMessage(messageId) {
         try {
             // First check cache
-            if (this.emailCache.has(messageId)) {
-                return this.emailCache.get(messageId);
+            if (this.messageCache.has(messageId)) {
+                return this.messageCache.get(messageId);
             }
-
+    
             const auth = await this.auth.getOAuth2Client();
             const gmail = google.gmail({ version: 'v1', auth });
             const emailData = await gmail.users.messages.get({
@@ -276,7 +268,6 @@ class GmailService {
                 id: messageId,
                 format: 'full'
             });
-
             let html = '';
             let text = '';
             if (emailData.data.payload.mimeType === 'text/plain' && emailData.data.payload.body.data) {
@@ -307,6 +298,7 @@ class GmailService {
                     html
                 }
             };
+            this.messageCache.set(messageId, fullMessage);
 
             return fullMessage;
         } catch (error) {
@@ -346,7 +338,7 @@ class GmailService {
             const prompt = `
                 Analyze this email and categorize it into one of these categories:
                 - event_platform: Emails mentioning Tagvenue or Peerspace
-                - event: Emails related to event bookings, inquiries, or coordination
+                - event: Emails related to event bookings, catering, drinks. do not include opentable emails.
                 - other: Any other type of email
     
                 Email Subject: ${emailData.subject}
@@ -363,7 +355,7 @@ class GmailService {
                 {
                     schema: categorySchema,
                     schemaName: 'EmailCategory',
-                    resetHistory: true,
+                    resetHistory: true
                 }
             );
 
@@ -373,7 +365,7 @@ class GmailService {
             return 'other';
         }
     }
-    async processMessageBatch(messages, sentMessages) {
+    async processMessageBatch(messages) {
         if (!messages || !messages.length) return [];
 
         const asyncLib = require('async');
@@ -381,73 +373,100 @@ class GmailService {
 
         await asyncLib.eachLimit(messages, 5, async (message) => {
             try {
-                const fullMessage = await this.getMessage(message.id);
-                let emailData;
-
-                if (fullMessage?.payload?.headers) {
-                    const headers = fullMessage.payload.headers;
-                    const replied = this.checkIfReplied(fullMessage, sentMessages);
-
-                    emailData = {
-                        id: message.id,
-                        threadId: fullMessage.threadId,
-                        from: headers.find(h => h.name === 'From')?.value || '',
-                        to: headers.find(h => h.name === 'To')?.value || '',
-                        subject: headers.find(h => h.name === 'Subject')?.value || '',
-                        timestamp: headers.find(h => h.name === 'Date')?.value || '',
-                        internalDate: fullMessage.internalDate,
-                        text: fullMessage?.parsedContent?.text || '',
-                        html: fullMessage?.parsedContent?.html || '',
-                        labels: fullMessage.labelIds || [],
-                        snippet: fullMessage.snippet || '',
-                        replied
-                    };
-
-                    // Process email categorization and event association in parallel
-                    const [eventAssociation, category] = await Promise.all([
-                        this.checkEventAssociation(emailData),
-                        this.categorizeEmail(emailData)
-                    ]);
-
-                    // Merge results
-                    emailData.associatedEventId = eventAssociation.eventId;
-                    emailData.associatedEventName = eventAssociation.eventName;
-                    emailData.category = category;
-
-                } else {
-                    emailData = {
-                        id: fullMessage.id || message.id,
-                        threadId: fullMessage.threadId || '',
-                        from: fullMessage.from || '',
-                        to: fullMessage.to || '',
-                        subject: fullMessage.subject || '',
-                        timestamp: fullMessage.timestamp || '',
-                        internalDate: fullMessage.internalDate || '',
-                        text: fullMessage.text || fullMessage?.parsedContent?.text || '',
-                        html: fullMessage.html || fullMessage?.parsedContent?.html || '',
-                        labels: fullMessage.labels || fullMessage.labelIds || [],
-                        snippet: fullMessage.snippet || '',
-                        replied: fullMessage.replied || this.checkIfReplied(fullMessage, sentMessages) || false,
-                        category: 'other',
-                        associatedEventId: null,
-                        associatedEventName: null
-                    };
+                // Check if email is already in cache
+                if (this.emailCache.has(message.id)) {
+                    // Email is already processed and cached
+                    processedEmails.push(this.emailCache.get(message.id));
+                    return; // Skip processing
                 }
 
+                // Fetch the full message
+                const fullMessage = await this.getMessage(message.id);
+
+                // Process the message
+                const emailData = await this.processEmail(fullMessage);
+
+                // Save to cache
                 this.emailCache.set(message.id, emailData);
                 processedEmails.push(emailData);
-
             } catch (err) {
                 console.error(`Error processing message ID ${message.id}:`, err);
             }
         });
 
-        return processedEmails.sort((a, b) => {
-            const dateA = Number(a.internalDate);
-            const dateB = Number(b.internalDate);
-            return dateB - dateA;
-        });
+        return processedEmails.sort((a, b) => Number(b.internalDate) - Number(a.internalDate));
     }
+    async processEmail(fullMessage) {
+        let emailData;
+
+        if (fullMessage?.payload?.headers) {
+            // Processing when headers are present
+            const headers = fullMessage.payload.headers;
+            const replied = await this.checkIfReplied(fullMessage);
+
+            emailData = {
+                id: fullMessage.id,
+                threadId: fullMessage.threadId,
+                from: headers.find(h => h.name === 'From')?.value || '',
+                to: headers.find(h => h.name === 'To')?.value || '',
+                subject: headers.find(h => h.name === 'Subject')?.value || '',
+                timestamp: headers.find(h => h.name === 'Date')?.value || '',
+                internalDate: fullMessage.internalDate,
+                text: fullMessage?.parsedContent?.text || '',
+                html: fullMessage?.parsedContent?.html || '',
+                labels: fullMessage.labelIds || [],
+                snippet: fullMessage.snippet || '',
+                replied
+            };
+
+            // Process email categorization and event association in parallel
+            const [eventAssociation, category] = await Promise.all([
+                this.checkEventAssociation(emailData),
+                this.categorizeEmail(emailData)
+            ]);
+
+            // Merge results
+            emailData.associatedEventId = eventAssociation.eventId;
+            emailData.associatedEventName = eventAssociation.eventName;
+            emailData.category = category;
+
+        } else {
+            // Handle cases where headers are missing
+            const replied = await this.checkIfReplied(fullMessage);
+
+            emailData = {
+                id: fullMessage.id || '',
+                threadId: fullMessage.threadId || '',
+                from: fullMessage.from || '',
+                to: fullMessage.to || '',
+                subject: fullMessage.subject || '',
+                timestamp: fullMessage.timestamp || '',
+                internalDate: fullMessage.internalDate || '',
+                text: fullMessage.text || fullMessage?.parsedContent?.text || '',
+                html: fullMessage.html || fullMessage?.parsedContent?.html || '',
+                labels: fullMessage.labels || fullMessage.labelIds || [],
+                snippet: fullMessage.snippet || '',
+                replied,
+                category: 'other',
+                associatedEventId: null,
+                associatedEventName: null
+            };
+
+            // Process email categorization and event association in parallel
+            const [eventAssociation, category] = await Promise.all([
+                this.checkEventAssociation(emailData),
+                this.categorizeEmail(emailData)
+            ]);
+
+            // Merge results
+            emailData.associatedEventId = eventAssociation.eventId;
+            emailData.associatedEventName = eventAssociation.eventName;
+            emailData.category = category;
+        }
+
+        return emailData;
+    }
+
     extractPlainTextFromHtml(html) {
         let plainText = "";
 
@@ -521,19 +540,36 @@ class GmailService {
         }
     }
     mergeEmails(cachedEmails, newEmails) {
-        // Create a map of existing email IDs
         const emailMap = new Map();
 
-        // Add cached emails to map
-        cachedEmails.forEach(email => emailMap.set(email.id, email));
+        // First add cached emails to preserve their properties
+        cachedEmails.forEach(email => {
+            emailMap.set(email.id, {
+                ...email,
+                // Ensure these properties exist with defaults
+                hasNotified: email.hasNotified || false,
+                category: email.category || 'other',
+                processedForSuggestions: email.processedForSuggestions || false
+            });
+        });
 
-        // Add or update with new emails
-        newEmails.forEach(email => emailMap.set(email.id, {
-            ...email,
-            replied: email.replied || false // Ensure replied property exists
-        }));
+        // Merge in new emails, preserving existing properties from cache if they exist
+        newEmails.forEach(email => {
+            const existingEmail = emailMap.get(email.id);
+            emailMap.set(email.id, {
+                ...(existingEmail || {}),  // Keep existing properties if they exist
+                ...email,  // Add new properties
+                // Ensure critical properties are preserved/defaulted
+                replied: email.replied || existingEmail?.replied || false,
+                hasNotified: existingEmail?.hasNotified || false,
+                category: email.category || existingEmail?.category || 'other',
+                processedForSuggestions: existingEmail?.processedForSuggestions || false,
+                // Preserve associated event data if it exists
+                associatedEventId: email.associatedEventId || existingEmail?.associatedEventId,
+                associatedEventName: email.associatedEventName || existingEmail?.associatedEventName
+            });
+        });
 
-        // Convert back to array and ensure newest first
         const mergedEmails = Array.from(emailMap.values());
         return mergedEmails.sort((a, b) => {
             const dateA = Number(a.internalDate);
@@ -660,11 +696,13 @@ class GmailService {
         }
     }
     // Helper method to update a single email in cache
-    updateEmailInCache(emailData) {
-        // Update in-memory cache
-        this.emailCache.set(emailData.id, emailData);
+    async updateEmailInCache(emailData) {
+        // Ensure hasNotified is included in the cached data
+        this.emailCache.set(emailData.id, {
+            ...emailData,
+            hasNotified: emailData.hasNotified || false
+        });
 
-        // Update file cache
         try {
             let cachedEmails = [];
             if (fs.existsSync(this.cacheFilePath)) {
@@ -673,12 +711,18 @@ class GmailService {
 
             const emailIndex = cachedEmails.findIndex(email => email.id === emailData.id);
             if (emailIndex !== -1) {
-                cachedEmails[emailIndex] = emailData;
+                cachedEmails[emailIndex] = {
+                    ...emailData,
+                    hasNotified: emailData.hasNotified || false
+                };
             } else {
-                cachedEmails.push(emailData);
+                cachedEmails.push({
+                    ...emailData,
+                    hasNotified: emailData.hasNotified || false
+                });
             }
 
-            // Sort by date before saving
+            // Sort by date
             cachedEmails.sort((a, b) => {
                 const dateA = Number(a.internalDate);
                 const dateB = Number(b.internalDate);
@@ -690,7 +734,6 @@ class GmailService {
             console.error('Error updating email in cache:', error);
         }
     }
-
     async getEmailsForContact(email) {
         try {
             // First check cache for contact emails
@@ -726,7 +769,7 @@ class GmailService {
     }
     async getAllEmails(maxResults = 100, onlyImportant = false, forcedRefresh = false, query = null) {
         try {
-            // First load from cache
+            // Load cached emails
             let cachedEmails = this.loadEmailsFromCache();
 
             // Check if we need to fetch new emails
@@ -734,32 +777,55 @@ class GmailService {
             const now = moment();
             const needsUpdate = !cachedEmails.length || lastRetrievalDate.isBefore(now, 'minute');
 
-            // If no update needed, return cached emails
             if (!needsUpdate && !forcedRefresh) {
                 return cachedEmails;
             }
 
-            // If update needed, fetch and process new emails
-            const processedMessages = await this.listMessages({
+            // Fetch list of messages (IDs only)
+            const authClient = await this.auth.getOAuth2Client();
+            const gmail = google.gmail({ version: 'v1', auth: authClient });
+            let queryStr = 'in:inbox';
+            if (query) {
+                queryStr += ` ${query}`;
+            }
+            const response = await gmail.users.messages.list({
+                userId: 'me',
                 maxResults,
-                onlyImportant,
-                query
+                q: queryStr,
+                orderBy: 'internalDate desc'
             });
 
-            // Merge new emails with cached ones, maintaining order
-            const allEmails = this.mergeEmails(cachedEmails, processedMessages);
+            const messageList = response.data.messages || [];
+
+            // Separate messages into cached and new
+            const messagesToProcess = [];
+            const processedEmails = [];
+
+            for (const message of messageList) {
+                if (this.emailCache.has(message.id)) {
+                    processedEmails.push(this.emailCache.get(message.id));
+                } else {
+                    messagesToProcess.push(message);
+                }
+            }
+
+            // Process new messages
+            const newEmails = await this.processMessageBatch(messagesToProcess);
+
+            // Merge all emails
+            const allEmails = this.mergeEmails(cachedEmails, newEmails);
 
             // Save updated cache
             this.saveEmailsToCache(allEmails);
 
-            // limit to maxResults
             return allEmails.slice(0, maxResults);
         } catch (error) {
             console.error('Error getting all emails:', error);
-            // If there's an error fetching new emails, return cached emails
             return this.loadEmailsFromCache();
         }
     }
+
+
     updateCacheWithEmails(newEmails) {
         const cachedEmails = this.loadEmailsFromCache();
         const updatedEmails = this.mergeEmails(cachedEmails, newEmails);

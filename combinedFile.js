@@ -5,50 +5,60 @@ const path = require('path');
 const fs = require('fs');
 const moment = require('moment');
 const cheerio = require('cheerio');
+const { z } = require('zod');
+
 class GmailService {
     constructor(auth, eventService = null) {
         this.auth = auth;
         this.cacheFilePath = path.join(__dirname, '..', 'data', 'emails.json');
         this.lastRetrievalPath = path.join(__dirname, '..', 'data', 'lastRetrieval.json');
+
+        
+        
         this.emailCache = new Map();
+        this.messageCache = new Map(); 
+        this.eventsCache = [];
+        this.emailToEventMap = new Map();
+        this.threadCache = new Map(); 
+
+        
+        this.lastEventsCacheUpdate = 0;
         this.lastRetrievalDate = this.loadLastRetrievalDate();
 
         
         this.aiService = require('./aiService');
-
-        
         this.eventService = eventService;
 
         
-        this.eventsCache = [];
-        this.lastEventsCacheUpdate = 0;
-
-        this.categorySchema = {
-            type: 'object',
-            properties: {
-                category: {
-                    enum: ['event', 'event_platform', 'other']
-                }
-            },
-            required: ['category']
-        };
-
         const dataDir = path.join(__dirname, '..', 'data');
         if (!fs.existsSync(dataDir)) {
             fs.mkdirSync(dataDir, { recursive: true });
         }
+
+        
+        this.loadEmailsFromCache();
     }
 
     setEventService(eventService) {
         this.eventService = eventService;
         this.refreshEventsCache();
     }
-
-    
     async refreshEventsCache() {
-        this.eventsCache = this.eventsService.loadEvents();
-        this.lastEventsCacheUpdate = Date.now();
+        if (this.eventService) {
+            this.eventsCache = this.eventService.loadEvents();
+
+            
+            this.emailToEventMap.clear();
+            this.eventsCache
+                .filter(event => event.email && event.email.trim() !== '')
+                .forEach(event => {
+                    this.emailToEventMap.set(event.email.toLowerCase().trim(), event);
+                });
+
+            this.lastEventsCacheUpdate = Date.now();
+        }
     }
+
 
     
     shouldRefreshEventsCache() {
@@ -208,62 +218,51 @@ class GmailService {
         }
     }
 
-    checkIfReplied(inboxMessage, sentMessages) {
+    async checkIfReplied(inboxMessage) {
         try {
             const threadId = inboxMessage.threadId;
-            let messageId = '';
 
             
-            if (inboxMessage?.payload?.headers) {
-                messageId = inboxMessage.payload.headers.find(h => h.name === 'Message-ID')?.value || '';
+            let threadMessages = this.threadCache.get(threadId);
+            if (!threadMessages) {
+                threadMessages = await this.getThreadMessages(threadId);
+                this.threadCache.set(threadId, threadMessages);
             }
 
+            
+            const sentMessages = threadMessages.filter(msg => msg.labelIds.includes('SENT'));
+
+            const messageId = inboxMessage.payload.headers.find(h => h.name === 'Message-ID')?.value || '';
+
             const hasReply = sentMessages.some(sentMessage => {
-                
-                if (sentMessage.threadId !== threadId) {
-                    return false;
-                }
+                const inReplyTo = sentMessage.payload.headers.find(h => h.name === 'In-Reply-To')?.value || '';
+                const references = sentMessage.payload.headers.find(h => h.name === 'References')?.value || '';
 
-                let inReplyTo = '';
-                let references = '';
-
-                
-                if (sentMessage?.payload?.headers) {
-                    inReplyTo = sentMessage.payload.headers.find(h => h.name === 'In-Reply-To')?.value || '';
-                    references = sentMessage.payload.headers.find(h => h.name === 'References')?.value || '';
-                } else {
-                    inReplyTo = sentMessage.inReplyTo || '';
-                    references = sentMessage.references || '';
-                }
-
-                
                 if (messageId && (inReplyTo.includes(messageId) || references.includes(messageId))) {
                     return true;
                 }
 
-                
-                const sentDate = new Date(sentMessage.internalDate);
-                const inboxDate = new Date(inboxMessage.internalDate);
+                const sentDate = new Date(Number(sentMessage.internalDate));
+                const inboxDate = new Date(Number(inboxMessage.internalDate));
 
-                
                 return sentDate > inboxDate;
             });
 
             return hasReply;
-
         } catch (error) {
             console.error('Error checking if replied:', error);
             return false;
         }
     }
 
+
     async getMessage(messageId) {
         try {
             
-            if (this.emailCache.has(messageId)) {
-                return this.emailCache.get(messageId);
+            if (this.messageCache.has(messageId)) {
+                return this.messageCache.get(messageId);
             }
-
+    
             const auth = await this.auth.getOAuth2Client();
             const gmail = google.gmail({ version: 'v1', auth });
             const emailData = await gmail.users.messages.get({
@@ -271,7 +270,6 @@ class GmailService {
                 id: messageId,
                 format: 'full'
             });
-
             let html = '';
             let text = '';
             if (emailData.data.payload.mimeType === 'text/plain' && emailData.data.payload.body.data) {
@@ -302,6 +300,7 @@ class GmailService {
                     html
                 }
             };
+            this.messageCache.set(messageId, fullMessage);
 
             return fullMessage;
         } catch (error) {
@@ -336,7 +335,39 @@ class GmailService {
         }
         return { html: htmlContent, text: textContent };
     }
-    async processMessageBatch(messages, sentMessages) {
+    async categorizeEmail(emailData) {
+        try {
+            const prompt = `
+                Analyze this email and categorize it into one of these categories:
+                - event_platform: Emails mentioning Tagvenue or Peerspace
+                - event: Emails related to event bookings, catering, drinks. do not include opentable emails.
+                - other: Any other type of email
+    
+                Email Subject: ${emailData.subject}
+                Email Content: ${emailData.text || emailData.snippet}
+            `;
+
+            
+            const categorySchema = z.object({
+                category: z.enum(['event', 'event_platform', 'other']),
+            });
+
+            const { parsedData } = await this.aiService.generateResponse(
+                [{ role: 'user', content: prompt }],
+                {
+                    schema: categorySchema,
+                    schemaName: 'EmailCategory',
+                    resetHistory: true
+                }
+            );
+
+            return parsedData.category;
+        } catch (error) {
+            console.error('Error categorizing email:', error);
+            return 'other';
+        }
+    }
+    async processMessageBatch(messages) {
         if (!messages || !messages.length) return [];
 
         const asyncLib = require('async');
@@ -344,73 +375,100 @@ class GmailService {
 
         await asyncLib.eachLimit(messages, 5, async (message) => {
             try {
-                const fullMessage = await this.getMessage(message.id);
-                let emailData;
-
-                if (fullMessage?.payload?.headers) {
-                    const headers = fullMessage.payload.headers;
-                    const replied = this.checkIfReplied(fullMessage, sentMessages);
-
-                    emailData = {
-                        id: message.id,
-                        threadId: fullMessage.threadId,
-                        from: headers.find(h => h.name === 'From')?.value || '',
-                        to: headers.find(h => h.name === 'To')?.value || '',
-                        subject: headers.find(h => h.name === 'Subject')?.value || '',
-                        timestamp: headers.find(h => h.name === 'Date')?.value || '',
-                        internalDate: fullMessage.internalDate,
-                        text: fullMessage?.parsedContent?.text || '',
-                        html: fullMessage?.parsedContent?.html || '',
-                        labels: fullMessage.labelIds || [],
-                        snippet: fullMessage.snippet || '',
-                        replied
-                    };
-
+                
+                if (this.emailCache.has(message.id)) {
                     
-                    const [eventAssociation, category] = await Promise.all([
-                        this.checkEventAssociation(emailData),
-                        this.categorizeEmail(emailData)
-                    ]);
-
-                    
-                    emailData.associatedEventId = eventAssociation.eventId;
-                    emailData.associatedEventName = eventAssociation.eventName;
-                    emailData.category = category;
-
-                } else {
-                    emailData = {
-                        id: fullMessage.id || message.id,
-                        threadId: fullMessage.threadId || '',
-                        from: fullMessage.from || '',
-                        to: fullMessage.to || '',
-                        subject: fullMessage.subject || '',
-                        timestamp: fullMessage.timestamp || '',
-                        internalDate: fullMessage.internalDate || '',
-                        text: fullMessage.text || fullMessage?.parsedContent?.text || '',
-                        html: fullMessage.html || fullMessage?.parsedContent?.html || '',
-                        labels: fullMessage.labels || fullMessage.labelIds || [],
-                        snippet: fullMessage.snippet || '',
-                        replied: fullMessage.replied || this.checkIfReplied(fullMessage, sentMessages) || false,
-                        category: 'other',
-                        associatedEventId: null,
-                        associatedEventName: null
-                    };
+                    processedEmails.push(this.emailCache.get(message.id));
+                    return; 
                 }
 
+                
+                const fullMessage = await this.getMessage(message.id);
+
+                
+                const emailData = await this.processEmail(fullMessage);
+
+                
                 this.emailCache.set(message.id, emailData);
                 processedEmails.push(emailData);
-
             } catch (err) {
                 console.error(`Error processing message ID ${message.id}:`, err);
             }
         });
 
-        return processedEmails.sort((a, b) => {
-            const dateA = Number(a.internalDate);
-            const dateB = Number(b.internalDate);
-            return dateB - dateA;
-        });
+        return processedEmails.sort((a, b) => Number(b.internalDate) - Number(a.internalDate));
     }
+    async processEmail(fullMessage) {
+        let emailData;
+
+        if (fullMessage?.payload?.headers) {
+            
+            const headers = fullMessage.payload.headers;
+            const replied = await this.checkIfReplied(fullMessage);
+
+            emailData = {
+                id: fullMessage.id,
+                threadId: fullMessage.threadId,
+                from: headers.find(h => h.name === 'From')?.value || '',
+                to: headers.find(h => h.name === 'To')?.value || '',
+                subject: headers.find(h => h.name === 'Subject')?.value || '',
+                timestamp: headers.find(h => h.name === 'Date')?.value || '',
+                internalDate: fullMessage.internalDate,
+                text: fullMessage?.parsedContent?.text || '',
+                html: fullMessage?.parsedContent?.html || '',
+                labels: fullMessage.labelIds || [],
+                snippet: fullMessage.snippet || '',
+                replied
+            };
+
+            
+            const [eventAssociation, category] = await Promise.all([
+                this.checkEventAssociation(emailData),
+                this.categorizeEmail(emailData)
+            ]);
+
+            
+            emailData.associatedEventId = eventAssociation.eventId;
+            emailData.associatedEventName = eventAssociation.eventName;
+            emailData.category = category;
+
+        } else {
+            
+            const replied = await this.checkIfReplied(fullMessage);
+
+            emailData = {
+                id: fullMessage.id || '',
+                threadId: fullMessage.threadId || '',
+                from: fullMessage.from || '',
+                to: fullMessage.to || '',
+                subject: fullMessage.subject || '',
+                timestamp: fullMessage.timestamp || '',
+                internalDate: fullMessage.internalDate || '',
+                text: fullMessage.text || fullMessage?.parsedContent?.text || '',
+                html: fullMessage.html || fullMessage?.parsedContent?.html || '',
+                labels: fullMessage.labels || fullMessage.labelIds || [],
+                snippet: fullMessage.snippet || '',
+                replied,
+                category: 'other',
+                associatedEventId: null,
+                associatedEventName: null
+            };
+
+            
+            const [eventAssociation, category] = await Promise.all([
+                this.checkEventAssociation(emailData),
+                this.categorizeEmail(emailData)
+            ]);
+
+            
+            emailData.associatedEventId = eventAssociation.eventId;
+            emailData.associatedEventName = eventAssociation.eventName;
+            emailData.category = category;
+        }
+
+        return emailData;
+    }
+
     extractPlainTextFromHtml(html) {
         let plainText = "";
 
@@ -431,18 +489,21 @@ class GmailService {
     }
     async checkEventAssociation(emailData) {
         try {
-            
             if (this.shouldRefreshEventsCache()) {
                 await this.refreshEventsCache();
             }
 
             
-            const matchingEvent = this.eventsCache.find(event => {
-                const emailMatches =
-                    emailData.from.includes(event.email) ||
-                    emailData.to.includes(event.email);
-                return emailMatches;
-            });
+            const fromEmail = emailData.from.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)?.[0]?.toLowerCase();
+            const toEmail = emailData.to.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)?.[0]?.toLowerCase();
+
+            
+            let matchingEvent = null;
+            if (fromEmail && this.emailToEventMap.has(fromEmail)) {
+                matchingEvent = this.emailToEventMap.get(fromEmail);
+            } else if (toEmail && this.emailToEventMap.has(toEmail)) {
+                matchingEvent = this.emailToEventMap.get(toEmail);
+            }
 
             if (matchingEvent) {
                 return {
@@ -463,35 +524,7 @@ class GmailService {
             };
         }
     }
-    async categorizeEmail(emailData) {
-        try {
-            const prompt = `
-                Analyze this email and categorize it into one of these categories:
-                - event: Emails related to event bookings, inquiries, or coordination
-                - event_platform: Emails about the event platform itself or technical matters
-                - other: Any other type of email
 
-                Email Subject: ${emailData.subject}
-                Email Content: ${emailData.text || emailData.snippet}
-            `;
-
-            const { parsedData } = await this.aiService.generateResponse(
-                [{ role: 'user', content: prompt }],
-                {
-                    schema: this.categorySchema,
-                    schemaName: 'EmailCategory',
-                    provider: 'openai',
-                    model: 'gpt-4o-mini-2024-07-18',
-                    resetHistory: true
-                }
-            );
-
-            return parsedData.category;
-        } catch (error) {
-            console.error('Error categorizing email:', error);
-            return 'other';
-        }
-    }
 
     convertHtmlToText(html) {
         try {
@@ -509,19 +542,36 @@ class GmailService {
         }
     }
     mergeEmails(cachedEmails, newEmails) {
-        
         const emailMap = new Map();
 
         
-        cachedEmails.forEach(email => emailMap.set(email.id, email));
+        cachedEmails.forEach(email => {
+            emailMap.set(email.id, {
+                ...email,
+                
+                hasNotified: email.hasNotified || false,
+                category: email.category || 'other',
+                processedForSuggestions: email.processedForSuggestions || false
+            });
+        });
 
         
-        newEmails.forEach(email => emailMap.set(email.id, {
-            ...email,
-            replied: email.replied || false 
-        }));
+        newEmails.forEach(email => {
+            const existingEmail = emailMap.get(email.id);
+            emailMap.set(email.id, {
+                ...(existingEmail || {}),  
+                ...email,  
+                
+                replied: email.replied || existingEmail?.replied || false,
+                hasNotified: existingEmail?.hasNotified || false,
+                category: email.category || existingEmail?.category || 'other',
+                processedForSuggestions: existingEmail?.processedForSuggestions || false,
+                
+                associatedEventId: email.associatedEventId || existingEmail?.associatedEventId,
+                associatedEventName: email.associatedEventName || existingEmail?.associatedEventName
+            });
+        });
 
-        
         const mergedEmails = Array.from(emailMap.values());
         return mergedEmails.sort((a, b) => {
             const dateA = Number(a.internalDate);
@@ -648,11 +698,13 @@ class GmailService {
         }
     }
     
-    updateEmailInCache(emailData) {
+    async updateEmailInCache(emailData) {
         
-        this.emailCache.set(emailData.id, emailData);
+        this.emailCache.set(emailData.id, {
+            ...emailData,
+            hasNotified: emailData.hasNotified || false
+        });
 
-        
         try {
             let cachedEmails = [];
             if (fs.existsSync(this.cacheFilePath)) {
@@ -661,9 +713,15 @@ class GmailService {
 
             const emailIndex = cachedEmails.findIndex(email => email.id === emailData.id);
             if (emailIndex !== -1) {
-                cachedEmails[emailIndex] = emailData;
+                cachedEmails[emailIndex] = {
+                    ...emailData,
+                    hasNotified: emailData.hasNotified || false
+                };
             } else {
-                cachedEmails.push(emailData);
+                cachedEmails.push({
+                    ...emailData,
+                    hasNotified: emailData.hasNotified || false
+                });
             }
 
             
@@ -678,7 +736,6 @@ class GmailService {
             console.error('Error updating email in cache:', error);
         }
     }
-
     async getEmailsForContact(email) {
         try {
             
@@ -722,32 +779,55 @@ class GmailService {
             const now = moment();
             const needsUpdate = !cachedEmails.length || lastRetrievalDate.isBefore(now, 'minute');
 
-            
             if (!needsUpdate && !forcedRefresh) {
                 return cachedEmails;
             }
 
             
-            const processedMessages = await this.listMessages({
+            const authClient = await this.auth.getOAuth2Client();
+            const gmail = google.gmail({ version: 'v1', auth: authClient });
+            let queryStr = 'in:inbox';
+            if (query) {
+                queryStr += ` ${query}`;
+            }
+            const response = await gmail.users.messages.list({
+                userId: 'me',
                 maxResults,
-                onlyImportant,
-                query
+                q: queryStr,
+                orderBy: 'internalDate desc'
             });
 
+            const messageList = response.data.messages || [];
+
             
-            const allEmails = this.mergeEmails(cachedEmails, processedMessages);
+            const messagesToProcess = [];
+            const processedEmails = [];
+
+            for (const message of messageList) {
+                if (this.emailCache.has(message.id)) {
+                    processedEmails.push(this.emailCache.get(message.id));
+                } else {
+                    messagesToProcess.push(message);
+                }
+            }
+
+            
+            const newEmails = await this.processMessageBatch(messagesToProcess);
+
+            
+            const allEmails = this.mergeEmails(cachedEmails, newEmails);
 
             
             this.saveEmailsToCache(allEmails);
 
-            
             return allEmails.slice(0, maxResults);
         } catch (error) {
             console.error('Error getting all emails:', error);
-            
             return this.loadEmailsFromCache();
         }
     }
+
+
     updateCacheWithEmails(newEmails) {
         const cachedEmails = this.loadEmailsFromCache();
         const updatedEmails = this.mergeEmails(cachedEmails, newEmails);
@@ -814,16 +894,18 @@ class EventService {
     this.eventsFilePath = path.join(__dirname, '..', 'data', 'events.json');
     this.remoteApiGetUrl = 'https:
     this.remoteApiUpdateUrl = 'https:
-    
-    
-    this.gmail = new gmailService(googleAuth);
-    
-    this.gmail.setEventService(this);
-    
     this.calendarService = new GoogleCalendarService(googleAuth);
 
+    
+    this.gmailService = null;
+
     this.initializeEventsFile();
-}
+  }
+
+  
+  setGmailService(gmailService) {
+    this.gmailService = gmailService;
+  }
   initializeEventsFile() {
     const dataDir = path.dirname(this.eventsFilePath);
     if (!fs.existsSync(dataDir)) {
@@ -851,7 +933,7 @@ class EventService {
       }
 
       
-      const emails = await this.gmail.getEmailsForContact(contact.email);
+      const emails = await this.gmailService.getEmailsForContact(contact.email);
 
       
       const sortedEmails = emails.sort((a, b) =>
@@ -1115,7 +1197,7 @@ class EventService {
           html: 'No events scheduled for the upcoming week.'
         };
 
-        await this.gmail.sendEmail('info@eattaco.ca', noEventsEmail.subject, noEventsEmail.html);
+        await this.gmailService.sendEmail('info@eattaco.ca', noEventsEmail.subject, noEventsEmail.html);
         return noEventsEmail;
       }
 
@@ -1247,7 +1329,7 @@ class EventService {
       };
 
       
-      await this.gmail.sendEmail('info@eattaco.ca', emailData.subject, emailData.html);
+      await this.gmailService.sendEmail('info@eattaco.ca', emailData.subject, emailData.html);
 
       return emailData;
     } catch (error) {
@@ -1507,6 +1589,816 @@ class AIService {
 }
 
 module.exports = new AIService();
+
+//--- File: /home/luan_ngo/web/events/services/HistoryManager.js ---
+const fs = require('fs');
+const path = require('path');
+
+class HistoryManager {
+    constructor() {
+        this.historyFilePath = path.join(__dirname, '..', 'data', 'history.json');
+        this.maxEntries = 1000; 
+        this.initializeHistory();
+    }
+
+    initializeHistory() {
+        const dataDir = path.dirname(this.historyFilePath);
+        if (!fs.existsSync(dataDir)) {
+            fs.mkdirSync(dataDir, { recursive: true });
+        }
+
+        if (!fs.existsSync(this.historyFilePath)) {
+            this.saveHistory([]);
+        }
+    }
+
+    loadHistory() {
+        try {
+            const history = JSON.parse(fs.readFileSync(this.historyFilePath, 'utf8'));
+            return Array.isArray(history) ? history : [];
+        } catch (error) {
+            console.error('Error loading history:', error);
+            return [];
+        }
+    }
+
+    saveHistory(history) {
+        try {
+            fs.writeFileSync(this.historyFilePath, JSON.stringify(history, null, 2));
+        } catch (error) {
+            console.error('Error saving history:', error);
+        }
+    }
+
+    addEntry(entry) {
+        try {
+            const history = this.loadHistory();
+            const newEntry = {
+                ...entry,
+                timestamp: new Date().toISOString(),
+                id: Date.now().toString() 
+            };
+
+            history.push(newEntry);
+            
+            
+            const trimmedHistory = history.slice(-this.maxEntries);
+            this.saveHistory(trimmedHistory);
+
+            return newEntry;
+        } catch (error) {
+            console.error('Error adding history entry:', error);
+            return null;
+        }
+    }
+
+    getEntries(filters = {}) {
+        try {
+            const history = this.loadHistory();
+            let filteredHistory = [...history];
+
+            
+            if (filters.type) {
+                filteredHistory = filteredHistory.filter(entry => entry.type === filters.type);
+            }
+            if (filters.startDate) {
+                filteredHistory = filteredHistory.filter(entry => 
+                    new Date(entry.timestamp) >= new Date(filters.startDate)
+                );
+            }
+            if (filters.endDate) {
+                filteredHistory = filteredHistory.filter(entry => 
+                    new Date(entry.timestamp) <= new Date(filters.endDate)
+                );
+            }
+
+            return filteredHistory;
+        } catch (error) {
+            console.error('Error getting history entries:', error);
+            return [];
+        }
+    }
+
+    getEntryById(id) {
+        try {
+            const history = this.loadHistory();
+            return history.find(entry => entry.id === id);
+        } catch (error) {
+            console.error('Error getting history entry:', error);
+            return null;
+        }
+    }
+
+    getRecentEntriesByType(type, limit = 10) {
+        try {
+            const history = this.loadHistory();
+            return history
+                .filter(entry => entry.type === type)
+                .slice(-limit);
+        } catch (error) {
+            console.error('Error getting recent history entries:', error);
+            return [];
+        }
+    }
+
+    clearHistory() {
+        try {
+            this.saveHistory([]);
+            return true;
+        } catch (error) {
+            console.error('Error clearing history:', error);
+            return false;
+        }
+    }
+}
+
+module.exports = new HistoryManager();
+
+//--- File: /home/luan_ngo/web/events/services/EmailProcessorServer.js ---
+const express = require('express');
+const moment = require('moment-timezone');
+const { z } = require('zod');
+const aiService = require('./aiService');
+const GoogleCalendarService = require('./googleCalendarService');
+var plivo = require('plivo');
+const historyManager = require('./historyManager');
+
+class EmailProcessorServer {
+    constructor(googleAuth, gmailService) {  
+        this.router = express.Router();
+        this.router.use(express.json());
+        this.router.use(express.urlencoded({ extended: true }));
+        this.googleCalendarService = new GoogleCalendarService(googleAuth);
+        this.gmailService = gmailService;  
+
+        this.setupRoutes();
+    }
+    getRouter() {
+        return this.router;
+    }
+
+    async checkAvailabilityAI(firstResponse, emailText) {
+        try {
+            const calendarEvents = await this.googleCalendarService.listEvents();
+
+            const targetDate = moment(firstResponse.date).startOf('day');
+
+            
+            const isWeekend = targetDate.day() === 5 || targetDate.day() === 6; 
+            const relevantEvents = calendarEvents.filter(event => {
+                const eventDate = moment(event.start.dateTime || event.start.date).startOf('day');
+                return eventDate.isSame(targetDate);
+            });
+
+            const formattedEvents = relevantEvents.map(event => ({
+                name: event.summary,
+                startDate: moment(event.start.dateTime || event.start.date).format('HH:mm'),
+                endDate: moment(event.end.dateTime || event.end.date).format('HH:mm'),
+                room: event.location || 'Unspecified'
+            }));
+
+            
+            const { roomResponse } = await aiService.generateResponse([
+
+                {
+                    role: 'user',
+                    content: `Client Inquiry: ${emailText}. Which room are they asking for? Moonlight Lounge or TacoTaco Dining Room (aka Tropical Event Space). If they don't specify, if party is 50 and larger, recommend Moonlight Lounge. If party is below 50, then recommend dining room.`
+                }
+            ], {
+                includeBackground: false,
+                resetHistory: false,
+                provider: 'google',
+                model: 'gemini-1.5-flash'
+            });
+
+
+            const { availiabiltyResponse } = await aiService.generateResponse([
+
+                {
+                    role: 'user',
+                    content: `
+                        Please analyze the availability for an event request based on the following:
+
+                        Current bookings for ${targetDate.format('YYYY-MM-DD')}:
+                        ${JSON.stringify(formattedEvents, null, 2)}
+
+                        The recommended room is ${roomResponse}.
+                        
+                        Their requested time is ${firstResponse.time}
+
+                        Is there avaialblity or is it already booked?
+                    `
+                }
+            ], {
+                includeBackground: false,
+                resetHistory: false, provider: 'google',
+                model: 'gemini-1.5-flash'
+            });
+
+            const { response } = await aiService.generateResponse([
+
+                {
+                    role: 'user',
+                    content: `
+                        Draft a response to the inquiry. Here's the email: ${emailText}
+
+                        We recommend the following room ${roomResponse}
+
+                        Here's the availablity information ${availiabiltyResponse}.
+
+                        If available, provide informatoin on rates and services that we provide.
+
+                        If asked, provide information on packages.
+
+                        The requested day is a weekend: ${isWeekend}.
+
+                        Don't respond with a subject heading or start with Dear.
+                    `
+                }
+            ], {
+                includeBackground: true,
+                resetHistory: false
+            });
+
+            return { response };
+
+        } catch (error) {
+            console.error('Error checking availability:', error);
+            throw error;
+        }
+    }
+
+    structureUnformattedResponse(response) {
+        const lines = response.split('\n').filter(line => line.trim());
+        const keyPoints = [];
+        const actionItems = [];
+        let summary = '';
+
+        lines.forEach((line, index) => {
+            if (index === 0) {
+                summary = line;
+            } else if (line.toLowerCase().includes('action') || line.includes('•')) {
+                actionItems.push(line.replace('•', '').trim());
+            } else if (line.startsWith('-') || line.startsWith('*')) {
+                keyPoints.push(line.replace(/^[-*]/, '').trim());
+            }
+        });
+
+        return {
+            summary,
+            keyPoints,
+            actionItems,
+            timeline: {
+                requestDate: this.extractDate(response, 'request'),
+                eventDate: this.extractDate(response, 'event'),
+                deadlines: []
+            }
+        };
+    }
+
+    extractDate(text, type) {
+        const datePattern = /(\d{1,2}[-/]\d{1,2}[-/]\d{2,4}|\d{4}-\d{2}-\d{2})/g;
+        const dates = text.match(datePattern);
+        if (dates && dates.length > 0) {
+            return dates[0];
+        }
+        return '';
+    }
+
+    fixCommonDataIssues(data, zodError) {
+        const fixedData = { ...data };
+
+        zodError.errors.forEach(error => {
+            const { path, code, message } = error;
+
+            
+            if (code === 'invalid_type' && message.includes('array')) {
+                let value = data;
+                for (let i = 0; i < path.length - 1; i++) {
+                    value = value[path[i]];
+                }
+                const fieldValue = value[path[path.length - 1]];
+
+                if (typeof fieldValue === 'string') {
+                    value[path[path.length - 1]] = [fieldValue];
+                } else if (typeof fieldValue === 'object') {
+                    value[path[path.length - 1]] = Object.values(fieldValue);
+                } else {
+                    value[path[path.length - 1]] = [];
+                }
+            }
+
+            
+            if (code === 'invalid_type' && message.includes('date')) {
+                const fieldName = path[path.length - 1];
+                if (typeof data[fieldName] === 'number') {
+                    fixedData[fieldName] = new Date(data[fieldName]).toISOString();
+                }
+            }
+        });
+
+        return fixedData;
+    }
+
+
+    setupRoutes() {
+        this.router.post('/api/smsReply', async (req, res) => {
+            try {
+                const { From, To, Text } = req.body;
+
+                if (Text.trim().toUpperCase() === 'YES') {
+                    
+                    const lastEntry = historyManager.getRecentEntriesByType('sendSMS', 1)[0];
+                    if (lastEntry && lastEntry.proposedEmail) {
+                        
+                        await this.gmailService.sendEmail(
+                            lastEntry.emailRecipient,
+                            lastEntry.emailSubject,
+                            lastEntry.proposedEmail
+                        );
+
+                        
+                        historyManager.addEntry({
+                            type: 'sendEmail',
+                            to: lastEntry.emailRecipient,
+                            subject: lastEntry.emailSubject,
+                            messageId: lastEntry.messageId
+                        });
+
+                        res.send('Email sent successfully.');
+                    } else {
+                        res.send('No pending email to send.');
+                    }
+                } else {
+                    res.send('No action taken.');
+                }
+            } catch (error) {
+                console.error('Error handling SMS reply:', error);
+                res.status(500).send('Error processing your response.');
+            }
+        });
+
+        this.router.post('/api/summarizeAI', async (req, res) => {
+            try {
+                if (!req.body?.text) {
+                    return res.status(400).json({
+                        error: 'Invalid request body. Expected { text: string }',
+                        receivedBody: req.body
+                    });
+                }
+
+                const { text } = req.body;
+
+                const { response } = await aiService.generateResponse([
+
+                    {
+                        role: 'user', content: `
+                    Summarize this email chain between the client and venue coordinator.
+                    Focus on: organizer, event type, timing, rooms, guest count, 
+                    catering, AV needs, drink packages, layout, and special requests.
+
+                    Email content:
+                    ${text}
+                ` }
+                ], {
+                    includeHistory: false,
+                    resetHistory: true,
+                    includeBackground: true
+                });
+
+                res.json({ summary: response });
+
+            } catch (error) {
+                console.error('Error in summarizeAI:', error);
+                res.status(500).json({
+                    error: error.message,
+                    details: error.stack
+                });
+            }
+        });
+
+        this.router.post('/api/getAIEmail', async (req, res) => {
+            try {
+                let { instructions, emailText, eventDetails } = req.body;
+
+                const inquirySchema = z.object({
+                    inquiryType: z.enum(['availability', 'food and drink packages', 'confirmEvent', 'other']),
+                    date: z.string().optional(),
+                    time: z.string().optional(),
+                    fromEmail: z.string().optional(),
+                    summary: z.string(),
+                });
+
+                
+                let prompt = `
+        Email content: ${emailText}.
+        `;
+
+                if (eventDetails) {
+                    prompt += `
+        Associated Event Details:
+        ${JSON.stringify(eventDetails, null, 2)}
+        `;
+                }
+
+                prompt += `
+        Please analyze the email and determine the inquiry type. Provide a summary.
+        `;
+
+                const messages = [
+                    {
+                        role: 'system',
+                        content: 'You are a venue coordinator assistant analyzing email inquiries.'
+                    },
+                    {
+                        role: 'user',
+                        content: prompt
+                    }
+                ];
+
+                const { parsedData } = await aiService.generateResponse(messages, {
+                    includeBackground: false,
+                    includeHistory: false,
+                    resetHistory: true,
+                    schema: inquirySchema,
+                    schemaName: 'inquirySchema'
+                });
+
+                let followUpResponse;
+                switch (parsedData.inquiryType) {
+                    case "availability":
+                        followUpResponse = await this.checkAvailabilityAI(parsedData, emailText);
+                        break;
+                    case "confirmEvent":
+                        followUpResponse = await aiService.generateResponse([
+                            {
+                                role: 'user',
+                                content: `Generate a confirmation email response for: ${emailText}. Say that you're now booked.`
+                            }
+                        ], {
+                            includeBackground: true,
+                            provider: 'google',
+                            model: 'gemini-1.5-flash'
+                        });
+                        break;
+                    default:
+                        followUpResponse = await aiService.generateResponse([
+                            {
+                                role: 'user',
+                                content: emailText
+                            }
+                        ], {
+                            includeBackground: true
+                        });
+                }
+
+                res.json({
+                    ...parsedData,
+                    response: followUpResponse.response,
+                });
+
+            } catch (error) {
+                console.error('Error in getAIEmail:', error);
+                res.status(500).json({
+                    error: error.message,
+                    details: error.stack
+                });
+            }
+        });
+
+
+        this.router.post('/api/sendAIEventInformation', async (req, res) => {
+
+
+            try {
+                if (!req.body?.aiText) {
+                    return res.status(400).json({
+                        error: 'Invalid request body. Expected { aiText: string }',
+                        receivedBody: req.body
+                    });
+                }
+
+                const { aiText, conversationId } = req.body;
+
+                const messages = [
+                    {
+                        role: 'system',
+                        content: 'You extract event details from inquiry emails.'
+                    },
+                    {
+                        role: 'user',
+                        content: `
+                      
+                                Extract event details from this email and provide JSON in this format:
+                                {
+                                    "name": "contact name",
+                                    "email": "contact email",
+                                    "phone": "contact phone (optional)",
+                                    "partyType": "type of event",
+                                    "startTime": "YYYY-MM-DD HH:mm",
+                                    "endTime": "YYYY-MM-DD HH:mm",
+                                    "room": "requested venue space",
+                                    "attendance": "expected guests",
+                                    "services": ["array of requested services"],
+                                    "notes": "additional details (optional)"
+                                }
+
+                                Email content:
+                                ${aiText}
+                    `
+                    }
+                ];
+
+
+                
+                let eventDetailsSchema = z.object({
+                    name: z.string(),
+                    email: z.string(),
+                    phone: z.string().optional(),
+                    partyType: z.string().optional(),
+                    startTime: z.string(),
+                    endTime: z.string(),
+                    room: z.string(),
+                    attendance: z.string(),
+                    services: z.union([
+                        z.array(z.string()),
+                        z.string().transform(str => [str])
+                    ]).transform(val => Array.isArray(val) ? val : [val]),
+                    notes: z.string().optional()
+                });
+
+                const result = await aiService.generateResponse(messages, {
+                    conversationId,
+                    includeBackground: false,
+                    resetHistory: true,
+                    schema: eventDetailsSchema,
+                    schemaName: 'eventDetails',
+                    metadata: { type: 'eventExtraction' }
+                });
+
+                
+                let eventDetails = result.parsedData;
+
+                
+                if (eventDetails.startTime) {
+                    eventDetails.startTime = moment.tz(eventDetails.startTime, 'America/New_York')
+                        .format('YYYY-MM-DD HH:mm');
+                }
+                if (eventDetails.endTime) {
+                    eventDetails.endTime = moment.tz(eventDetails.endTime, 'America/New_York')
+                        .format('YYYY-MM-DD HH:mm');
+                }
+
+                res.json({
+                    ...eventDetails,
+                    conversationId: result.conversationId,
+                    messageCount: result.messageCount,
+                    historyIncluded: result.historyIncluded
+                });
+
+            } catch (error) {
+                console.error('Error in sendAIText:', error);
+                res.status(500).json({
+                    error: error.message,
+                    details: error.issues || error.stack
+                });
+            }
+        });
+
+        this.router.post('/api/sendAIText', async (req, res) => {
+            try {
+                if (!req.body?.aiText) {
+                    return res.status(400).json({
+                        error: 'Invalid request body. Expected { aiText: string }',
+                        receivedBody: req.body
+                    });
+                }
+
+                const { aiText } = req.body;
+
+                const messages = [
+                    {
+                        role: 'system',
+                        content: 'You are a venue coordinator assistant.'
+                    },
+                    {
+                        role: 'user',
+                        content: aiText
+                    }
+                ];
+
+                const { response } = await aiService.generateResponse(messages, {
+                    includeBackground: true,
+                    resetHistory: true
+                });
+                res.send(response);
+
+            } catch (error) {
+                console.error('Error in sendAIText:', error);
+                res.status(500).json({
+                    error: error.message,
+                    details: error.issues || error.stack
+                });
+            }
+        });
+    }
+
+    formatEmailResponse(response) {
+        return `${response.greeting}\n\n${response.mainContent}\n\n${response.nextSteps.join('\n')}\n\n${response.closing}\n\n${response.signature}`;
+    }
+    splitMessage(text, maxLength) {
+        const chunks = [];
+        let currentChunk = '';
+
+        text.split('\n').forEach(line => {
+            if ((currentChunk + line + '\n').length > maxLength) {
+                chunks.push(currentChunk);
+                currentChunk = line + '\n';
+            } else {
+                currentChunk += line + '\n';
+            }
+        });
+
+        if (currentChunk) {
+            chunks.push(currentChunk);
+        }
+
+        return chunks;
+    }
+    async getAndMakeSuggestionsFromEmails() {
+        try {
+            
+            const newEmails = await this.gmailService.getAllEmails(25, false, true);
+
+            
+            const eventEmails = newEmails
+                .filter(email =>
+                    email.category === 'event' &&
+                    !email.hasNotified
+                )
+                .slice(0, 3); 
+
+            if (eventEmails.length === 0) {
+                console.log('No new unnotified event-related emails to process.');
+                return {
+                    success: true,
+                    message: 'No new unnotified event-related emails to process',
+                    processedCount: 0
+                };
+            }
+
+            let summaries = [];
+            let processedCount = 0;
+
+            for (const email of eventEmails) {
+                try {
+                    
+                    let eventDetails = null;
+                    if (email.associatedEventId) {
+                        eventDetails = this.eventService.getEvent(email.associatedEventId);
+                    }
+
+                    
+                    const apiPayload = {
+                        emailText: email.text || email.snippet || '',
+                        eventDetails: eventDetails || {},
+                        
+                    };
+
+                    
+                    const aiEmailResponse = await axios.post(`${process.env.HOST}/api/getAIEmail`, apiPayload);
+
+                    const proposedResponse = aiEmailResponse.data.response;
+
+                    
+                    const smsContent = `
+    New Email from: ${email.from}
+    Subject: ${email.subject}
+    
+    Summary: ${aiEmailResponse.data.summary}
+    
+    Proposed Response:
+    ${proposedResponse}
+    
+    Do you want to send this response? Reply YES to confirm.
+                    `.trim();
+
+                    
+                    await this.sendSMS({
+                        to: process.env.NOTIFICATION_PHONE_NUMBER,
+                        message: smsContent
+                    });
+
+                    
+                    historyManager.addEntry({
+                        type: 'sendSMS',
+                        to: process.env.NOTIFICATION_PHONE_NUMBER,
+                        messageLength: smsContent.length,
+                        summary: 'Sent proposed email response via SMS',
+                        messageId: email.id,
+                    });
+
+                    
+                    email.hasNotified = true;
+                    await this.gmailService.updateEmailInCache(email);
+                    processedCount++;
+
+                } catch (emailError) {
+                    console.error(`Error processing email ${email.id}:`, emailError);
+                }
+            }
+
+            return {
+                success: true,
+                message: `Processed and notified ${processedCount} new emails`,
+                summaries,
+                processedCount
+            };
+
+        } catch (error) {
+            console.error('Error in getAndMakeSuggestionsFromEmails:', error);
+            return {
+                success: false,
+                error: error.message,
+                processedCount: 0
+            };
+        }
+    }
+    async sendSMS(data) {
+        try {
+            const authId = process.env.PLIVO_AUTH_ID;
+            const authToken = process.env.PLIVO_AUTH_TOKEN;
+            const senderNumber = process.env.PLIVO_PHONE_NUMBER;
+
+            if (!authId || !authToken || !senderNumber) {
+                throw new Error('Missing Plivo credentials in environment variables');
+            }
+
+            let destinationNumber = data.to;
+            if (destinationNumber.length === 10) {
+                destinationNumber = "1" + destinationNumber;
+            }
+
+            const payload = {
+                src: senderNumber,
+                dst: destinationNumber,
+                text: data.message.trim()
+            };
+
+            const client = new plivo.Client(authId, authToken);
+            const messageResponse = await client.messages.create(payload);
+
+            
+            historyManager.addEntry({
+                type: 'sendSMS',
+                to: destinationNumber,
+                messageLength: data.message.length,
+                summary: data.summary || 'SMS notification sent',
+                messageId: messageResponse.messageUuid,
+                status: messageResponse.message
+            });
+
+            return {
+                success: true,
+                messageId: messageResponse.messageUuid,
+                status: messageResponse.message
+            };
+
+        } catch (error) {
+            console.error('Error sending SMS:', error);
+
+            
+            historyManager.addEntry({
+                type: 'sendSMS_failed',
+                to: data.to,
+                error: error.message,
+                messageLength: data.message?.length || 0
+            });
+
+            throw new Error(`Failed to send SMS: ${error.message}`);
+        }
+    }
+
+
+    setupRoutes() {
+        this.router.get('/api/triggerEmailSuggestions', async (req, res) => {
+            try {
+                const result = await this.getAndMakeSuggestionsFromEmails();
+                res.json(result);
+            } catch (error) {
+                console.error('Error triggering email suggestions:', error);
+                res.status(500).json({
+                    success: false,
+                    error: error.message
+                });
+            }
+        });
+
+    }
+}
+
+module.exports = EmailProcessorServer;
+
 
 //--- File: /home/luan_ngo/web/events/routes/gmail.js ---
 const express = require('express');
@@ -1922,10 +2814,10 @@ const EmailProcessorServer = require('./services/EmailProcessorServer');
 const backgroundRoutes = require('./routes/BackgroundRoutes');
 const GmailService = require('./services/gmailService');
 const EventService = require('./services/eventService');
+const cron = require('node-cron');
 
 
 const googleAuth = new GoogleAuth();
-const emailProcessor = new EmailProcessorServer(googleAuth);
 
 
 const app = express();
@@ -1937,6 +2829,17 @@ const eventService = new EventService(googleAuth);
 gmailService.setEventService(eventService);
 eventService.setGmailService(gmailService);
 
+const emailProcessor = new EmailProcessorServer(googleAuth, gmailService);
+
+cron.schedule('0 * * * *', async () => {
+  try {
+    console.log('Running getAndMakeSuggestionsFromEmails...');
+    await emailProcessor.getAndMakeSuggestionsFromEmails();
+  } catch (error) {
+    console.error('Error in scheduled task:', error);
+  }
+});
+
 
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -1947,13 +2850,11 @@ app.use(session({
   saveUninitialized: true,
 }));
 
-
 const oauthRoutes = require('./routes/oauth')(googleAuth);
 const gmailRoutes = require('./routes/gmail')(googleAuth, gmailService);
 const calendarRoutes = require('./routes/calendar')(googleAuth);
 const eventsRoutes = require('./routes/events')(googleAuth, eventService);
 const aiRoutes = require('./routes/ai');
-
 
 
 app.use('/auth', oauthRoutes);

@@ -9,6 +9,7 @@ const EmailProcessorServer = require('./services/EmailProcessorServer');
 const backgroundRoutes = require('./routes/BackgroundRoutes');
 const GmailService = require('./services/gmailService');
 const EventService = require('./services/eventService');
+const cron = require('node-cron');
 
 // Initialize GoogleAuth
 const googleAuth = new GoogleAuth();
@@ -23,7 +24,16 @@ const eventService = new EventService(googleAuth);
 gmailService.setEventService(eventService);
 eventService.setGmailService(gmailService);
 
-const emailProcessor = new EmailProcessorServer(googleAuth);
+const emailProcessor = new EmailProcessorServer(googleAuth, gmailService,eventService);
+
+cron.schedule('0 * * * *', async () => {
+  try {
+    console.log('Running getAndMakeSuggestionsFromEmails...');
+    await emailProcessor.getAndMakeSuggestionsFromEmails();
+  } catch (error) {
+    console.error('Error in scheduled task:', error);
+  }
+});
 
 // Middleware
 app.use(bodyParser.json());

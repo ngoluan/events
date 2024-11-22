@@ -3,14 +3,17 @@ const moment = require('moment-timezone');
 const { z } = require('zod');
 const aiService = require('./aiService');
 const GoogleCalendarService = require('./googleCalendarService');
+var plivo = require('plivo');
+const historyManager = require('./HistoryManager');
 
 class EmailProcessorServer {
-    constructor(googleAuth) {
+    constructor(googleAuth, gmailService,eventService) {  // Add gmailService parameter
         this.router = express.Router();
         this.router.use(express.json());
         this.router.use(express.urlencoded({ extended: true }));
         this.googleCalendarService = new GoogleCalendarService(googleAuth);
-
+        this.gmailService = gmailService;  // Store the gmailService instance
+        this.eventService = eventService;
 
         this.setupRoutes();
     }
@@ -47,7 +50,8 @@ class EmailProcessorServer {
                 }
             ], {
                 includeBackground: false,
-                resetHistory: false, provider: 'google',
+                resetHistory: false,
+                provider: 'google',
                 model: 'gemini-1.5-flash'
             });
 
@@ -182,6 +186,35 @@ class EmailProcessorServer {
 
 
     setupRoutes() {
+        this.router.post('/api/smsReply', async (req, res) => {
+            try {
+                const { From, To, Text } = req.body;
+                const result = await this.handleSMSReply(Text, From);
+
+                if (result.success) {
+                    // Send confirmation SMS
+                    await this.sendSMS({
+                        to: From,
+                        message: result.message
+                    });
+                    res.json(result);
+                } else {
+                    // Send error message
+                    await this.sendSMS({
+                        to: From,
+                        message: `Error: ${result.message}`
+                    });
+                    res.status(400).json(result);
+                }
+            } catch (error) {
+                console.error('Error processing SMS reply:', error);
+                res.status(500).json({
+                    success: false,
+                    error: error.message
+                });
+            }
+        });
+
         this.router.post('/api/summarizeAI', async (req, res) => {
             try {
                 if (!req.body?.text) {
@@ -223,7 +256,7 @@ class EmailProcessorServer {
 
         this.router.post('/api/getAIEmail', async (req, res) => {
             try {
-                let { instructions, emailText } = req.body;
+                let { instructions, emailText, eventDetails } = req.body;
 
                 const inquirySchema = z.object({
                     inquiryType: z.enum(['availability', 'food and drink packages', 'confirmEvent', 'other']),
@@ -233,8 +266,21 @@ class EmailProcessorServer {
                     summary: z.string(),
                 });
 
-                emailText += instructions;
+                // Include event details in the prompt if available
+                let prompt = `
+        Email content: ${emailText}.
+        `;
 
+                if (eventDetails) {
+                    prompt += `
+        Associated Event Details:
+        ${JSON.stringify(eventDetails, null, 2)}
+        `;
+                }
+
+                prompt += `
+        Please analyze the email and determine the inquiry type. Provide a summary.
+        `;
 
                 const messages = [
                     {
@@ -243,18 +289,11 @@ class EmailProcessorServer {
                     },
                     {
                         role: 'user',
-                        content: `Email content: ${emailText}. Date should be MM/DD/YYYY.
-                        
-                        inquiryTypes: 
-                        - availability: if it's a new event inquiry and/or guest is asking for availabity for a certain date
-                        - food and drink packages: if it is not a new inquiry, and guests are asking for drink and food packages
-                        - confirmEvent: if the guest is emailing indicating that they've sent the etransfer and/or accept the contract.
-                        
-                        `
+                        content: prompt
                     }
                 ];
 
-                const { response } = await aiService.generateResponse(messages, {
+                const { parsedData } = await aiService.generateResponse(messages, {
                     includeBackground: false,
                     includeHistory: false,
                     resetHistory: true,
@@ -262,11 +301,10 @@ class EmailProcessorServer {
                     schemaName: 'inquirySchema'
                 });
 
-
                 let followUpResponse;
-                switch (response.inquiryType) {
+                switch (parsedData.inquiryType) {
                     case "availability":
-                        followUpResponse = await this.checkAvailabilityAI(response, emailText);
+                        followUpResponse = await this.checkAvailabilityAI(parsedData, emailText);
                         break;
                     case "confirmEvent":
                         followUpResponse = await aiService.generateResponse([
@@ -292,7 +330,7 @@ class EmailProcessorServer {
                 }
 
                 res.json({
-                    ...response,
+                    ...parsedData,
                     response: followUpResponse.response,
                 });
 
@@ -304,6 +342,8 @@ class EmailProcessorServer {
                 });
             }
         });
+
+
         this.router.post('/api/sendAIEventInformation', async (req, res) => {
 
 
@@ -442,6 +482,361 @@ class EmailProcessorServer {
 
     formatEmailResponse(response) {
         return `${response.greeting}\n\n${response.mainContent}\n\n${response.nextSteps.join('\n')}\n\n${response.closing}\n\n${response.signature}`;
+    }
+    splitMessage(text, maxLength) {
+        const chunks = [];
+        let currentChunk = '';
+
+        text.split('\n').forEach(line => {
+            if ((currentChunk + line + '\n').length > maxLength) {
+                chunks.push(currentChunk);
+                currentChunk = line + '\n';
+            } else {
+                currentChunk += line + '\n';
+            }
+        });
+
+        if (currentChunk) {
+            chunks.push(currentChunk);
+        }
+
+        return chunks;
+    }
+    async getAndMakeSuggestionsFromEmails() {
+        try {
+            const newEmails = await this.gmailService.getAllEmails(25, false, true);
+    
+            // Get only the first unnotified event email
+            const eventEmail = newEmails
+            .filter(email =>
+                email.category === 'event' &&
+                !email.hasNotified &&
+                !email.labels.includes('SENT') && // Filter out sent emails
+                email.labels.includes('INBOX')  // Ensure it's in inbox
+            )[0];
+            
+            if (!eventEmail) {
+                console.log('No new unnotified event-related emails to process.');
+                return {
+                    success: true,
+                    message: 'No new unnotified event-related emails to process',
+                    processedCount: 0
+                };
+            }
+    
+            try {
+                let eventDetails = null;
+                if (eventEmail.associatedEventId) {
+                    const eventId = parseInt(eventEmail.associatedEventId);
+                    if (!isNaN(eventId)) {
+                        eventDetails = await this.eventService.getEvent(eventId);
+                    }
+                }
+    
+                // Get the email thread to find previous messages
+                const threadMessages = await this.gmailService.getThreadMessages(eventEmail.threadId);
+                const previousMessage = threadMessages
+                    .filter(msg => msg.id !== eventEmail.id)
+                    .sort((a, b) => Number(b.internalDate) - Number(a.internalDate))[0];
+    
+                // Generate context-aware summary
+                const summaryResponse = await aiService.generateResponse([
+                    {
+                        role: 'system',
+                        content: 'You are a venue coordinator assistant analyzing email conversations.'
+                    },
+                    {
+                        role: 'user',
+                        content: `
+                            Please provide a concise but detailed summary of this email conversation that addresses.
+    
+                            Current Email:
+                            Subject: ${eventEmail.subject}
+                            Content: ${eventEmail.text || eventEmail.snippet}
+    
+                            ${eventDetails ? `
+                            Existing Event Details:
+                            - Event Name: ${eventDetails.name}
+                            - Date: ${eventDetails.startTime}
+                            - Guest Count: ${eventDetails.attendance}
+                            - Room: ${eventDetails.room}
+                            - Services: ${eventDetails.services}
+                            - Notes: ${eventDetails.notes}
+    
+                            Summarize the email Focus on the most recent email. Please incorporate relevant event details into the summary if they relate to the email conversation.
+                            ` : ''}
+    
+                            Provide a clear, summary in 4-5 sentences.
+                        `
+                    }
+                ], {
+                    includeBackground: false,
+                    resetHistory: true,
+                    provider: 'google',
+                    model: 'gemini-1.5-flash'
+                });
+    
+                const shortId = `1${eventEmail.id.substring(0, 3)}`;
+    
+                // Generate AI response for the email
+                const aiEmailResponse = await this.getAIEmail({
+                    emailText: eventEmail.text || eventEmail.snippet || '',
+                    eventDetails: eventDetails || {},
+                    instructions: ''
+                });
+    
+                // Send initial email details with enhanced summary
+                const detailsContent = `
+                New Event Email (Part 1/2):
+                
+                From: ${eventEmail.from}
+                
+                Summary:
+                ${summaryResponse.response}
+                
+                Reply Options:
+                YES${shortId} - Send proposed response
+                EDIT${shortId} - Modify response
+                VIEW${shortId} - See full response
+                `.trim();
+                
+                await this.sendSMS({
+                    to: process.env.NOTIFICATION_PHONE_NUMBER,
+                    message: detailsContent
+                });
+    
+                // Send proposed response in second message
+                const responseContent = `
+                Proposed Response (Part 2/2):
+                
+                ${this.truncateText(aiEmailResponse.response, 1400)}
+                `.trim();
+    
+                await this.sendSMS({
+                    to: process.env.NOTIFICATION_PHONE_NUMBER,
+                    message: responseContent
+                });
+    
+                // Store the proposed email data in history
+                historyManager.addEntry({
+                    type: 'pendingEmailResponse',
+                    shortId: shortId,
+                    emailId: eventEmail.id,
+                    proposedEmail: aiEmailResponse.response,
+                    emailSubject: `Re: ${eventEmail.subject}`,
+                    emailRecipient: eventEmail.from.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)?.[0],
+                    timestamp: new Date().toISOString()
+                });
+    
+                // Mark email as notified
+                eventEmail.hasNotified = true;
+                await this.gmailService.updateEmailInCache(eventEmail);
+    
+                return {
+                    success: true,
+                    message: `Processed new email`,
+                    processedCount: 1
+                };
+    
+            } catch (emailError) {
+                console.error(`Error processing email ${eventEmail.id}:`, emailError);
+                throw emailError;
+            }
+    
+        } catch (error) {
+            console.error('Error in getAndMakeSuggestionsFromEmails:', error);
+            return {
+                success: false,
+                error: error.message,
+                processedCount: 0
+            };
+        }
+    }
+
+    // Helper method to truncate text while keeping whole words
+    truncateText(text, maxLength) {
+        if (text.length <= maxLength) return text;
+        
+        const truncated = text.slice(0, maxLength - 3);
+        const lastSpace = truncated.lastIndexOf(' ');
+        
+        if (lastSpace === -1) return truncated + '...';
+        return truncated.slice(0, lastSpace) + '...';
+    }
+
+
+    // Helper method to handle the AI email generation
+    async getAIEmail(payload) {
+        try {
+            const { emailText, eventDetails, instructions } = payload;
+
+            const aiResponse = await aiService.generateResponse([
+                {
+                    role: 'system',
+                    content: 'You are a venue coordinator assistant analyzing email inquiries.'
+                },
+                {
+                    role: 'user',
+                    content: `
+                        Analyze and respond to this email. ${eventDetails ? 'Consider the existing event details below.' : ''}
+                        
+                        Email content: ${emailText}
+                        ${eventDetails ? `\nExisting Event Details: ${JSON.stringify(eventDetails, null, 2)}` : ''}
+                        ${instructions ? `\nAdditional Instructions: ${instructions}` : ''}
+                    `
+                }
+            ], {
+                includeBackground: true,
+                resetHistory: true,
+                provider: 'google',
+                model: 'gemini-1.5-flash'
+            });
+
+            return {
+                response: aiResponse.response,
+                summary: aiResponse.response.split('\n')[0] // Use first line as summary
+            };
+
+        } catch (error) {
+            console.error('Error generating AI response:', error);
+            throw error;
+        }
+    }
+    // Add this method to handle SMS replies
+    async handleSMSReply(messageText, fromNumber) {
+        try {
+            // Extract the command and shortId
+            const match = messageText.trim().match(/^(YES|EDIT)([0-9a-zA-Z]+)(?:\s+(.*))?$/i);
+
+            if (!match) {
+                return {
+                    success: false,
+                    message: 'Invalid format. Please reply with YES{id} or EDIT{id} {new_message}'
+                };
+            }
+
+            const [, command, shortId, additionalText] = match;
+            const upperCommand = command.toUpperCase();
+
+            // Get the pending email data from history
+            const pendingEmail = historyManager.getRecentEntriesByType('pendingEmailResponse')
+                .find(entry => entry.shortId === shortId);
+
+            if (!pendingEmail) {
+                return {
+                    success: false,
+                    message: `No pending email found for ID ${shortId}`
+                };
+            }
+
+            if (upperCommand === 'YES') {
+                // Send the original proposed email
+                await this.gmailService.sendEmail(
+                    pendingEmail.emailRecipient,
+                    pendingEmail.emailSubject,
+                    pendingEmail.proposedEmail
+                );
+
+                return {
+                    success: true,
+                    message: 'Email sent successfully'
+                };
+            } else if (upperCommand === 'EDIT' && additionalText) {
+                // Send the modified email
+                await this.gmailService.sendEmail(
+                    pendingEmail.emailRecipient,
+                    pendingEmail.emailSubject,
+                    additionalText
+                );
+
+                return {
+                    success: true,
+                    message: 'Modified email sent successfully'
+                };
+            }
+
+            return {
+                success: false,
+                message: 'Invalid command format'
+            };
+        } catch (error) {
+            console.error('Error handling SMS reply:', error);
+            return {
+                success: false,
+                error: error.message
+            };
+        }
+    }
+    async sendSMS(data) {
+        try {
+            const authId = process.env.PLIVO_AUTH_ID;
+            const authToken = process.env.PLIVO_AUTH_TOKEN;
+            const senderNumber = process.env.PLIVO_PHONE_NUMBER;
+
+            if (!authId || !authToken || !senderNumber) {
+                throw new Error('Missing Plivo credentials in environment variables');
+            }
+
+            let destinationNumber = data.to;
+            if (destinationNumber.length === 10) {
+                destinationNumber = "1" + destinationNumber;
+            }
+
+            const payload = {
+                src: senderNumber,
+                dst: destinationNumber,
+                text: data.message.trim()
+            };
+
+            const client = new plivo.Client(authId, authToken);
+            const messageResponse = await client.messages.create(payload);
+
+            // Log the SMS sending in history with type 'sendSMS'
+            historyManager.addEntry({
+                type: 'sendSMS',
+                to: destinationNumber,
+                messageLength: data.message.length,
+                summary: data.summary || 'SMS notification sent',
+                messageId: messageResponse.messageUuid,
+                status: messageResponse.message
+            });
+
+            return {
+                success: true,
+                messageId: messageResponse.messageUuid,
+                status: messageResponse.message
+            };
+
+        } catch (error) {
+            console.error('Error sending SMS:', error);
+
+            // Log the failed SMS attempt
+            historyManager.addEntry({
+                type: 'sendSMS_failed',
+                to: data.to,
+                error: error.message,
+                messageLength: data.message?.length || 0
+            });
+
+            throw new Error(`Failed to send SMS: ${error.message}`);
+        }
+    }
+
+
+    setupRoutes() {
+        this.router.get('/api/triggerEmailSuggestions', async (req, res) => {
+            try {
+                const result = await this.getAndMakeSuggestionsFromEmails();
+                res.json(result);
+            } catch (error) {
+                console.error('Error triggering email suggestions:', error);
+                res.status(500).json({
+                    success: false,
+                    error: error.message
+                });
+            }
+        });
+
     }
 }
 
