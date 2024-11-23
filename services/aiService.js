@@ -113,7 +113,8 @@ class AIService {
         model = this.currentProvider.model
       } = options;
 
-      this.resetHistory();
+      if (resetHistory)
+        this.resetHistory();
 
       let contextualizedMessages = [];
 

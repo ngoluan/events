@@ -13201,7 +13201,7 @@
     {
       "phone": "14166168202",
       "id": 823,
-      "status": "contractSent",
+      "status": "contractSent;reserved",
       "services": "bar;lights;audio;music;kareoke",
       "room": "DiningRoom",
       "name": "Monica Desamero ",
@@ -13711,7 +13711,7 @@
     {
       "phone": "",
       "id": 853,
-      "status": "contractSent",
+      "status": "contractSent;reserved",
       "services": "bar;lights;audio;music;kareoke",
       "room": "Lounge",
       "name": "Penney Gilbert",
@@ -15628,7 +15628,7 @@
     {
       "phone": "7059180105",
       "id": 971,
-      "status": "contractSent,reserved;depositPaid",
+      "status": "contractSent,reserved;depositPaid;reserved",
       "services": "bar;lights;audio;music;kareoke",
       "room": "DiningRoom",
       "name": "Salina",
@@ -16036,7 +16036,7 @@
     {
       "phone": "(416) 824-3690",
       "id": 995,
-      "status": "contractSent",
+      "status": "contractSent;reserved",
       "services": "bar;lights;audio;music;kareoke",
       "room": "Lounge",
       "name": "Roisin",
@@ -16903,7 +16903,7 @@
     {
       "phone": "14162681408",
       "id": 1046,
-      "status": "depositPaid",
+      "status": "depositPaid;reserved",
       "services[]": [
         "bar",
         "lights",
@@ -18057,7 +18057,7 @@
     {
       "phone": "14135586539",
       "id": 1112,
-      "status": "contractSent",
+      "status": "contractSent;reserved",
       "services": "bar;lights;audio;music;kareoke",
       "room": "DiningRoom",
       "name": "Jodie MacDonald",
@@ -18586,8 +18586,8 @@
       "email": "kreativekultureto@gmail.com",
       "phone": "416-302-0581",
       "partyType": "",
-      "startTime": "2024-12-08 19:00",
-      "endTime": "2024-12-08 23:00",
+      "startTime": "2024-12-08T19:00",
+      "endTime": "2024-12-08T23:00",
       "room": "Lounge",
       "attendance": "",
       "services": "",
@@ -18595,7 +18595,7 @@
       "messageCount": "3",
       "historyIncluded": "false",
       "id": 1141,
-      "status": "contractSent",
+      "status": "contractSent;reserved",
       "rentalRate": "",
       "minSpend": "500",
       "createdAt": "2024-11-09T03:19:07.987Z"
@@ -18639,7 +18639,7 @@
     {
       "phone": "14167389954",
       "id": 1144,
-      "status": "contractSent,reserved;depositPaid",
+      "status": "contractSent,reserved;depositPaid;reserved",
       "services": "bar;lights;audio;music;kareoke",
       "room": "Lounge",
       "name": "J.R. Ostonal",
@@ -18701,7 +18701,7 @@
     {
       "phone": "14166174498",
       "id": 1147,
-      "status": "contractSent",
+      "status": "contractSent;reserved",
       "services": "bar;lights;audio;music;kareoke",
       "room": "Lounge",
       "name": "Alex Thomas",
@@ -18938,7 +18938,7 @@
     {
       "phone": "17059558192",
       "id": 1160,
-      "status": "contractSent",
+      "status": "contractSent;reserved",
       "services": "bar;lights;audio;music;kareoke",
       "room": "DiningRoom",
       "name": "Hannah",
@@ -19044,7 +19044,7 @@
       "messageCount": 3,
       "historyIncluded": false,
       "id": 1165,
-      "status": "",
+      "status": ";reserved",
       "rentalRate": "300",
       "minSpend": "300",
       "createdAt": "2024-11-12T02:04:07.703Z"
@@ -19119,7 +19119,7 @@
       "messageCount": 3,
       "historyIncluded": false,
       "id": 1169,
-      "status": "",
+      "status": ";reserved",
       "rentalRate": "500",
       "minSpend": "1000",
       "createdAt": "2024-11-14T17:24:05.435Z"
@@ -19164,7 +19164,7 @@
     {
       "phone": "17057158231",
       "id": 1172,
-      "status": "contractSent",
+      "status": "contractSent;reserved",
       "services": "bar;lights;audio;music;kareoke",
       "room": "Lounge",
       "name": "Cierra Phillips",
@@ -19231,7 +19231,7 @@
       "messageCount": 3,
       "historyIncluded": false,
       "id": 1175,
-      "status": "",
+      "status": ";reserved",
       "rentalRate": "300",
       "minSpend": "500",
       "createdAt": "2024-11-20T19:18:03.282Z"
@@ -19250,7 +19250,7 @@
       "messageCount": 3,
       "historyIncluded": false,
       "id": 1176,
-      "status": "",
+      "status": ";reserved",
       "rentalRate": "500",
       "minSpend": "1000",
       "createdAt": "2024-11-20T20:38:59.445Z"
@@ -19282,15 +19282,16 @@
       "room": "DiningRoom",
       "name": "Fatima Mian",
       "email": "Fatima.Mian@D2L.com",
-      "startTime": "2024-12-11 17:00",
-      "endTime": "2024-12-11 19:00",
+      "startTime": "2024-12-11T17:00",
+      "endTime": "2024-12-11T19:00",
       "rentalRate": "250",
       "minSpend": "750",
       "partyType": "event",
       "attendance": "30",
       "source": "",
       "notes": "$125 deposit to book",
-      "summary": "Fatima Mian inquired about booking the dining room for a buffet event on December 12th from 5 to 7 PM. The dining space is booked on that date, and an alternative date (January 11th) was suggested."
+      "summary": "Fatima Mian inquired about booking the dining room for a buffet event on December 12th from 5 to 7 PM. The dining space is booked on that date, and an alternative date (January 11th) was suggested.",
+      "createdAt": "2024-11-23T06:39:11.110Z"
     }
   ]
 }

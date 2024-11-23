@@ -104,14 +104,8 @@ class EmailProcessor {
     }
     async handleDraftEventEmail(emailContent, subject) {
         try {
-            let instructions = prompt('Enter any specific instructions for the email draft:');
-
-            if (instructions) {
-                instructions = ` IMPORTANT SPECIFIC INSTRUCTIONS FOM VENUE MANAGER: ${instructions}`;
-            }
 
             const response = await $.post('/api/getAIEmail', {
-                instructions: instructions,
                 emailText: emailContent,
                 conversationId: this.currentConversationId,
                 includeBackground: true

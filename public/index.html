@@ -1,4 +1,4 @@
-<!-- Change the html tag to use dark theme by default -->
+<!DOCTYPE html>
 <html lang="en">
 
 <head>
@@ -20,7 +20,7 @@
 <body class="min-h-screen bg-base-100">
     <!-- Header -->
     <header class="sticky top-0 z-50 bg-base-100 border-b border-base-200">
-        <div class=" mx-auto px-4 py-3">
+        <div class="mx-auto px-4 py-3">
             <h1 class="text-2xl font-bold text-base-content">Event Management</h1>
         </div>
         <!-- Desktop Navigation -->
@@ -48,7 +48,7 @@
     </header>
 
     <!-- Main Content -->
-    <div class=" mx-auto px-4 py-6">
+    <div class="mx-auto px-4 py-6">
         <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
             <!-- Sidebar -->
             <aside class="lg:col-span-1">
@@ -86,302 +86,311 @@
             <!-- Main Content Area -->
             <main class="lg:col-span-3 space-y-6">
                 <!-- Event Details Card -->
-                <!-- Event Details Card -->
                 <section id="info" class="card bg-base-100 shadow-lg">
                     <div class="card-body">
                         <h2 class="card-title text-lg mb-4">Event Details</h2>
-                        <div class="space-y-8"> <!-- Added vertical spacing between groups -->
-                            <!-- Contact Information Group -->
-                            <div class="space-y-4">
-                                <h3 class="font-medium text-base flex items-center gap-2 text-primary">
-                                    <i class="bi bi-person"></i>
-                                    Contact Information
-                                </h3>
-                                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                    <div class="form-control">
-                                        <label class="label">
-                                            <span class="label-text font-medium">Name</span>
-                                        </label>
-                                        <input type="text" id="infoName"
-                                            class="input input-bordered w-full focus:input-primary">
-                                    </div>
 
-                                    <div class="form-control">
-                                        <label class="label">
-                                            <span class="label-text font-medium">Phone</span>
-                                        </label>
-                                        <input type="tel" id="actionsPhone" class="input input-bordered w-full"
-                                            pattern="[0-9]{3}-[0-9]{3}-[0-9]{4}">
-                                    </div>
+                        <!-- Grid Container -->
+                        <div class="grid lg:grid-cols-4 gap-6">
 
-                                    <div class="form-control">
-                                        <label class="label">
-                                            <span class="label-text font-medium">Email</span>
-                                        </label>
-                                        <input type="email" id="infoEmail" class="input input-bordered w-full">
-                                    </div>
-                                </div>
-                            </div>
+                            <!-- Left Column (2/3) -->
+                            <div class="lg:col-span-3 space-y-8">
 
-                            <!-- Event Timing Group -->
-                            <div class="space-y-4">
-                                <h3 class="font-medium text-base flex items-center gap-2 text-primary">
-                                    <i class="bi bi-clock"></i>
-                                    Event Timing
-                                </h3>
-                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div class="form-control">
-                                        <label class="label">
-                                            <span class="label-text font-medium">Start Time</span>
-                                        </label>
-                                        <input type="datetime-local" id="infoStartTime"
-                                            class="input input-bordered w-full">
-                                    </div>
-
-                                    <div class="form-control">
-                                        <label class="label">
-                                            <span class="label-text font-medium">End Time</span>
-                                        </label>
-                                        <input type="datetime-local" id="infoEndTime"
-                                            class="input input-bordered w-full">
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Event Details Group -->
-                            <div class="space-y-4">
-                                <h3 class="font-medium text-base flex items-center gap-2 text-primary">
-                                    <i class="bi bi-info-circle"></i>
-                                    Event Information
-                                </h3>
-                                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                    <div class="form-control">
-                                        <label class="label">
-                                            <span class="label-text font-medium">Party Type</span>
-                                        </label>
-                                        <input type="text" id="infoPartyType" class="input input-bordered w-full">
-                                    </div>
-
-                                    <div class="form-control">
-                                        <label class="label">
-                                            <span class="label-text font-medium">Expected Attendance</span>
-                                        </label>
-                                        <input type="number" id="infoAttendance" class="input input-bordered w-full">
-                                    </div>
-
-                                    <div class="form-control">
-                                        <label class="label">
-                                            <span class="label-text font-medium">Status</span>
-                                        </label>
-                                        <select multiple id="infoStatus" class="select select-bordered w-full">
-                                            <option value="contractSent">Contract Sent</option>
-                                            <option value="depositPaid">Deposit Paid</option>
-                                            <option value="reserved">Reserved</option>
-                                            <option value="completed">Event Completed</option>
-                                        </select>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Venue Details Group -->
-                            <div class="space-y-4">
-                                <h3 class="font-medium text-base flex items-center gap-2 text-primary">
-                                    <i class="bi bi-building"></i>
-                                    Venue Details
-                                </h3>
-                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div class="form-control">
-                                        <label class="label">
-                                            <span class="label-text font-medium">Room Selection</span>
-                                        </label>
-                                        <select multiple id="infoRoom" class="select select-bordered w-full">
-                                            <option value="Lounge">Lounge</option>
-                                            <option value="DiningRoom">Dining Room</option>
-                                            <option value="Patio">Patio</option>
-                                        </select>
-                                    </div>
-
-                                    <div class="form-control">
-                                        <label class="label">
-                                            <span class="label-text font-medium">Services</span>
-                                        </label>
-                                        <select multiple id="infoServices" class="select select-bordered w-full">
-                                            <option value="dj">DJ</option>
-                                            <option value="live">Live Band</option>
-                                            <option value="bar">Private Bar</option>
-                                            <option value="lights">Party Lights</option>
-                                            <option value="audio">Audio Equipment</option>
-                                            <option value="music">Music</option>
-                                            <option value="kareoke">kareoke</option>
-                                            <option value="catering">Catering</option>
-                                            <option value="drink">Drink Package</option>
-                                        </select>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Financial Details Group -->
-                            <div class="space-y-4">
-                                <h3 class="font-medium text-base flex items-center gap-2 text-primary">
-                                    <i class="bi bi-currency-dollar"></i>
-                                    Financial Details
-                                </h3>
-                                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                    <div class="form-control">
-                                        <label class="label">
-                                            <span class="label-text font-medium">Rental Rate</span>
-                                        </label>
-                                        <div class="relative">
-                                            <span class="absolute left-3 top-1/2 -translate-y-1/2">$</span>
-                                            <input type="number" id="infoRentalRate"
-                                                class="input input-bordered w-full pl-7">
+                                <!-- Contact Information Group -->
+                                <div class="space-y-4">
+                                    <h3 class="font-medium text-base flex items-center gap-2 text-primary">
+                                        <i class="bi bi-person"></i>
+                                        Contact Information
+                                    </h3>
+                                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        <!-- Name Field -->
+                                        <div class="form-control">
+                                            <label class="label">
+                                                <span class="label-text font-medium">Name</span>
+                                            </label>
+                                            <input type="text" id="infoName"
+                                                class="input input-bordered w-full focus:border-primary" />
+                                        </div>
+                                        <!-- Phone Field -->
+                                        <div class="form-control">
+                                            <label class="label">
+                                                <span class="label-text font-medium">Phone</span>
+                                            </label>
+                                            <input type="tel" id="actionsPhone" class="input input-bordered w-full"
+                                                pattern="[0-9]{3}-[0-9]{3}-[0-9]{4}" />
+                                        </div>
+                                        <!-- Email Field -->
+                                        <div class="form-control">
+                                            <label class="label">
+                                                <span class="label-text font-medium">Email</span>
+                                            </label>
+                                            <input type="email" id="infoEmail" class="input input-bordered w-full" />
                                         </div>
                                     </div>
+                                </div>
 
-                                    <div class="form-control">
-                                        <label class="label">
-                                            <span class="label-text font-medium">Minimum Spend</span>
-                                        </label>
-                                        <div class="relative">
-                                            <span class="absolute left-3 top-1/2 -translate-y-1/2">$</span>
-                                            <input type="number" id="infoMinSpend"
-                                                class="input input-bordered w-full pl-7">
+                                <!-- Event Timing Group -->
+                                <div class="space-y-4">
+                                    <h3 class="font-medium text-base flex items-center gap-2 text-primary">
+                                        <i class="bi bi-clock"></i>
+                                        Event Timing
+                                    </h3>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <!-- Start Time -->
+                                        <div class="form-control">
+                                            <label class="label">
+                                                <span class="label-text font-medium">Start Time</span>
+                                            </label>
+                                            <input type="datetime-local" id="infoStartTime"
+                                                class="input input-bordered w-full" />
+                                        </div>
+                                        <!-- End Time -->
+                                        <div class="form-control">
+                                            <label class="label">
+                                                <span class="label-text font-medium">End Time</span>
+                                            </label>
+                                            <input type="datetime-local" id="infoEndTime"
+                                                class="input input-bordered w-full" />
                                         </div>
                                     </div>
+                                </div>
 
-                                    <div class="form-control">
-                                        <label class="label">
-                                            <span class="label-text font-medium">Hourly Rate</span>
-                                        </label>
-                                        <div class="flex gap-2">
-                                            <div class="relative flex-1">
-                                                <span class="absolute left-3 top-1/2 -translate-y-1/2">$</span>
-                                                <input type="number" id="hourlyRate"
-                                                    class="input input-bordered w-full pl-7" value="125">
+                                <!-- Event Details Group -->
+                                <div class="space-y-4">
+                                    <h3 class="font-medium text-base flex items-center gap-2 text-primary">
+                                        <i class="bi bi-info-circle"></i>
+                                        Event Information
+                                    </h3>
+                                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        <!-- Party Type -->
+                                        <div class="form-control">
+                                            <label class="label">
+                                                <span class="label-text font-medium">Party Type</span>
+                                            </label>
+                                            <input type="text" id="infoPartyType" class="input input-bordered w-full" />
+                                        </div>
+                                        <!-- Expected Attendance -->
+                                        <div class="form-control">
+                                            <label class="label">
+                                                <span class="label-text font-medium">Expected Attendance</span>
+                                            </label>
+                                            <input type="number" id="infoAttendance"
+                                                class="input input-bordered w-full" />
+                                        </div>
+                                        <div class="form-control">
+                                            <label class="label">
+                                                <span class="label-text font-medium">Status</span>
+                                            </label>
+                                            <select id="infoStatus" class="select select-bordered w-full" multiple>
+                                                <option value="contractSent">Contract Sent</option>
+                                                <option value="depositPaid">Deposit Paid</option>
+                                                <option value="reserved">Reserved</option>
+                                                <option value="completed">Event Completed</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Venue Details Group -->
+                                <div class="space-y-4">
+                                    <h3 class="font-medium text-base flex items-center gap-2 text-primary">
+                                        <i class="bi bi-building"></i>
+                                        Venue Details
+                                    </h3>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <!-- Room Selection -->
+                                        <div class="form-control">
+                                            <label class="label">
+                                                <span class="label-text font-medium">Room Selection</span>
+                                            </label>
+                                            <select id="infoRoom" class="select select-bordered w-full">
+                                                <option value="Lounge">Lounge</option>
+                                                <option value="DiningRoom">Dining Room</option>
+                                                <option value="Patio">Patio</option>
+                                            </select>
+                                        </div>
+                                        <!-- Services -->
+                                        <div class="form-control">
+                                            <label class="label">
+                                                <span class="label-text font-medium">Services</span>
+                                            </label>
+                                            <select id="infoServices" class="select select-bordered w-full" multiple>
+                                                <option value="dj">DJ</option>
+                                                <option value="live">Live Band</option>
+                                                <option value="bar">Private Bar</option>
+                                                <option value="lights">Party Lights</option>
+                                                <option value="audio">Audio Equipment</option>
+                                                <option value="music">Music</option>
+                                                <option value="kareoke">Karaoke</option>
+                                                <option value="catering">Catering</option>
+                                                <option value="drink">Drink Package</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Financial Details Group -->
+                                <div class="space-y-4">
+                                    <h3 class="font-medium text-base flex items-center gap-2 text-primary">
+                                        <i class="bi bi-currency-dollar"></i>
+                                        Financial Details
+                                    </h3>
+                                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        <!-- Rental Rate -->
+                                        <div class="form-control">
+                                            <label class="label">
+                                                <span class="label-text font-medium">Rental Rate</span>
+                                            </label>
+                                            <div class="relative">
+                                                <span
+                                                    class="absolute left-3 top-1/2 transform -translate-y-1/2">$</span>
+                                                <input type="number" id="infoRentalRate"
+                                                    class="input input-bordered w-full pl-7" />
                                             </div>
-                                            <button id="calcRate" class="btn btn-primary tooltip" data-tip="Calculate">
-                                                <i class="bi bi-calculator"></i>
-                                            </button>
+                                        </div>
+                                        <!-- Minimum Spend -->
+                                        <div class="form-control">
+                                            <label class="label">
+                                                <span class="label-text font-medium">Minimum Spend</span>
+                                            </label>
+                                            <div class="relative">
+                                                <span
+                                                    class="absolute left-3 top-1/2 transform -translate-y-1/2">$</span>
+                                                <input type="number" id="infoMinSpend"
+                                                    class="input input-bordered w-full pl-7" />
+                                            </div>
+                                        </div>
+                                        <!-- Hourly Rate -->
+                                        <div class="form-control">
+                                            <label class="label">
+                                                <span class="label-text font-medium">Hourly Rate</span>
+                                            </label>
+                                            <div class="flex items-center gap-2">
+                                                <div class="relative flex-1">
+                                                    <span
+                                                        class="absolute left-3 top-1/2 transform -translate-y-1/2">$</span>
+                                                    <input type="number" id="hourlyRate"
+                                                        class="input input-bordered w-full pl-7" value="125" />
+                                                </div>
+                                                <button id="calcRate" class="btn btn-primary tooltip"
+                                                    data-tip="Calculate">
+                                                    <i class="bi bi-calculator"></i>
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
+
+                                <!-- Action Buttons -->
+                                <div class="border-t border-base-300 pt-6">
+                                    <div class="flex flex-wrap gap-2">
+                                        <button
+                                            class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
+                                            id="infoSave">
+                                            <i class="bi bi-save text-xl text-primary"></i>
+                                            <span class="text-xs font-medium">Save</span>
+                                        </button>
+                                        <button
+                                            class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
+                                            id="infoAddContact">
+                                            <i class="bi bi-person-plus text-xl text-primary"></i>
+                                            <span class="text-xs font-medium">Add Contact</span>
+                                        </button>
+                                        <button
+                                            class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
+                                            id="receipt">
+                                            <i class="bi bi-receipt text-xl text-primary"></i>
+                                            <span class="text-xs font-medium">Receipt</span>
+                                        </button>
+                                        <button
+                                            class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
+                                            id="summarizeEvent">
+                                            <i class="bi bi-file-earmark-text text-xl text-primary"></i>
+                                            <span class="text-xs font-medium">Summarize</span>
+                                        </button>
+                                        <button
+                                            class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
+                                            id="generateDeposit">
+                                            <i class="bi bi-cash text-xl text-primary"></i>
+                                            <span class="text-xs font-medium">Add Deposit</span>
+                                        </button>
+                                        <button
+                                            class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
+                                            id="actionsCreateContract">
+                                            <i class="bi bi-file-text text-xl text-primary"></i>
+                                            <span class="text-xs font-medium">Make Contract</span>
+                                        </button>
+                                        <button
+                                            class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
+                                            id="actionsEmailContract">
+                                            <i class="bi bi-envelope text-xl text-primary"></i>
+                                            <span class="text-xs font-medium">Email Contract</span>
+                                        </button>
+                                        <button
+                                            class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
+                                            id="actionsBookCalendar">
+                                            <i class="bi bi-calendar-check text-xl text-primary"></i>
+                                            <span class="text-xs font-medium">Add Calendar</span>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- Deposit Password (if applicable) -->
+                                <div id="depositPw" class="text-sm text-base-content/70"></div>
                             </div>
 
-                            <!-- Notes -->
-                            <div class="space-y-4">
+                            <!-- Right Column (1/3) - Additional Notes -->
+                            <div class="lg:col-span-1 flex flex-col h-full space-y-4">
                                 <h3 class="font-medium text-base flex items-center gap-2 text-primary">
                                     <i class="bi bi-journal-text"></i>
                                     Additional Notes
                                 </h3>
-                                <div class="form-control">
-                                    <textarea id="infoNotes" rows="4" class="textarea textarea-bordered w-full"
+                                <div class="form-control flex-1">
+                                    <textarea id="infoNotes" class="textarea textarea-bordered w-full flex-1"
                                         placeholder="Enter any additional notes or special requirements..."></textarea>
                                 </div>
                             </div>
 
-                            <!-- Action Buttons -->
-                            <div class="border-t border-base-300 pt-6">
-                                <div class="flex flex-wrap gap-2">
-                                    <button
-                                        class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
-                                        id="infoSave">
-                                        <i class="bi bi-save text-xl text-primary"></i>
-                                        <span class="text-xs font-medium">Save</span>
-                                    </button>
-                                    <button
-                                        class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
-                                        id="infoAddContact">
-                                        <i class="bi bi-person-plus text-xl text-primary"></i>
-                                        <span class="text-xs font-medium">Add Contact</span>
-                                    </button>
-                                    <button
-                                        class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
-                                        id="receipt">
-                                        <i class="bi bi-receipt text-xl text-primary"></i>
-                                        <span class="text-xs font-medium">Receipt</span>
-                                    </button>
-                                    <button
-                                        class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
-                                        id="summarizeEvent">
-                                        <i class="bi bi-file-earmark-text text-xl text-primary"></i>
-                                        <span class="text-xs font-medium">Summarize</span>
-                                    </button>
-                                    <button
-                                        class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
-                                        id="generateDeposit">
-                                        <i class="bi bi-cash text-xl text-primary"></i>
-                                        <span class="text-xs font-medium">Add Deposit</span>
-                                    </button>
-                                    <button
-                                        class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
-                                        id="actionsCreateContract">
-                                        <i class="bi bi-file-text text-xl text-primary"></i>
-                                        <span class="text-xs font-medium">Make Contract</span>
-                                    </button>
-                                    <button
-                                        class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
-                                        id="actionsEmailContract">
-                                        <i class="bi bi-envelope text-xl text-primary"></i>
-                                        <span class="text-xs font-medium">Email Contract</span>
-                                    </button>
-                                    <button
-                                        class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
-                                        id="actionsBookCalendar">
-                                        <i class="bi bi-calendar-check text-xl text-primary"></i>
-                                        <span class="text-xs font-medium">Add Calendar</span>
-                                    </button>
-                                </div>
-                            </div>
-
-                            <div id="depositPw" class="text-sm text-base-content/70"></div>
                         </div>
                     </div>
                 </section>
-
-                <!-- Messages and Actions Grid -->
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[calc(100vh-12rem)]">
                     <!-- Messages Section -->
-                    <section id="messages" class="card bg-base-100 shadow-lg h-[75vh]">
-                        <div class="card-body flex flex-col">
+                    <section id="messages" class="card bg-base-100 shadow-lg h-full">
+                        <div class="card-body flex flex-col h-full p-6">
                             <div class="flex justify-between items-center mb-4">
                                 <h2 class="card-title text-lg">Messages</h2>
                                 <div class="flex gap-2">
-                                    <button class="btn btn-sm gap-2 tooltip tooltip-left" data-tip="Hide Replied Emails"
+                                    <button class="btn btn-sm gap-2 tooltip tooltip-left" data-tip="Show Important Only"
                                         id="toggleRepliedEmails">
-                                        <i class="bi bi-eye-slash"></i>
+                                        <i class="bi bi-star"></i>
                                     </button>
                                     <button class="btn btn-ghost btn-sm btn-square tooltip tooltip-left"
                                         data-tip="Read Email" id="readAllEmails">
                                         <i class="bi bi-envelope"></i>
                                     </button>
                                     <button class="btn btn-ghost btn-sm btn-square tooltip tooltip-left"
-                                        data-tip="Summarize" id="summarizeLastEmails">
-                                        <i class="bi bi-list-task"></i>
-                                    </button>
-
-                                    <button class="btn btn-ghost btn-sm btn-square tooltip tooltip-left"
                                         data-tip="Get Interac" id="getInterac">
                                         <i class="bi bi-cash-coin"></i>
                                     </button>
                                 </div>
                             </div>
-                            <div class="overflow-y-auto messages-container">
+                            <div class="messages-container flex-1 overflow-y-auto">
                                 <!-- Messages content -->
                             </div>
                         </div>
                     </section>
 
                     <!-- Actions Section -->
-                    <section id="actions" class="card bg-base-100 shadow-lg">
-                        <div class="card-body">
+                    <section id="actions" class="card bg-base-100 shadow-lg h-full">
+                        <div class="card-body flex flex-col h-full p-6">
                             <h2 class="card-title text-lg mb-4">Actions & AI Assistant</h2>
                             <div class="flex flex-wrap gap-2 mb-4">
-
                             </div>
 
                             <!-- AI Conversation Area -->
-                            <div class="bg-base-200 rounded-lg p-4">
-                                <!-- Inside the actions section, update the AI Conversation header -->
+                            <div class="flex-1 flex flex-col bg-base-200 rounded-lg p-4">
+                                <!-- AI Result Header -->
                                 <div class="flex justify-between items-center mb-2">
                                     <h3 class="font-bold">AI Conversation</h3>
                                     <button id="maximizeAiResult" class="btn btn-ghost btn-xs btn-square tooltip"
@@ -389,64 +398,70 @@
                                         <i class="bi bi-arrows-fullscreen"></i>
                                     </button>
                                 </div>
-                                <div class="overflow-y-auto h-64 mb-4 bg-base-100 rounded-lg p-2" id="aiResult">
+
+                                <!-- AI Result Content - Flexible height -->
+                                <div class="flex-1 overflow-y-auto bg-base-100 rounded-lg p-2 mb-4" id="aiResult">
                                 </div>
-                                <div class="flex items-center gap-2 mb-2">
-                                    <h3 class="font-bold">Message</h3>
-                                    <button id="toggleButton" class="btn btn-ghost btn-xs btn-square tooltip"
-                                        data-tip="Expand">
-                                        <i class="bi bi-arrows-fullscreen"></i>
-                                    </button>
-                                </div>
-                                <div contenteditable="true" style="max-height: 400px; overflow-y: scroll;"
-                                    class="bg-base-100 rounded-lg p-2 min-h-[100px] focus:outline-none border border-base-300"
-                                    id="aiText">
-                                </div>
-                                <div class="space-y-4">
-                                    <div class="flex flex-wrap gap-4">
-                                        <button
-                                            class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
-                                            id="actionSendAI">
-                                            <i class="bi bi-chat-dots text-xl text-primary"></i>
-                                            <span class="text-xs font-medium">Chat</span>
-                                        </button>
-                                        <button
-                                            class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
-                                            id="confirmAI">
-                                            <i class="bi bi-check-circle text-xl text-primary"></i>
-                                            <span class="text-xs font-medium">Confirm</span>
-                                        </button>
-                                        <button
-                                            class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
-                                            id="clearAiText">
-                                            <i class="bi bi-trash text-xl text-primary"></i>
-                                            <span class="text-xs font-medium">Clear</span>
-                                        </button>
-                                        <button
-                                            class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
-                                            id="eventAI">
-                                            <i class="bi bi-calendar-plus text-xl text-primary"></i>
-                                            <span class="text-xs font-medium">Event</span>
-                                        </button>
-                                        <button
-                                            class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
-                                            id="emailAI">
-                                            <i class="bi bi-envelope text-xl text-primary"></i>
-                                            <span class="text-xs font-medium">Email</span>
+
+                                <!-- Message Input Area -->
+                                <div class="mt-auto">
+                                    <div class="flex items-center gap-2 mb-2">
+                                        <h3 class="font-bold">Message</h3>
+                                        <button id="toggleButton" class="btn btn-ghost btn-xs btn-square tooltip"
+                                            data-tip="Expand">
+                                            <i class="bi bi-arrows-fullscreen"></i>
                                         </button>
                                     </div>
+                                    <div contenteditable="true"
+                                        class="bg-base-100 rounded-lg p-2 h-32 overflow-y-auto focus:outline-none border border-base-300 mb-4"
+                                        id="aiText">
+                                    </div>
+                                    <div class="space-y-4">
+                                        <div class="flex flex-wrap gap-4">
+                                            <button
+                                                class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
+                                                id="actionSendAI">
+                                                <i class="bi bi-chat-dots text-xl text-primary"></i>
+                                                <span class="text-xs font-medium">Chat</span>
+                                            </button>
+                                            <button
+                                                class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
+                                                id="confirmAI">
+                                                <i class="bi bi-check-circle text-xl text-primary"></i>
+                                                <span class="text-xs font-medium">Confirm</span>
+                                            </button>
+                                            <button
+                                                class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
+                                                id="clearAiText">
+                                                <i class="bi bi-trash text-xl text-primary"></i>
+                                                <span class="text-xs font-medium">Clear</span>
+                                            </button>
+                                            <button
+                                                class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
+                                                id="eventAI">
+                                                <i class="bi bi-calendar-plus text-xl text-primary"></i>
+                                                <span class="text-xs font-medium">Event</span>
+                                            </button>
+                                            <button
+                                                class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
+                                                id="emailAI">
+                                                <i class="bi bi-envelope text-xl text-primary"></i>
+                                                <span class="text-xs font-medium">Email</span>
+                                            </button>
+                                        </div>
 
-                                    <div class="flex items-center gap-2">
-                                        <input type="text" id="sendMailEmail" class="input input-bordered flex-1"
-                                            placeholder="Email">
-                                        <input type="text" id="sendMailSubject" class="input input-bordered flex-1"
-                                            placeholder="Subject">
-                                        <button
-                                            class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
-                                            id="sendEmail">
-                                            <i class="bi bi-send text-xl text-primary"></i>
-                                            <span class="text-xs font-medium">Send</span>
-                                        </button>
+                                        <div class="flex items-center gap-2">
+                                            <input type="text" id="sendMailEmail" class="input input-bordered flex-1"
+                                                placeholder="Email">
+                                            <input type="text" id="sendMailSubject" class="input input-bordered flex-1"
+                                                placeholder="Subject">
+                                            <button
+                                                class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
+                                                id="sendEmail">
+                                                <i class="bi bi-send text-xl text-primary"></i>
+                                                <span class="text-xs font-medium">Send</span>
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -455,7 +470,7 @@
                 </div>
             </main>
         </div>
-        <div class=" py-6">
+        <div class="py-6">
             <section id="calendar" class="card bg-base-100 shadow-lg">
                 <div class="card-body">
                     <h2 class="card-title text-lg mb-4">Calendar</h2>
@@ -468,7 +483,7 @@
     </div>
 
 
-    <div class="md:hidden btm-nav "> <!-- Changed from lg:hidden to md:hidden -->
+    <div class="md:hidden btm-nav"> <!-- Changed from lg:hidden to md:hidden -->
         <button onclick="scrollToSection('contacts')" class="tooltip tooltip-top" data-tip="Contacts">
             <i class="bi bi-people text-xl"></i> <!-- Changed to bi-people icon -->
         </button>

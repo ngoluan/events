@@ -10,9 +10,9 @@ export class EventManageApp {
         this.currentId = -1;
         this.emailProcessor = new EmailProcessor(this);
         this.userEmail = '';
-        const showRepliedSetting = localStorage.getItem('showRepliedEmails');
+        const showImportantSetting = localStorage.getItem('showImportantEmails');
         this.emailFilters = {
-            showReplied: showRepliedSetting === null ? true : showRepliedSetting === 'true'
+            showImportant: showImportantSetting === null ? false : showImportantSetting === 'true'
         };
         this.backgroundInfo = {};
         this.emailsLoaded = false;
@@ -20,49 +20,48 @@ export class EventManageApp {
         this.initializeToastContainer();
 
     }
-
     async init() {
         // Initialize utilities
         this.sounds = {
             orderUp: new Howl({ src: ['./orderup.m4a'] })
         };
+        
+        // Load templates first
+        await this.loadTemplates();
+        
         this.syncEvents();
         this.initializeMaximizeButtons();
         await this.initializeFuse();
-
+    
         // Set up event listeners
         this.registerEvents();
-
+    
         // Load initial data
         await this.getAllContacts();
         this.createCalendar();
         this.loadInitialEmails();
-
-
-         fetch(`/ai/resetHistory`);
-
-
+    
+        fetch(`/ai/resetHistory`);
+    
         const urlParams = new URLSearchParams(window.location.search);
         if (urlParams.get('oauth') === 'success') {
-            // Fetch the connected email from the backend
             const response = await $.get('/api/getConnectedEmail');
             if (response.email) {
                 this.setConnectedEmail(response.email);
             }
         }
-
+    
         $(document).on('eventDetailsReceived', async (e, eventDetails) => {
             const lastId = this.contacts.length > 0 ? this.contacts[this.contacts.length - 1].id : 0;
             eventDetails.id = lastId + 1;
             this.contacts.push(eventDetails);
             this.loadContact(eventDetails.id);
         });
-
+    
         this.initializeBackgroundInfo();
         this.initializeMobileNavigation();
-
     }
-
+    
     initializeMobileNavigation() {
         window.scrollToSection = (sectionId) => {
             const section = document.getElementById(sectionId);
@@ -344,7 +343,6 @@ export class EventManageApp {
 
     writeToAIResult(data) {
         data = data.replace(/\n/g, "<br>");
-        data = data.replace(/:\[Specific Instructions:.*?\]/g, "");
 
         const response = `
             <div class="p-2 aiChatReponse">
@@ -395,59 +393,32 @@ export class EventManageApp {
             });
         });
     }
-    toggleRepliedEmails(e) {
+    toggleImportant(e) {
         // Toggle the filter state
-        this.emailFilters.showReplied = !this.emailFilters.showReplied;
+        this.emailFilters.showImportant = !this.emailFilters.showImportant;
 
         // Save to localStorage
-        localStorage.setItem('showRepliedEmails', this.emailFilters.showReplied);
+        localStorage.setItem('showImportantEmails', this.emailFilters.showImportant);
 
         // Update button text and icon
         const $button = $(e.currentTarget);
-        if (this.emailFilters.showReplied) {
-            $button.html('<i class="bi bi-eye-slash"></i> Hide Replied');
-            $button.attr('data-tip', 'Hide Replied Emails');
-        } else {
-            $button.html('<i class="bi bi-eye"></i> Show All');
+        if (this.emailFilters.showImportant) {
+            $button.html('<i class="bi bi-star-fill"></i>');
             $button.attr('data-tip', 'Show All Emails');
+        } else {
+            $button.html('<i class="bi bi-star"></i>');
+            $button.attr('data-tip', 'Show Important Only');
         }
 
         // Add a brief animation
         $button.addClass('animate-press');
         setTimeout(() => $button.removeClass('animate-press'), 200);
 
-        // Instead of just refreshEmails(), get fresh data
-        this.readGmail("all", false).then(() => {
-            console.log("Emails refreshed. Show replied:", this.emailFilters.showReplied);
-        }).catch(error => {
+        // Refresh emails with current filter state
+        this.readGmail().catch(error => {
             console.error("Error refreshing emails:", error);
+            this.showToast("Failed to refresh emails", "error");
         });
-    }
-
-
-    toggleRepliedEmails(e) {
-        // Toggle the filter state
-        this.emailFilters.showReplied = !this.emailFilters.showReplied;
-
-        // Save to localStorage
-        localStorage.setItem('showRepliedEmails', this.emailFilters.showReplied);
-
-        // Update button text and icon
-        const $button = $(e.currentTarget);
-        if (this.emailFilters.showReplied) {
-            $button.html('<i class="bi bi-eye-slash"></i> Hide Replied');
-            $button.attr('data-tip', 'Hide Replied Emails');
-        } else {
-            $button.html('<i class="bi bi-eye"></i> Show All');
-            $button.attr('data-tip', 'Show All Emails');
-        }
-
-        // Add a brief animation
-        $button.addClass('animate-press');
-        setTimeout(() => $button.removeClass('animate-press'), 200);
-
-        // Refresh the emails display
-        this.refreshEmails();
     }
     sortContacts(criteria) {
         switch (criteria) {
@@ -466,7 +437,7 @@ export class EventManageApp {
                 break;
 
             case 'eventDate':
-                const now = moment().startOf('day');
+                const now = moment().subtract(1, "day").startOf('day');
 
                 // First, separate future and past events
                 const futureEvents = this.contacts.filter(contact =>
@@ -582,7 +553,7 @@ export class EventManageApp {
         }
     }
     registerEvents() {
-        let me=this;
+        let me = this;
         $('#getInterac').on('click', (e) => {
             e.preventDefault();
             this.getInteracEmails();
@@ -646,9 +617,9 @@ export class EventManageApp {
             this.refreshCalendarSync();
         });
 
-        $('#toggleRepliedEmails').on('click', (e) => {
+        $('#toggleRepliedEmails').off('click').on('click', (e) => {
             e.preventDefault();
-            this.toggleRepliedEmails(e);
+            this.toggleImportant(e);
         });
         $(document).on("click", "#actionsEmailContract", (e) => {
             e.preventDefault();
@@ -694,10 +665,10 @@ export class EventManageApp {
             const text = e.clipboardData.getData('text/plain');
             document.execCommand('insertText', false, text);
         });
-        $(document).on("click", "#actionSendAI",async function(e)  {
+        $(document).on("click", "#actionSendAI", async function (e) {
             e.preventDefault();
             const val = $("#aiText").text() + `\n\nBe concise and semi-formal in the response.`;
-            let result = await me.sendAIRequest("/ai/chat",{message:val});
+            let result = await me.sendAIRequest("/ai/chat", { message: val });
             me.writeToAIResult(result.response);
 
         });
@@ -754,10 +725,7 @@ export class EventManageApp {
             this.readGmail("all");
         });
 
-        $(document).on("click", "#summarizeLastEmails", (e) => {
-            e.preventDefault();
-            this.summarizeLastEmails();
-        });
+
 
 
         // Initiate Google OAuth
@@ -891,15 +859,13 @@ export class EventManageApp {
         $("#aiText").html("");
         let text = $(e.target).closest(".aiChatReponse").find(".aiChatReponseContent").html();
         text = text.replace(/<button.*<\/button>/, "");
-        text = text.replace(/:\[Specific Instructions:.*?\]/g, "");
         $("#aiText").html(`<br><br>${text}`);
         $('html, body').animate({ scrollTop: $("#aiText").offset().top }, 500);
         $("#aiText").focus();
     }
     async readGmail(email = null) {
         this.adjustMessagesContainerHeight();
-        $("#messages").find(".content").empty();
-        $("#messages").find(".content").html(`
+        $(".messages-container").html(`
             <div class="alert alert-info">
                 <i class="bi bi-hourglass-split"></i>
                 Loading emails...
@@ -909,6 +875,7 @@ export class EventManageApp {
         try {
             let response;
             if (email) {
+                // When loading emails for a specific contact
                 response = await $.get("/gmail/readGmail", {
                     email: email,
                     type: 'contact',
@@ -916,31 +883,32 @@ export class EventManageApp {
                     order: 'desc'
                 });
             } else {
+                // When loading all emails
                 const type = $('#messages').data('currentView') === 'interac' ? 'interac' : 'all';
                 response = await $.get("/gmail/readGmail", {
                     type: type,
                     forceRefresh: false,
                     orderBy: 'timestamp',
                     order: 'desc',
-                    showReplied: this.emailFilters.showReplied
+                    showImportant: this.emailFilters.showImportant // Changed from showReplied
                 });
             }
 
-            if (Array.isArray(response)) {
-                if ($('#messages').data('currentView') === 'interac') {
-                    this.processInteracEmails(response);
-                } else {
-                    this.processEmails(response);
-                }
-            } else {
+            if (!Array.isArray(response)) {
                 throw new Error("Invalid response format");
+            }
+
+            if ($('#messages').data('currentView') === 'interac') {
+                this.processInteracEmails(response);
+            } else {
+                this.processEmails(response);
             }
 
             return response;
         } catch (error) {
             console.error("Failed to read Gmail:", error);
-            $("#messages").find(".content").html(`
-                <div class="alert alert-danger">
+            $(".messages-container").html(`
+                <div class="alert alert-error">
                     <i class="bi bi-exclamation-triangle"></i>
                     Failed to load emails: ${error.message || 'Unknown error'}
                 </div>
@@ -1004,9 +972,29 @@ export class EventManageApp {
             console.error("Invalid data format:", data);
             return;
         }
-        const filteredEmails = data
-            .filter(email => this.emailFilters.showReplied || !email.replied)
-            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+        // Filter emails based on multiple criteria
+        const filteredEmails = data.filter(email => {
+            // Skip archived emails (Label_6)
+            if (email.labels && email.labels.includes('Label_6')) {
+                return false;
+            }
+
+            // Skip replied emails
+            if (email.replied) {
+                return false;
+            }
+
+            // When showing important only, filter for events or important emails
+            if (this.emailFilters.showImportant) {
+                return (
+                    (email.category === 'event') ||
+                    (email.labels && email.labels.includes('IMPORTANT'))
+                );
+            }
+
+            return true;
+        }).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
         const exclusionArray = ["calendar-notification", "accepted this invitation", "peerspace", "tagvenue"];
         let html = '';
@@ -1182,7 +1170,7 @@ export class EventManageApp {
         try {
             const data = await $.get("/calendar/getEventCalendar");
             const timezone = 'America/New_York';
-    
+
             // Create a map of contacts by date for faster lookup
             const contactsByDate = {};
             this.contacts.forEach(contact => {
@@ -1197,14 +1185,14 @@ export class EventManageApp {
                     });
                 }
             });
-    
+
             // Transform calendar events
             this.calendarEvents = data.map((event, index) => {
                 const startTime = moment.tz(event.start.dateTime || event.start.date, timezone);
                 const endTime = moment.tz(event.end.dateTime || event.end.date, timezone);
                 const eventDate = startTime.format('YYYY-MM-DD');
                 const eventName = event.summary.toLowerCase();
-    
+
                 // Find matching contact
                 let matchingContact = null;
                 const contactsOnDate = contactsByDate[eventDate] || [];
@@ -1214,16 +1202,16 @@ export class EventManageApp {
                         break;
                     }
                 }
-    
+
                 // Add attendance to summary if available
                 const attendanceInfo = matchingContact?.attendance ? ` (${matchingContact.attendance} ppl)` : '';
                 event.summary = `${event.summary} <br>${startTime.format("HHmm")}-${endTime.format("HHmm")}${attendanceInfo}`;
-    
+
                 let calendarEnd = endTime.clone();
                 if (endTime.isAfter(startTime.clone().hour(23).minute(59))) {
                     calendarEnd = startTime.clone().hour(23).minute(59);
                 }
-    
+
                 return {
                     id: index,
                     title: event.summary || 'No Title',
@@ -1234,15 +1222,15 @@ export class EventManageApp {
                     attendance: matchingContact?.attendance
                 };
             });
-    
+
             // Load events into calendar
             this.mainCalendar.loadEvents(this.calendarEvents);
-    
+
             // Refresh contacts display if needed
             if (this.contacts.length > 0) {
                 this.renderContactsWithCalendarSync();
             }
-    
+
         } catch (error) {
             console.error('Error loading calendar events:', error);
             this.showToast('Failed to load calendar events', 'error');
@@ -1253,20 +1241,18 @@ export class EventManageApp {
         // Create map of calendar events organized by date
         const eventsByDate = {};
         this.calendarEvents.forEach(event => {
-            // Skip events without start time
             if (!event?.startTime) return;
-
             const eventDate = moment.tz(event.startTime, 'America/New_York').format('YYYY-MM-DD');
             if (!eventsByDate[eventDate]) {
                 eventsByDate[eventDate] = [];
             }
-            // Ensure event has a summary
             event.summary = event.summary || '';
             eventsByDate[eventDate].push(event);
         });
 
         // Build all HTML at once
         let html = '';
+        const statusUpdates = []; // Track contacts that need status updates
 
         this.contacts.slice().reverse().forEach(contact => {
             if (!contact || !contact.startTime || !contact.name) return;
@@ -1274,8 +1260,6 @@ export class EventManageApp {
             const contactDate = moment.tz(contact.startTime, 'America/New_York');
             const formattedDate = contactDate.format("MM/DD/YYYY");
             const lookupDate = contactDate.format('YYYY-MM-DD');
-
-            // Get first word of contact name for comparison
             const contactFirstWord = contact.name.toLowerCase().split(' ')[0];
 
             let colour = "blue";
@@ -1285,30 +1269,49 @@ export class EventManageApp {
             // Check if there are any events on this date
             const eventsOnDate = eventsByDate[lookupDate] || [];
             if (eventsOnDate.length > 0) {
-                // Look for matching first word in event names
                 hasCalendarEntry = eventsOnDate.some(event => {
-                    // Safely handle missing or null summary
                     const eventTitle = event.title || '';
                     const eventFirstWord = eventTitle.toLowerCase().split(' ')[0];
                     return eventFirstWord === contactFirstWord;
                 });
             }
 
+            // Normalize status to array
+            let statusArray = [];
+            if (typeof contact.status === 'string') {
+                statusArray = [...new Set(contact.status.split(';').filter(s => s))]; // Remove duplicates and empty strings
+            } else if (Array.isArray(contact.status)) {
+                statusArray = [...new Set(contact.status.filter(s => s))]; // Remove duplicates and empty strings
+            }
+
+            // Update status based on calendar entry
             if (hasCalendarEntry) {
                 statusIcons += '<i class="bi bi-calendar-check-fill text-success ml-2"></i>';
+
+                // Add reserved status if not present
+                if (!statusArray.includes("reserved")) {
+                    statusArray.push("reserved");
+                    // Store the full contact data for update
+                    statusUpdates.push({
+                        id: contact.id,
+                        contact: {
+                            ...contact,
+                            status: statusArray // Will be joined before sending to server
+                        }
+                    });
+                }
             } else {
-                // Add status icons
-                if (contact.status) {
-                    if (contact.status.includes("depositPaid")) {
-                        statusIcons += '<i class="bi bi-cash text-success ml-2"></i>';
-                    }
-                    if (contact.status.includes("reserved")) {
-                        statusIcons += '<i class="bi bi-bookmark-check text-primary ml-2"></i>';
-                    }
+                // Add status icons based on current status
+                if (statusArray.includes("depositPaid")) {
+                    statusIcons += '<i class="bi bi-cash text-success ml-2"></i>';
                 }
-                if (contactDate.isBefore(moment().subtract(2, "days"))) {
-                    colour = "lightgrey";
+                if (statusArray.includes("reserved")) {
+                    statusIcons += '<i class="bi bi-bookmark-check text-primary ml-2"></i>';
                 }
+            }
+
+            if (contactDate.isBefore(moment().subtract(2, "days"))) {
+                colour = "lightgrey";
             }
 
             html += `
@@ -1328,6 +1331,65 @@ export class EventManageApp {
 
         // Write to DOM once
         $("#contacts").empty().append(html);
+
+        // Process status updates
+        if (statusUpdates.length > 0) {
+            this.updateContactStatuses(statusUpdates);
+        }
+    }
+    async updateContactStatuses(updates) {
+        for (const update of updates) {
+            try {
+                // Ensure services and room are properly formatted
+                const services = Array.isArray(update.contact.services)
+                    ? update.contact.services.join(';')
+                    : update.contact.services;
+
+                const room = Array.isArray(update.contact.room)
+                    ? update.contact.room.join(';')
+                    : update.contact.room;
+
+                // Ensure status is properly formatted and deduplicated
+                const status = Array.isArray(update.contact.status)
+                    ? [...new Set(update.contact.status)].join(';')
+                    : [...new Set(update.contact.status.split(';').filter(s => s))].join(';');
+
+                const response = await fetch(`/api/events/${update.id}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        name: update.contact.name,
+                        email: update.contact.email,
+                        startTime: update.contact.startTime,
+                        endTime: update.contact.endTime,
+                        status: status,
+                        services: services,
+                        room: room,
+                        phone: update.contact.phone,
+                        notes: update.contact.notes,
+                        rentalRate: update.contact.rentalRate,
+                        minSpend: update.contact.minSpend,
+                        partyType: update.contact.partyType,
+                        attendance: update.contact.attendance
+                    })
+                });
+
+                if (!response.ok) {
+                    console.error(`Failed to update status for contact ${update.id}:`, await response.text());
+                } else {
+                    // Update local contact data
+                    const contact = this.contacts.find(c => c.id === update.id);
+                    if (contact) {
+                        contact.status = status; // Update with the deduplicated status string
+                    }
+                    console.log(`Successfully updated status for contact ${update.id}`);
+                }
+            } catch (error) {
+                console.error(`Error updating contact ${update.id} status:`, error);
+            }
+        }
     }
 
     loadContact(id) {
@@ -1345,9 +1407,32 @@ export class EventManageApp {
         $("#infoEmail").val(contact.email || "");
         $("#infoStartTime").val(moment.tz(contact.startTime, 'America/New_York').format("YYYY-MM-DD HH:mm"));
         $("#infoEndTime").val(moment.tz(contact.endTime, 'America/New_York').format("YYYY-MM-DD HH:mm"));
-        $("#infoStatus").val(contact.status);
-        $("#infoRoom").val(contact.room);
-        $("#infoServices").val(contact.services);
+
+        // Handle multi-select fields
+        const $statusSelect = $("#infoStatus");
+        $statusSelect.val([]);  // Clear previous selections
+        if (contact.status) {
+            const statusArray = Array.isArray(contact.status) ?
+                contact.status : contact.status.split(';').filter(s => s);
+            $statusSelect.val(statusArray);
+        }
+
+        const $roomSelect = $("#infoRoom");
+        $roomSelect.val([]);
+        if (contact.room) {
+            const roomArray = Array.isArray(contact.room) ?
+                contact.room : contact.room.split(';').filter(s => s);
+            $roomSelect.val(roomArray);
+        }
+
+        const $servicesSelect = $("#infoServices");
+        $servicesSelect.val([]);
+        if (contact.services) {
+            const servicesArray = Array.isArray(contact.services) ?
+                contact.services : contact.services.split(';').filter(s => s);
+            $servicesSelect.val(servicesArray);
+        }
+
         $("#actionsPhone").val(contact.phone || "");
         $("#infoNotes").val(contact.notes || "");
         $("#infoRentalRate").val(contact.rentalRate || "");
@@ -1640,15 +1725,21 @@ export class EventManageApp {
             // If contact doesn't exist, create a new one
             contact = {};
         }
+
+        // Get the selected values from the multi-select
+        const selectedStatus = Array.from($("#infoStatus").find("option:selected")).map(opt => opt.value);
+        const selectedServices = Array.from($("#infoServices").find("option:selected")).map(opt => opt.value);
+        const selectedRoom = Array.from($("#infoRoom").find("option:selected")).map(opt => opt.value);
+
         contact.id = parseInt(contact.id) || null;
         contact.name = $("#infoName").val();
         contact.email = $("#infoEmail").val();
         contact.phone = $("#actionsPhone").val();
         contact.startTime = $("#infoStartTime").val();
         contact.endTime = $("#infoEndTime").val();
-        contact.status = $("#infoStatus").val().join(";");
-        contact.services = $("#infoServices").val().join(";");
-        contact.room = $("#infoRoom").val().join(";");
+        contact.status = selectedStatus.join(";");
+        contact.services = selectedServices.join(";");
+        contact.room = selectedRoom.join(";");
         contact.rentalRate = $("#infoRentalRate").val();
         contact.minSpend = $("#infoMinSpend").val();
         contact.partyType = $("#infoPartyType").val();
@@ -1665,6 +1756,11 @@ export class EventManageApp {
                 contentType: 'application/json',
                 success: (response) => {
                     this.showToast("Contact updated", "success");
+                    // Update the local contacts array
+                    const index = this.contacts.findIndex(c => c.id === contact.id);
+                    if (index !== -1) {
+                        this.contacts[index] = contact;
+                    }
                 },
                 error: (xhr, status, error) => {
                     console.error("Failed to update contact:", error);
@@ -1681,6 +1777,7 @@ export class EventManageApp {
                 success: (response) => {
                     // Assuming the server returns the new contact with an ID
                     contact.id = response.id;
+                    this.contacts.push(contact);
                     this.showToast("Contact created", "success");
                 },
                 error: (xhr, status, error) => {
@@ -1690,6 +1787,7 @@ export class EventManageApp {
             });
         }
     }
+
 
 
     async syncEvents() {
@@ -1920,24 +2018,4 @@ export class EventManageApp {
     }
 
 
-    async summarizeLastEmails() {
-        try {
-            const data = await $.get("/api/readGmail", { email: "all", showCount: 50 });
-            let text = `Summarize all these previous email conversations from the last day.\n\n`;
-            data.slice(0, 15).forEach(email => {
-                const emailText = email.text.replace(/<[^>]*>?/gm, '');
-                text += `From: ${email.from}<br>Subject: ${email.subject}<br>Timestamp: ${email.timestamp}<br>To: ${email.to}<br>Text: ${emailText}<br><br>`;
-            });
-            $("#aiText").html(text);
-            // No background info needed for simple summarization
-            const summary = await this.sendAIRequest("/api/sendAIText", {
-                aiText: $("#aiText").text(),
-                includeBackground: false  // Explicitly exclude background info
-            });
-            this.writeToAIResult(summary);
-            this.sounds.orderUp.play();
-        } catch (error) {
-            console.error("Failed to summarize last emails:", error);
-        }
-    }
 }

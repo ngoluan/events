@@ -37,13 +37,10 @@ class EmailProcessorServer {
             const formattedEvents = relevantEvents.map(event => ({
                 name: event.summary,
                 startDate: moment(event.start.dateTime || event.start.date).format('HH:mm'),
-                endDate: moment(event.end.dateTime || event.end.date).format('HH:mm'),
-                room: event.location || 'Unspecified'
+                endDate: moment(event.end.dateTime || event.end.date).format('HH:mm')
             }));
 
-            // first check what room should we recommend
-            const { roomResponse } = await aiService.generateResponse([
-
+            const roomResult = await aiService.generateResponse([
                 {
                     role: 'user',
                     content: `Client Inquiry: ${emailText}. Which room are they asking for? Moonlight Lounge or TacoTaco Dining Room (aka Tropical Event Space). If they don't specify, if party is 50 and larger, recommend Moonlight Lounge. If party is below 50, then recommend dining room.`
@@ -55,29 +52,34 @@ class EmailProcessorServer {
                 model: 'gemini-1.5-flash'
             });
 
+            const roomResponse = roomResult.response;
 
-            const { availiabiltyResponse } = await aiService.generateResponse([
-
+            const availabilityResult = await aiService.generateResponse([
                 {
                     role: 'user',
                     content: `
                         Please analyze the availability for an event request based on the following:
-
+            
                         Current bookings for ${targetDate.format('YYYY-MM-DD')}:
                         ${JSON.stringify(formattedEvents, null, 2)}
-
-                        The recommended room is ${roomResponse}.
+            
+                        The recommended room is "${roomResponse}".
                         
                         Their requested time is ${firstResponse.time}
+            
+                        Is there availability or is it already booked?
 
-                        Is there avaialblity or is it already booked?
+                        The dining room and moonlight lounge are separate and can be booked separately.
                     `
                 }
             ], {
                 includeBackground: false,
-                resetHistory: false, provider: 'google',
+                resetHistory: false,
+                provider: 'google',
                 model: 'gemini-1.5-flash'
             });
+
+            const availabilityResponse = availabilityResult.response;
 
             const { response } = await aiService.generateResponse([
 
@@ -86,22 +88,18 @@ class EmailProcessorServer {
                     content: `
                         Draft a response to the inquiry. Here's the email: ${emailText}
 
-                        We recommend the following room ${roomResponse}
+                        Here's the availablity information "${availabilityResponse}".
 
-                        Here's the availablity information ${availiabiltyResponse}.
+                        Don't respond with a subject heading or start with Dear. Be concise. 
 
-                        If available, provide informatoin on rates and services that we provide.
-
-                        If asked, provide information on packages.
-
-                        The requested day is a weekend: ${isWeekend}.
-
-                        Don't respond with a subject heading or start with Dear.
+                        If they mention food or drinks, provide them with information.                        
                     `
                 }
             ], {
                 includeBackground: true,
-                resetHistory: false
+                resetHistory: false,
+                provider: 'google',
+                model: 'gemini-1.5-flash'
             });
 
             return { response };
@@ -282,8 +280,8 @@ class EmailProcessorServer {
                         })
                     )
                 });
-                
-                
+
+
                 // Include event details in the prompt if available
                 let prompt = `
                     Email content: ${emailText}.
@@ -482,18 +480,51 @@ class EmailProcessorServer {
                         role: 'user',
                         content: `
                       
-                                Extract event details from this email and provide JSON in this format:
+                              You are a booking assistant for TacoTaco restaurant. Extract event details from this email and provide them in JSON format. 
+
+                                Follow these guidelines carefully:
+                                1. EXCLUDE these as customer details (they are staff):
+                                - Names: "Liem Ngo" or "Luan Ngo"
+                                - Email: "info@eattaco.ca"
+                                - Phone: "(647) 692-4768"
+
+                                2. Room options MUST be one of:
+                                - "Lounge" (also known as Moonlight Lounge)
+                                - "DiningRoom" (also known as Dining Room)
+                                - "Patio" (for outdoor space)
+
+                                3. Services should be an array containing any of these exact values:
+                                - "dj" - for DJ services
+                                - "live" - for Live Band
+                                - "bar" - for Private Bar service
+                                - "lights" - for Party Lights
+                                - "audio" - for Audio Equipment
+                                - "music" - for Background Music
+                                - "kareoke" - for Karaoke
+                                - "catering" - for Food Service
+                                - "drink" - for Drink Packages
+
+                                5. Party Types should be specific (e.g., "Birthday Party", "Corporate Event", "Wedding Reception", etc.)
+
+                                6. Notes field should include:
+                                - Special requests
+                                - Dietary restrictions
+                                - Setup requirements
+                                - Payment discussions
+                                - But EXCLUDE basic venue information
+
+                                Provide the JSON in this exact format:
                                 {
                                     "name": "contact name",
                                     "email": "contact email",
-                                    "phone": "contact phone (optional)",
+                                    "phone": "contact phone (optional, include only if specifically mentioned)",
                                     "partyType": "type of event",
                                     "startTime": "YYYY-MM-DD HH:mm",
                                     "endTime": "YYYY-MM-DD HH:mm",
-                                    "room": "requested venue space",
-                                    "attendance": "expected guests",
-                                    "services": ["array of requested services"],
-                                    "notes": "additional details (optional)"
+                                    "room": "Lounge | DiningRoom | Patio",
+                                    "attendance": "number of expected guests",
+                                    "services": ["array of applicable services from the list above"],
+                                    "notes": "important details excluding venue information (optional)"
                                 }
 
                                 Email content:
@@ -697,8 +728,7 @@ class EmailProcessorServer {
                 // Generate AI response for the email
                 const aiEmailResponse = await this.getAIEmail({
                     emailText: eventEmail.text || eventEmail.snippet || '',
-                    eventDetails: eventDetails || {},
-                    instructions: ''
+                    eventDetails: eventDetails || {}
                 });
 
                 // Send initial email details with enhanced summary
@@ -784,7 +814,7 @@ class EmailProcessorServer {
     // Helper method to handle the AI email generation
     async getAIEmail(payload) {
         try {
-            const { emailText, eventDetails, instructions } = payload;
+            const { emailText, eventDetails } = payload;
 
             const aiResponse = await aiService.generateResponse([
                 {
@@ -798,7 +828,6 @@ class EmailProcessorServer {
                         
                         Email content: ${emailText}
                         ${eventDetails ? `\nExisting Event Details: ${JSON.stringify(eventDetails, null, 2)}` : ''}
-                        ${instructions ? `\nAdditional Instructions: ${instructions}` : ''}
                     `
                 }
             ], {
