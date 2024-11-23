@@ -39,6 +39,9 @@ export class EventManageApp {
         this.loadInitialEmails();
 
 
+         fetch(`/ai/resetHistory`);
+
+
         const urlParams = new URLSearchParams(window.location.search);
         if (urlParams.get('oauth') === 'success') {
             // Fetch the connected email from the backend
@@ -579,6 +582,7 @@ export class EventManageApp {
         }
     }
     registerEvents() {
+        let me=this;
         $('#getInterac').on('click', (e) => {
             e.preventDefault();
             this.getInteracEmails();
@@ -690,10 +694,12 @@ export class EventManageApp {
             const text = e.clipboardData.getData('text/plain');
             document.execCommand('insertText', false, text);
         });
-        $(document).on("click", "#actionSendAI", (e) => {
+        $(document).on("click", "#actionSendAI",async function(e)  {
             e.preventDefault();
             const val = $("#aiText").text() + `\n\nBe concise and semi-formal in the response.`;
-            this.sendAIRequest(val);
+            let result = await me.sendAIRequest("/ai/chat",{message:val});
+            me.writeToAIResult(result.response);
+
         });
 
         $(document).on("click", "#emailAI", (e) => {

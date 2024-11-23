@@ -1600,7 +1600,7 @@ var plivo = require('plivo');
 const historyManager = require('./HistoryManager');
 
 class EmailProcessorServer {
-    constructor(googleAuth, gmailService,eventService) {  
+    constructor(googleAuth, gmailService, eventService) {  
         this.router = express.Router();
         this.router.use(express.json());
         this.router.use(express.urlencoded({ extended: true }));
@@ -1862,31 +1862,48 @@ class EmailProcessorServer {
 
         this.router.post('/api/getAIEmail', async (req, res) => {
             try {
-                let {  emailText, eventDetails } = req.body;
+                let { emailText, eventDetails } = req.body;
 
                 const inquirySchema = z.object({
-                    inquiryType: z.enum(['availability', 'food and drink packages', 'confirmEvent', 'other']),
-                    date: z.string().optional(),
-                    time: z.string().optional(),
-                    fromEmail: z.string().optional(),
-                    summary: z.string(),
+                    inquiries: z.array(
+                        z.object({
+                            inquiryType: z.enum(['availability', 'additionalEventInfo', 'foodOrDrinkQuestion', 'confirmEvent', 'other']),
+                            date: z.string().optional(),
+                            time: z.string().optional(),
+                            fromEmail: z.string().optional(),
+                            summary: z.string(),
+                        })
+                    )
                 });
-
+                
+                
                 
                 let prompt = `
-        Email content: ${emailText}.
-        `;
+                    Email content: ${emailText}.
+                `;
 
                 if (eventDetails) {
                     prompt += `
-        Associated Event Details:
-        ${JSON.stringify(eventDetails, null, 2)}
-        `;
+                    Currently has an event iwht us, here are event details:
+                    ${JSON.stringify(eventDetails, null, 2)}
+                    `;
+                }
+                else {
+                    prompt += `
+                        This person does not yet have an event with us. 
+
+                    `
                 }
 
                 prompt += `
-        Please analyze the email and determine the inquiry type. Provide a summary.
-        `;
+                Please analyze the email and determine the inquiry type. Provide a summary.
+                Inquiry types:
+                - availability: asking for availability and pricing
+                - additionalEventInfo: already have an event (i.e. has associated event details) and providing drink or food choices
+                - foodOrDrinkQuestion: asking about food or drink packages
+                - confirmEvent: indicated that they agree to the contract and sent in deposit
+                - other: all else
+                `;
 
                 const messages = [
                     {
@@ -1907,38 +1924,124 @@ class EmailProcessorServer {
                     schemaName: 'inquirySchema'
                 });
 
-                let followUpResponse;
-                switch (parsedData.inquiryType) {
-                    case "availability":
-                        followUpResponse = await this.checkAvailabilityAI(parsedData, emailText);
-                        break;
-                    case "confirmEvent":
-                        followUpResponse = await aiService.generateResponse([
-                            {
-                                role: 'user',
-                                content: `Generate a confirmation email response for: ${emailText}. Say that you're now booked.`
-                            }
-                        ], {
-                            includeBackground: true,
-                            provider: 'google',
-                            model: 'gemini-1.5-flash'
-                        });
-                        break;
-                    default:
-                        followUpResponse = await aiService.generateResponse([
-                            {
-                                role: 'user',
-                                content: emailText
-                            }
-                        ], {
-                            includeBackground: true
-                        });
+
+                let followUpResponses = [];
+
+                
+                
+                let hasIncludedBackground = false;
+                const inquiries = parsedData.inquiries || [];
+
+                for (const inquiry of inquiries) {
+                    let followUpResponse;
+
+                    switch (inquiry.inquiryType) {
+                        case "availability":
+                            followUpResponse = await this.checkAvailabilityAI(inquiry, emailText);
+                            hasIncludedBackground = hasIncludedBackground || followUpResponse.includedBackground;
+                            break;
+                        case "confirmEvent":
+                            followUpResponse = await aiService.generateResponse([
+                                {
+                                    role: 'user',
+                                    content: `Generate a confirmation email response for: ${emailText}. Say that you're now booked.`
+                                }
+                            ], {
+                                includeBackground: !hasIncludedBackground,
+                                provider: 'google',
+                                model: 'gemini-1.5-flash'
+                            });
+                            hasIncludedBackground = hasIncludedBackground || followUpResponse.includedBackground;
+                            break;
+                        case "additionalEventInfo":
+                            followUpResponse = await aiService.generateResponse([
+                                {
+                                    role: 'user',
+                                    content: `Generate a response addressing the ${inquiry.inquiryType} inquiry: ${emailText}`
+                                }
+                            ], {
+                                includeBackground: !hasIncludedBackground,
+                                provider: 'google',
+                                model: 'gemini-1.5-flash'
+                            });
+                            hasIncludedBackground = hasIncludedBackground || followUpResponse.includedBackground;
+                            break;
+                        case "foodOrDrinkQuestion":
+                            followUpResponse = await aiService.generateResponse([
+                                {
+                                    role: 'user',
+                                    content: `Generate a response addressing the ${inquiry.inquiryType} inquiry: ${emailText}`
+                                }
+                            ], {
+                                includeBackground: !hasIncludedBackground,
+                                provider: 'google',
+                                model: 'gemini-1.5-flash'
+                            });
+                            hasIncludedBackground = hasIncludedBackground || followUpResponse.includedBackground;
+                            break;
+                        default:
+                            followUpResponse = await aiService.generateResponse([
+                                {
+                                    role: 'user',
+                                    content: `Generate a general response for: ${emailText}`
+                                }
+                            ], {
+                                includeBackground: !hasIncludedBackground,
+                                provider: 'google',
+                                model: 'gemini-1.5-flash'
+                            });
+                            hasIncludedBackground = hasIncludedBackground || followUpResponse.includedBackground;
+                    }
+
+                    followUpResponses.push({
+                        inquiryType: inquiry.inquiryType,
+                        response: followUpResponse.response,
+                        summary: inquiry.summary,
+                        date: inquiry.date,
+                        time: inquiry.time,
+                        fromEmail: inquiry.fromEmail
+                    });
                 }
 
-                res.json({
-                    ...parsedData,
-                    response: followUpResponse.response,
-                });
+                let finalResponse;
+
+                if (followUpResponses.length > 1) {
+                    
+                    const responsesContext = followUpResponses.map(r =>
+                        `${r.inquiryType}: ${r.response}`
+                    ).join('\n\n');
+
+                    const combinedResponse = await aiService.generateResponse([
+                        {
+                            role: 'system',
+                            content: 'You are a venue coordinator assistant. Combine the following separate responses into one coherent, well-structured email response. Maintain a professional but friendly tone.'
+                        },
+                        {
+                            role: 'user',
+                            content: `Original email: ${emailText}\n\nResponses to combine:\n${responsesContext}`
+                        }
+                    ], {
+                        includeBackground: false,
+                        provider: 'google',
+                        model: 'gemini-1.5-flash'
+                    });
+
+                    finalResponse = {
+                        inquiries: followUpResponses,
+                        response: combinedResponse.response,
+                        multipleInquiries: true
+                    };
+                } else {
+                    
+                    finalResponse = {
+                        inquiries: followUpResponses,
+                        response: followUpResponses[0]?.response || "No response generated",
+                        multipleInquiries: false
+                    };
+                }
+
+                res.json(finalResponse);
+
 
             } catch (error) {
                 console.error('Error in getAIEmail:', error);
@@ -2111,16 +2214,16 @@ class EmailProcessorServer {
     async getAndMakeSuggestionsFromEmails() {
         try {
             const newEmails = await this.gmailService.getAllEmails(25, false, true);
-    
+
             
             const eventEmail = newEmails
-            .filter(email =>
-                email.category === 'event' &&
-                !email.hasNotified &&
-                !email.labels.includes('SENT') && 
-                email.labels.includes('INBOX')  
-            )[0];
-            
+                .filter(email =>
+                    email.category === 'event' &&
+                    !email.hasNotified &&
+                    !email.labels.includes('SENT') && 
+                    email.labels.includes('INBOX')  
+                )[0];
+
             if (!eventEmail) {
                 console.log('No new unnotified event-related emails to process.');
                 return {
@@ -2129,7 +2232,7 @@ class EmailProcessorServer {
                     processedCount: 0
                 };
             }
-    
+
             try {
                 let eventDetails = null;
                 if (eventEmail.associatedEventId) {
@@ -2138,13 +2241,13 @@ class EmailProcessorServer {
                         eventDetails = await this.eventService.getEvent(eventId);
                     }
                 }
-    
+
                 
                 const threadMessages = await this.gmailService.getThreadMessages(eventEmail.threadId);
                 const previousMessage = threadMessages
                     .filter(msg => msg.id !== eventEmail.id)
                     .sort((a, b) => Number(b.internalDate) - Number(a.internalDate))[0];
-    
+
                 
                 const summaryResponse = await aiService.generateResponse([
                     {
@@ -2181,16 +2284,16 @@ class EmailProcessorServer {
                     provider: 'google',
                     model: 'gemini-1.5-flash'
                 });
-    
+
                 const shortId = `1${eventEmail.id.substring(0, 3)}`;
-    
+
                 
                 const aiEmailResponse = await this.getAIEmail({
                     emailText: eventEmail.text || eventEmail.snippet || '',
                     eventDetails: eventDetails || {},
                     instructions: ''
                 });
-    
+
                 
                 const detailsContent = `
                 New Event Email (Part 1/2):
@@ -2205,24 +2308,24 @@ class EmailProcessorServer {
                 EDIT${shortId} - Modify response
                 VIEW${shortId} - See full response
                 `.trim();
-                
+
                 await this.sendSMS({
                     to: process.env.NOTIFICATION_PHONE_NUMBER,
                     message: detailsContent
                 });
-    
+
                 
                 const responseContent = `
                 Proposed Response (Part 2/2):
                 
                 ${this.truncateText(aiEmailResponse.response, 1400)}
                 `.trim();
-    
+
                 await this.sendSMS({
                     to: process.env.NOTIFICATION_PHONE_NUMBER,
                     message: responseContent
                 });
-    
+
                 
                 historyManager.addEntry({
                     type: 'pendingEmailResponse',
@@ -2233,22 +2336,22 @@ class EmailProcessorServer {
                     emailRecipient: eventEmail.from.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)?.[0],
                     timestamp: new Date().toISOString()
                 });
-    
+
                 
                 eventEmail.hasNotified = true;
                 await this.gmailService.updateEmailInCache(eventEmail);
-    
+
                 return {
                     success: true,
                     message: `Processed new email`,
                     processedCount: 1
                 };
-    
+
             } catch (emailError) {
                 console.error(`Error processing email ${eventEmail.id}:`, emailError);
                 throw emailError;
             }
-    
+
         } catch (error) {
             console.error('Error in getAndMakeSuggestionsFromEmails:', error);
             return {
@@ -2262,10 +2365,10 @@ class EmailProcessorServer {
     
     truncateText(text, maxLength) {
         if (text.length <= maxLength) return text;
-        
+
         const truncated = text.slice(0, maxLength - 3);
         const lastSpace = truncated.lastIndexOf(' ');
-        
+
         if (lastSpace === -1) return truncated + '...';
         return truncated.slice(0, lastSpace) + '...';
     }

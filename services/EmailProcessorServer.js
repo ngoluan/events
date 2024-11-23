@@ -272,29 +272,44 @@ class EmailProcessorServer {
                 let { emailText, eventDetails } = req.body;
 
                 const inquirySchema = z.object({
-                    inquiryType: z.enum(['availability', 'food and drink packages', 'confirmEvent', 'other']),
-                    date: z.string().optional(),
-                    time: z.string().optional(),
-                    fromEmail: z.string().optional(),
-                    summary: z.string(),
+                    inquiries: z.array(
+                        z.object({
+                            inquiryType: z.enum(['availability', 'additionalEventInfo', 'foodOrDrinkQuestion', 'confirmEvent', 'other']),
+                            date: z.string().optional(),
+                            time: z.string().optional(),
+                            fromEmail: z.string().optional(),
+                            summary: z.string(),
+                        })
+                    )
                 });
-
+                
+                
                 // Include event details in the prompt if available
                 let prompt = `
-                Email content: ${emailText}.
+                    Email content: ${emailText}.
                 `;
 
                 if (eventDetails) {
                     prompt += `
-                    Associated Event Details:
+                    Currently has an event iwht us, here are event details:
                     ${JSON.stringify(eventDetails, null, 2)}
                     `;
+                }
+                else {
+                    prompt += `
+                        This person does not yet have an event with us. 
+
+                    `
                 }
 
                 prompt += `
                 Please analyze the email and determine the inquiry type. Provide a summary.
                 Inquiry types:
-                - 
+                - availability: asking for availability and pricing
+                - additionalEventInfo: already have an event (i.e. has associated event details) and providing drink or food choices
+                - foodOrDrinkQuestion: asking about food or drink packages
+                - confirmEvent: indicated that they agree to the contract and sent in deposit
+                - other: all else
                 `;
 
                 const messages = [
@@ -316,38 +331,124 @@ class EmailProcessorServer {
                     schemaName: 'inquirySchema'
                 });
 
-                let followUpResponse;
-                switch (parsedData.inquiryType) {
-                    case "availability":
-                        followUpResponse = await this.checkAvailabilityAI(parsedData, emailText);
-                        break;
-                    case "confirmEvent":
-                        followUpResponse = await aiService.generateResponse([
-                            {
-                                role: 'user',
-                                content: `Generate a confirmation email response for: ${emailText}. Say that you're now booked.`
-                            }
-                        ], {
-                            includeBackground: true,
-                            provider: 'google',
-                            model: 'gemini-1.5-flash'
-                        });
-                        break;
-                    default:
-                        followUpResponse = await aiService.generateResponse([
-                            {
-                                role: 'user',
-                                content: emailText
-                            }
-                        ], {
-                            includeBackground: true
-                        });
+
+                let followUpResponses = [];
+
+                // Process each inquiry type in the array
+                // Initialize background tracking
+                let hasIncludedBackground = false;
+                const inquiries = parsedData.inquiries || [];
+
+                for (const inquiry of inquiries) {
+                    let followUpResponse;
+
+                    switch (inquiry.inquiryType) {
+                        case "availability":
+                            followUpResponse = await this.checkAvailabilityAI(inquiry, emailText);
+                            hasIncludedBackground = hasIncludedBackground || followUpResponse.includedBackground;
+                            break;
+                        case "confirmEvent":
+                            followUpResponse = await aiService.generateResponse([
+                                {
+                                    role: 'user',
+                                    content: `Generate a confirmation email response for: ${emailText}. Say that you're now booked.`
+                                }
+                            ], {
+                                includeBackground: !hasIncludedBackground,
+                                provider: 'google',
+                                model: 'gemini-1.5-flash'
+                            });
+                            hasIncludedBackground = hasIncludedBackground || followUpResponse.includedBackground;
+                            break;
+                        case "additionalEventInfo":
+                            followUpResponse = await aiService.generateResponse([
+                                {
+                                    role: 'user',
+                                    content: `Generate a response addressing the ${inquiry.inquiryType} inquiry: ${emailText}`
+                                }
+                            ], {
+                                includeBackground: !hasIncludedBackground,
+                                provider: 'google',
+                                model: 'gemini-1.5-flash'
+                            });
+                            hasIncludedBackground = hasIncludedBackground || followUpResponse.includedBackground;
+                            break;
+                        case "foodOrDrinkQuestion":
+                            followUpResponse = await aiService.generateResponse([
+                                {
+                                    role: 'user',
+                                    content: `Generate a response addressing the ${inquiry.inquiryType} inquiry: ${emailText}`
+                                }
+                            ], {
+                                includeBackground: !hasIncludedBackground,
+                                provider: 'google',
+                                model: 'gemini-1.5-flash'
+                            });
+                            hasIncludedBackground = hasIncludedBackground || followUpResponse.includedBackground;
+                            break;
+                        default:
+                            followUpResponse = await aiService.generateResponse([
+                                {
+                                    role: 'user',
+                                    content: `Generate a general response for: ${emailText}`
+                                }
+                            ], {
+                                includeBackground: !hasIncludedBackground,
+                                provider: 'google',
+                                model: 'gemini-1.5-flash'
+                            });
+                            hasIncludedBackground = hasIncludedBackground || followUpResponse.includedBackground;
+                    }
+
+                    followUpResponses.push({
+                        inquiryType: inquiry.inquiryType,
+                        response: followUpResponse.response,
+                        summary: inquiry.summary,
+                        date: inquiry.date,
+                        time: inquiry.time,
+                        fromEmail: inquiry.fromEmail
+                    });
                 }
 
-                res.json({
-                    ...parsedData,
-                    response: followUpResponse.response,
-                });
+                let finalResponse;
+
+                if (followUpResponses.length > 1) {
+                    // Combine multiple responses into one coherent email
+                    const responsesContext = followUpResponses.map(r =>
+                        `${r.inquiryType}: ${r.response}`
+                    ).join('\n\n');
+
+                    const combinedResponse = await aiService.generateResponse([
+                        {
+                            role: 'system',
+                            content: 'You are a venue coordinator assistant. Combine the following separate responses into one coherent, well-structured email response. Maintain a professional but friendly tone.'
+                        },
+                        {
+                            role: 'user',
+                            content: `Original email: ${emailText}\n\nResponses to combine:\n${responsesContext}`
+                        }
+                    ], {
+                        includeBackground: false,
+                        provider: 'google',
+                        model: 'gemini-1.5-flash'
+                    });
+
+                    finalResponse = {
+                        inquiries: followUpResponses,
+                        response: combinedResponse.response,
+                        multipleInquiries: true
+                    };
+                } else {
+                    // Single response case
+                    finalResponse = {
+                        inquiries: followUpResponses,
+                        response: followUpResponses[0]?.response || "No response generated",
+                        multipleInquiries: false
+                    };
+                }
+
+                res.json(finalResponse);
+
 
             } catch (error) {
                 console.error('Error in getAIEmail:', error);

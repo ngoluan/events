@@ -73,7 +73,16 @@ class AIService {
     }
   }
 
+  resetHistory(save = true) {
+    this.messageHistory = [];
+    this.currentConversationId = Date.now().toString();
 
+    if (save) {
+      this.saveConversations();
+    }
+
+    return this.currentConversationId;
+  }
   saveConversations() {
     try {
       // Process message history to stringify any object content
@@ -104,10 +113,7 @@ class AIService {
         model = this.currentProvider.model
       } = options;
 
-      if (resetHistory || !this.currentConversationId) {
-        this.messageHistory = [];
-        this.currentConversationId = Date.now().toString();
-      }
+      this.resetHistory();
 
       let contextualizedMessages = [];
 
@@ -155,9 +161,9 @@ class AIService {
                 msg.content = JSON.stringify(msg.content);
               }
               return {
-                role: msg.role ,
-               content:msg.content
-              };F
+                role: msg.role,
+                content: msg.content
+              }; F
             });
             const result = await this.providers.openai.chat.completions.create({
               model,
