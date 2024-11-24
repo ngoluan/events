@@ -19258,7 +19258,7 @@
     {
       "phone": "(647) 563-7978",
       "id": 1177,
-      "status": "contractSent",
+      "status": "contractSent;reserved",
       "services": "bar;lights;audio;music;kareoke",
       "room": "DiningRoom",
       "name": "Parin Parikh",

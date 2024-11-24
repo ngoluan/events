@@ -5,6 +5,7 @@ const aiService = require('./aiService');
 const GoogleCalendarService = require('./googleCalendarService');
 var plivo = require('plivo');
 const historyManager = require('./HistoryManager');
+const Utils = require('./Utils');
 
 class EmailProcessorServer {
     constructor(googleAuth, gmailService, eventService) {  // Add gmailService parameter
@@ -236,6 +237,7 @@ class EmailProcessorServer {
                 }
 
                 const { text } = req.body;
+                const cleanedText = Utils.cleanEmailContent(text);
 
                 const { response } = await aiService.generateResponse([
 
@@ -246,7 +248,7 @@ class EmailProcessorServer {
                     catering, AV needs, drink packages, layout, and special requests.
 
                     Email content:
-                    ${text}
+                    ${cleanedText}
                 ` }
                 ], {
                     includeHistory: false,
@@ -470,6 +472,7 @@ class EmailProcessorServer {
                 }
 
                 const { aiText, conversationId } = req.body;
+                const cleanedText = Utils.cleanEmailContent(aiText);
 
                 const messages = [
                     {
@@ -528,7 +531,7 @@ class EmailProcessorServer {
                                 }
 
                                 Email content:
-                                ${aiText}
+                                ${cleanedText}
                     `
                     }
                 ];
@@ -649,7 +652,7 @@ class EmailProcessorServer {
 
         return chunks;
     }
-    async getAndMakeSuggestionsFromEmails() {
+      async getAndMakeSuggestionsFromEmails() {
         try {
             const newEmails = await this.gmailService.getAllEmails(25, false, true);
 
@@ -686,6 +689,8 @@ class EmailProcessorServer {
                     .filter(msg => msg.id !== eventEmail.id)
                     .sort((a, b) => Number(b.internalDate) - Number(a.internalDate))[0];
 
+                const cleanedEmailContent = Utils.cleanEmailContent(eventEmail.text || eventEmail.snippet || '');
+
                 // Generate context-aware summary
                 const summaryResponse = await aiService.generateResponse([
                     {
@@ -699,7 +704,7 @@ class EmailProcessorServer {
     
                             Current Email:
                             Subject: ${eventEmail.subject}
-                            Content: ${eventEmail.text || eventEmail.snippet}
+                            Content: ${cleanedEmailContent}
     
                             ${eventDetails ? `
                             Existing Event Details:
@@ -722,15 +727,15 @@ class EmailProcessorServer {
                     provider: 'google',
                     model: 'gemini-1.5-flash'
                 });
+    
 
                 const shortId = `1${eventEmail.id.substring(0, 3)}`;
 
                 // Generate AI response for the email
                 const aiEmailResponse = await this.getAIEmail({
-                    emailText: eventEmail.text || eventEmail.snippet || '',
+                    emailText: cleanedEmailContent,
                     eventDetails: eventDetails || {}
                 });
-
                 // Send initial email details with enhanced summary
                 const detailsContent = `
                 New Event Email (Part 1/2):

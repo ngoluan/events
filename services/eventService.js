@@ -5,6 +5,8 @@ const axios = require('axios');
 const GoogleCalendarService = require('./googleCalendarService');
 const aiService = require('./aiService');
 const moment = require('moment-timezone');
+const Utils = require('./Utils');
+
 class EventService {
   constructor(googleAuth) {
     this.eventsFilePath = path.join(__dirname, '..', 'data', 'events.json');
@@ -59,21 +61,26 @@ class EventService {
       // Get the first email's content
       const firstEmail = sortedEmails[0];
       const emailContent = firstEmail?.text || firstEmail?.html || '';
+      const cleanedemailContent = Utils.cleanEmailContent(emailContent);
 
       // Format contact data for the prompt
       const contactSummary = {
-        name: contact.name,
-        email: contact.email,
-        phone: contact.phone,
-        startTime: contact.startTime,
-        endTime: contact.endTime,
-        room: Array.isArray(contact.room) ? contact.room.join(', ') : contact.room,
-        attendance: contact.attendance,
-        partyType: contact.partyType,
-        services: Array.isArray(contact.services) ? contact.services.join(', ') : contact.services,
-        notes: contact.notes
-      };
-
+        id: contact.id || null,
+        name: contact.name || '',
+        email: contact.email || '',
+        phone: contact.phone || '',
+        startTime: contact.startTime || '',
+        endTime: contact.endTime || '',
+        status: Array.isArray(contact.status) ? contact.status.join(', ') : contact.status || '',
+        services: Array.isArray(contact.services) ? contact.services.join(', ') : contact.services || '',
+        room: Array.isArray(contact.room) ? contact.room.join(', ') : contact.room || '',
+        rentalRate: contact.rentalRate || '',
+        minSpend: contact.minSpend || '',
+        partyType: contact.partyType || '',
+        attendance: contact.attendance || '',
+        notes: contact.notes || '',
+        createdAt: contact.createdAt || ''  // In case this is available
+    };
       // Prepare the prompt for AI
       const prompt = `Summarize this event. In particular, tell me:
         - Event organizer (no contact info)
@@ -84,13 +91,13 @@ class EventService {
         - Catering or drink packages and choices. If they choose catering or drink packages, be careful and detailed with their choices.
         - Special requests in the notes
         - When the organizer last emailed
-        - Payment information (but no etransfer information).
+        - Payment information (but no etransfer information). Give the total fee but warn that if there is catering or drink packages, then the fee would be different.
 
           Respond in bullet points or short sentences.
           Be detalied about special requests by organizers. 
 
         Event details: ${JSON.stringify(contactSummary)}
-        Recent email conversation: ${emailContent}`;
+        Recent email conversation: ${cleanedemailContent}`;
 
       // Get AI summary
       const { response } = await aiService.generateResponse([
@@ -101,7 +108,9 @@ class EventService {
         }
       ], {
         includeBackground: false,
-        resetHistory: true
+        resetHistory: true,
+        provider: 'google',
+        model: 'gemini-1.5-flash'
       });
 
       return {

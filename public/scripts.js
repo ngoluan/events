@@ -25,24 +25,24 @@ export class EventManageApp {
         this.sounds = {
             orderUp: new Howl({ src: ['./orderup.m4a'] })
         };
-        
+
         // Load templates first
         await this.loadTemplates();
-        
+
         this.syncEvents();
         this.initializeMaximizeButtons();
         await this.initializeFuse();
-    
+
         // Set up event listeners
         this.registerEvents();
-    
+
         // Load initial data
         await this.getAllContacts();
         this.createCalendar();
         this.loadInitialEmails();
-    
+
         fetch(`/ai/resetHistory`);
-    
+
         const urlParams = new URLSearchParams(window.location.search);
         if (urlParams.get('oauth') === 'success') {
             const response = await $.get('/api/getConnectedEmail');
@@ -50,18 +50,18 @@ export class EventManageApp {
                 this.setConnectedEmail(response.email);
             }
         }
-    
+
         $(document).on('eventDetailsReceived', async (e, eventDetails) => {
             const lastId = this.contacts.length > 0 ? this.contacts[this.contacts.length - 1].id : 0;
             eventDetails.id = lastId + 1;
             this.contacts.push(eventDetails);
             this.loadContact(eventDetails.id);
         });
-    
+
         this.initializeBackgroundInfo();
         this.initializeMobileNavigation();
     }
-    
+
     initializeMobileNavigation() {
         window.scrollToSection = (sectionId) => {
             const section = document.getElementById(sectionId);
@@ -340,10 +340,13 @@ export class EventManageApp {
         const data = await this.sendAIRequest("/api/summarizeAI", { text: text });
         this.writeToAIResult(data.replace(/\n/g, "<br>"));
     }
-
     writeToAIResult(data) {
+        // Replace newlines with <br> tags
         data = data.replace(/\n/g, "<br>");
-
+        
+        // Replace *text* with <strong>text</strong>
+        data = data.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    
         const response = `
             <div class="p-2 aiChatReponse">
                 <div class="flex justify-between items-center mb-2">
@@ -863,7 +866,7 @@ export class EventManageApp {
         $('html, body').animate({ scrollTop: $("#aiText").offset().top }, 500);
         $("#aiText").focus();
     }
-    async readGmail(email = null) {
+    async readGmail(email = null, options = {}) {
         this.adjustMessagesContainerHeight();
         $(".messages-container").html(`
             <div class="alert alert-info">
@@ -901,7 +904,8 @@ export class EventManageApp {
             if ($('#messages').data('currentView') === 'interac') {
                 this.processInteracEmails(response);
             } else {
-                this.processEmails(response);
+                // Pass the options to processEmails to handle filtering
+                this.processEmails(response, options);
             }
 
             return response;
@@ -967,34 +971,40 @@ export class EventManageApp {
             }
         });
     }
-    processEmails(data) {
+    processEmails(data, options = {}) {
         if (!Array.isArray(data)) {
             console.error("Invalid data format:", data);
             return;
         }
 
-        // Filter emails based on multiple criteria
-        const filteredEmails = data.filter(email => {
-            // Skip archived emails (Label_6)
-            if (email.labels && email.labels.includes('Label_6')) {
-                return false;
-            }
+        // Apply filters only if this is not a contact-specific email load
+        let filteredEmails = data;
+        if (!options.ignoreFilters) {
+            filteredEmails = data.filter(email => {
+                // Skip archived emails (Label_6)
+                if (email.labels && email.labels.includes('Label_6')) {
+                    return false;
+                }
 
-            // Skip replied emails
-            if (email.replied) {
-                return false;
-            }
+                // Skip replied emails
+                if (email.replied) {
+                    return false;
+                }
 
-            // When showing important only, filter for events or important emails
-            if (this.emailFilters.showImportant) {
-                return (
-                    (email.category === 'event') ||
-                    (email.labels && email.labels.includes('IMPORTANT'))
-                );
-            }
+                // When showing important only, filter for events or important emails
+                if (this.emailFilters.showImportant) {
+                    return (
+                        (email.category === 'event') ||
+                        (email.labels && email.labels.includes('IMPORTANT'))
+                    );
+                }
 
-            return true;
-        }).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                return true;
+            });
+        }
+
+        // Sort emails by timestamp, regardless of filters
+        filteredEmails.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
         const exclusionArray = ["calendar-notification", "accepted this invitation", "peerspace", "tagvenue"];
         let html = '';
@@ -1034,15 +1044,16 @@ export class EventManageApp {
                 return;
             }
 
-            const emailAddressMatch = email.from.match(/<([^>]+)>/);
-            const emailAddress = emailAddressMatch ? emailAddressMatch[1] : email.from;
-
+            // Skip emails with exclusion terms
             if (exclusionArray.some((exclusion) =>
                 email.subject.toLowerCase().includes(exclusion) ||
                 emailContent.toLowerCase().includes(exclusion)
             )) {
                 return;
             }
+
+            const emailAddressMatch = email.from.match(/<([^>]+)>/);
+            const emailAddress = emailAddressMatch ? emailAddressMatch[1] : email.from;
 
             const isUnread = email.labels && email.labels.includes("UNREAD");
             const isImportant = email.labels && email.labels.includes("IMPORTANT");
@@ -1055,7 +1066,6 @@ export class EventManageApp {
                 ? `<button class="icon-btn tooltip" data-tip="Important"><i class="bi bi-star-fill text-warning"></i></button>`
                 : '';
 
-            // Only show icon if replied
             const replyIcon = email.replied
                 ? `<button class="icon-btn tooltip" data-tip="Replied">
                      <i class="bi bi-reply-fill text-success"></i>
@@ -1113,10 +1123,9 @@ export class EventManageApp {
                         <button class="icon-btn archiveEmail tooltip tooltip-top" data-tip="Archive Email">
                             <i class="bi bi-archive"></i>
                         </button>
-                         <button class="icon-btn updateEventInfo tooltip tooltip-top" data-tip="Update Event Info">
+                        <button class="icon-btn updateEventInfo tooltip tooltip-top" data-tip="Update Event Info">
                             <i class="bi bi-arrow-up-circle"></i>
                         </button>
-                        
                     </div>
                 </div>`;
         });
@@ -1128,7 +1137,7 @@ export class EventManageApp {
             $(".messages-container").html(`
                 <div class="alert alert-info">
                     <i class="bi bi-info-circle"></i>
-                    No ${!this.emailFilters.showReplied ? 'unreplied' : ''} emails found
+                    No emails found
                 </div>
             `);
         }
@@ -1441,7 +1450,11 @@ export class EventManageApp {
         $("#infoAttendance").val(contact.attendance || "");
 
         if (contact.email) {
-            this.readGmail(contact.email);
+            // Pass options to show all emails for this contact without filters
+            this.readGmail(contact.email, {
+                showAll: true,
+                ignoreFilters: true
+            });
         }
         $("#depositPw").html(this.calcDepositPassword(contact));
     }
