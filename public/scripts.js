@@ -344,10 +344,10 @@ export class EventManageApp {
     writeToAIResult(data) {
         // Replace newlines with <br> tags
         data = data.replace(/\n/g, "<br>");
-        
+
         // Replace *text* with <strong>text</strong>
         data = data.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    
+
         const response = `
             <div class="p-2 aiChatReponse">
                 <div class="flex justify-between items-center mb-2">
@@ -681,7 +681,7 @@ export class EventManageApp {
 
         $(document).on("click", ".sms ", (e) => {
             e.preventDefault();
-            
+
         });
         $(document).on("click", "#emailAI", (e) => {
             e.preventDefault();
@@ -837,19 +837,73 @@ export class EventManageApp {
             this.utils.alert("Failed to generate confirmation email: " + error);
         }
     }
-
     async sendEmail() {
-        const aiText = $("#aiText").html();
-        const to = $("#sendMailEmail").val();
-        const subject = $("#sendMailSubject").val(); // Updated line
-        if (!confirm("Are you sure you want to send this email?")) return;
         try {
-            const data = await $.post("/gmail/sendEmail", { html: aiText, to: to, subject: subject });
-            console.log(data);
-            this.showToast("Email sent successfully.", "success");
+            const content = $("#aiText").html();
+            const to = $("#sendMailEmail").val();
+            const subject = $("#sendMailSubject").val();
+            const replyToMessageId = $("#aiText").data('replyToMessageId');
+            const source = $("#aiText").data('source');
+
+            if (!content || !to || !subject) {
+                this.showToast("Please fill in all required fields", "error");
+                return;
+            }
+
+            if (!confirm("Are you sure you want to send this email?")) {
+                return;
+            }
+
+            // Prepare email data
+            const emailData = {
+                html: content,
+                to: to,
+                subject: subject,
+                replyToMessageId: replyToMessageId,
+                source: source
+            };
+
+            const response = await $.post("/gmail/sendEmail", emailData);
+
+            if (response.success) {
+                this.showToast("Email sent successfully", "success");
+
+                // Clear the form
+                $("#aiText").html('');
+                $("#sendMailEmail").val('');
+                $("#sendMailSubject").val('');
+                $("#aiText").removeData('replyToMessageId');
+                $("#aiText").removeData('source');
+
+                // Play sound notification if available
+                if (this.sounds?.orderUp) {
+                    this.sounds.orderUp.play();
+                }
+
+                // Refresh emails list if it was a reply
+                if (replyToMessageId) {
+                    await this.readGmail();
+                }
+
+                // Handle any necessary UI updates for the replied email
+                if (replyToMessageId) {
+                    $(`.sms[data-id="${replyToMessageId}"]`).addClass('replied');
+                    const $replyIcon = $(`.sms[data-id="${replyToMessageId}"] .icon-btn[data-tip="Replied"]`);
+                    if (!$replyIcon.length) {
+                        const iconHtml = `
+                            <button class="icon-btn tooltip" data-tip="Replied">
+                                <i class="bi bi-reply-fill text-success"></i>
+                            </button>
+                        `;
+                        $(`.sms[data-id="${replyToMessageId}"] .flex.gap-2`).append(iconHtml);
+                    }
+                }
+            } else {
+                throw new Error(response.error || 'Failed to send email');
+            }
         } catch (error) {
             console.error("Failed to send email:", error);
-            this.showToast("Failed to send email.", "error");
+            this.showToast("Failed to send email: " + error.message, "error");
         }
     }
 
@@ -1471,20 +1525,51 @@ export class EventManageApp {
     }
     async initializeBackgroundInfo() {
         try {
-            const response = await fetch('/api/settings/background');
-            if (response.ok) {
-                const data = await response.json();
-                this.backgroundInfo = data.backgroundInfo;  // Get the string directly
-                $('#backgroundInfo').val(this.backgroundInfo);  // Set the textarea value
-            }
+          await this.emailProcessor.setupUserSettings();
+          const emailCategories = await this.emailProcessor.userSettings.loadSettings();
+      
+          const categoryRows = Object.entries(emailCategories.emailCategories).map(([name, description], index) => `
+            <tr>
+              <td>
+                <input type="text" id="emailCategoryName-${index}" class="input input-bordered w-full" value="${name}" />
+              </td>
+              <td>
+                <input type="text" id="emailCategoryDescription-${index}" class="input input-bordered w-full" value="${description}" />
+              </td>
+            </tr>
+          `).join('');
+      
+          $('#emailCategoryTable tbody').html(categoryRows);
+      
+          $('#addEmailCategory').on('click', () => {
+            const newRow = `
+              <tr>
+                <td>
+                  <input type="text" id="emailCategoryName-${$('#emailCategoryTable tbody tr').length}" class="input input-bordered w-full" placeholder="Category Name" />
+                </td>
+                <td>
+                  <input type="text" id="emailCategoryDescription-${$('#emailCategoryTable tbody tr').length}" class="input input-bordered w-full" placeholder="Category Description" />
+                </td>
+              </tr>
+            `;
+            $('#emailCategoryTable tbody').append(newRow);
+          });
+      
+          $('#saveBackgroundInfo').on('click', () => {
+            const emailCategories = {};
+            $('#emailCategoryTable tbody tr').each((index, row) => {
+              const name = $(`#emailCategoryName-${index}`, row).val();
+              const description = $(`#emailCategoryDescription-${index}`, row).val();
+              if (name.trim() !== '') {
+                emailCategories[name] = description;
+              }
+            });
+            this.emailProcessor.userSettings.saveSettings({ emailCategories });
+          });
         } catch (error) {
-            console.error('Failed to load background info:', error);
+          console.error('Failed to load background info:', error);
         }
-
-        // Set up event listener for save button
-        $('#saveBackgroundInfo').on('click', () => this.saveBackgroundInfo());
-    }
-
+      }
     populateBackgroundFields() {
         // Populate form fields with loaded data
         $('#venueName').val(this.backgroundInfo.venueName || '');

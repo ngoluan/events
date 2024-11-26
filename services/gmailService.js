@@ -63,45 +63,172 @@ class GmailService {
         const CACHE_LIFETIME = 5 * 60 * 1000; // 5 minutes in milliseconds
         return Date.now() - this.lastEventsCacheUpdate > CACHE_LIFETIME;
     }
-    // In gmailService.js class
-    async sendEmail(to, subject, html) {
+    // In GmailService class
+    async formatReplyContent(content, originalMessage) {
+        // Get original message details
+        const headers = originalMessage.payload.headers;
+        const originalDate = headers.find(h => h.name === 'Date')?.value;
+        const originalFrom = headers.find(h => h.name === 'From')?.value;
+        const originalContent = originalMessage.parsedContent.html ||
+            originalMessage.parsedContent.text ||
+            headers.find(h => h.name === 'snippet')?.value;
+
+        // Format quoted content
+        const quotedContent = `
+        <div style="margin-top: 20px;">
+            <div style="padding: 10px 0;">On ${originalDate}, ${originalFrom} wrote:</div>
+            <blockquote style="margin:0 0 0 0.8ex; border-left:2px #ccc solid; padding-left:1ex;">
+                ${originalContent}
+            </blockquote>
+        </div>
+    `;
+
+        // If the new content already includes html tags, insert before closing body
+        if (content.includes('</body>')) {
+            return content.replace('</body>', `${quotedContent}</body>`);
+        }
+
+        // Otherwise just append
+        return `
+        <div>
+            ${content}
+            ${quotedContent}
+        </div>
+    `;
+    }
+    async sendEmail(to, subject, content, options = {}) {
         try {
             const authClient = await this.auth.getOAuth2Client();
             const gmail = google.gmail({ version: 'v1', auth: authClient });
 
-            // Create the email content
-            const utf8Subject = `=?utf-8?B?${Buffer.from(subject).toString('base64')}?=`;
-            const messageParts = [
-                `To: ${to}`,
-                `Subject: ${utf8Subject}`,
-                'MIME-Version: 1.0',
-                'Content-Type: text/html; charset=utf-8',
-                '',
-                html
-            ];
-            const message = messageParts.join('\n');
+            // Determine if this is a reply based on options
+            const isReply = options.replyToMessageId ||
+                options.source === 'draftEventSpecificEmail' ||
+                options.source === 'generateConfirmationEmail' ||
+                options.source === 'sendToAiTextArea';
 
-            // The body needs to be base64url encoded
-            const encodedMessage = Buffer.from(message)
+            // Get thread and message IDs for replies
+            let threadId = null;
+            let originalMessageId = null;
+            if (isReply && options.replyToMessageId) {
+                const originalMessage = await this.getMessage(options.replyToMessageId);
+                threadId = originalMessage.threadId;
+                const headers = originalMessage.payload.headers;
+                originalMessageId = headers.find(h => h.name === 'Message-ID')?.value;
+            }
+
+            // Prepare email headers
+            const headers = [
+                'MIME-Version: 1.0',
+                'Content-Type: text/html; charset=UTF-8',
+                `From: ${options.from || 'me'}`,
+                `To: ${to}`,
+                `Subject: =?UTF-8?B?${Buffer.from(isReply ? (subject.startsWith('Re:') ? subject : `Re: ${subject}`) : subject).toString('base64')}?=`
+            ];
+
+            // Add reply headers if needed
+            if (originalMessageId) {
+                headers.push(`In-Reply-To: ${originalMessageId}`);
+                headers.push(`References: ${originalMessageId}`);
+            }
+
+            // Format the email content with proper HTML structure
+            const formattedContent = this.formatEmailContent(content);
+
+            // Combine headers and content
+            const emailContent = `${headers.join('\r\n')}\r\n\r\n${formattedContent}`;
+
+            // Encode the email for sending
+            const encodedMessage = Buffer.from(emailContent)
                 .toString('base64')
                 .replace(/\+/g, '-')
                 .replace(/\//g, '_')
                 .replace(/=+$/, '');
 
+            // Send the email
             const res = await gmail.users.messages.send({
                 userId: 'me',
                 requestBody: {
-                    raw: encodedMessage
+                    raw: encodedMessage,
+                    ...(threadId && { threadId })
                 }
             });
 
-            return res.data;
+            // Update cache for replies
+            if (options.replyToMessageId) {
+                const emailData = this.emailCache.get(options.replyToMessageId);
+                if (emailData) {
+                    emailData.replied = true;
+                    await this.updateEmailInCache(emailData);
+                }
+            }
+
+            return {
+                success: true,
+                messageId: res.data.id,
+                threadId: res.data.threadId,
+                isReply: !!originalMessageId
+            };
+
         } catch (error) {
             console.error('Error sending email:', error);
-            throw error;
+            throw new Error(`Failed to send email: ${error.message}`);
         }
     }
 
+    formatEmailContent(content) {
+        // Clean up any existing HTML structure
+        let cleanContent = content
+            .replace(/<html>.*?<body>/gs, '')
+            .replace(/<\/body>.*?<\/html>/gs, '')
+            .trim();
+
+        // Ensure proper line breaks
+        cleanContent = cleanContent
+            .replace(/<br\s*\/?>/gi, '<br>')
+            .replace(/\n/g, '<br>')
+            .replace(/<br\s*\/?>(\s*<br\s*\/?>)+/gi, '<br><br>');
+
+        // Wrap in a proper HTML structure with styling
+        return `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <style>
+                    body {
+                        font-family: Arial, sans-serif;
+                        line-height: 1.6;
+                        color: #333;
+                        max-width: 800px;
+                        margin: 0 auto;
+                        padding: 20px;
+                    }
+                    p {
+                        margin-bottom: 1em;
+                    }
+                    a {
+                        color: #0066cc;
+                        text-decoration: none;
+                    }
+                    a:hover {
+                        text-decoration: underline;
+                    }
+                    .signature {
+                        margin-top: 20px;
+                        padding-top: 20px;
+                        border-top: 1px solid #eee;
+                        color: #666;
+                    }
+                </style>
+            </head>
+            <body>
+                ${cleanContent}
+            </body>
+            </html>
+        `.trim();
+    }
     loadLastRetrievalDate() {
         try {
             if (fs.existsSync(this.lastRetrievalPath)) {
@@ -123,6 +250,31 @@ class GmailService {
             fs.writeFileSync(this.lastRetrievalPath, JSON.stringify(data, null, 2), 'utf8');
         } catch (error) {
             console.error('Error saving last retrieval date:', error);
+        }
+    }
+    async forwardEmail(messageId, to) {
+        try {
+            const originalMessage = await this.getMessage(messageId);
+            const originalHeaders = originalMessage.payload.headers;
+            const subject = originalHeaders.find(h => h.name === 'Subject')?.value;
+            const content = originalMessage.parsedContent.html || originalMessage.parsedContent.text;
+
+            const forwardedContent = `
+                <div>
+                    ---------- Forwarded message ----------<br>
+                    From: ${originalHeaders.find(h => h.name === 'From')?.value}<br>
+                    Date: ${originalHeaders.find(h => h.name === 'Date')?.value}<br>
+                    Subject: ${subject}<br>
+                    To: ${originalHeaders.find(h => h.name === 'To')?.value}<br>
+                    <br>
+                    ${content}
+                </div>
+            `;
+
+            return await this.sendEmail(to, `Fwd: ${subject}`, forwardedContent);
+        } catch (error) {
+            console.error('Error forwarding email:', error);
+            throw error;
         }
     }
     saveEmailsToCache(emails) {
@@ -260,7 +412,7 @@ class GmailService {
             if (this.messageCache.has(messageId)) {
                 return this.messageCache.get(messageId);
             }
-    
+
             const auth = await this.auth.getOAuth2Client();
             const gmail = google.gmail({ version: 'v1', auth });
             const emailData = await gmail.users.messages.get({
@@ -333,22 +485,18 @@ class GmailService {
         }
         return { html: htmlContent, text: textContent };
     }
+
     async categorizeEmail(emailData) {
         try {
+            const categories = this.user.settings.emailCategories;
             const prompt = `
-                Analyze this email and categorize it into one of these categories:
-                - event_platform: Emails mentioning Tagvenue or Peerspace
-                - event: Emails related to event bookings, catering, drinks. do not include opentable emails.
-                - other: Any other type of email, including receipts
-    
+                Analyze this email and categorize it into one of these categories: ${categories.join(', ')}
+                
                 Email Subject: ${emailData.subject}
                 Email Content: ${emailData.text || emailData.snippet}
             `;
 
-            // Correctly define the schema using Zod
-            const categorySchema = z.object({
-                category: z.enum(['event', 'event_platform', 'other']),
-            });
+            const categorySchema = this.user.getCategorySchema();
 
             const { parsedData } = await this.aiService.generateResponse(
                 [{ role: 'user', content: prompt }],

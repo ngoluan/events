@@ -16,25 +16,34 @@ module.exports = (googleAuth, gmailService) => {
             });
         }
     });
-    // In gmail.js routes
     router.post('/sendEmail', async (req, res) => {
         try {
-            const { html, to, subject } = req.body;
+            const { html, to, subject, replyToMessageId, source } = req.body;
 
             if (!html || !to || !subject) {
                 return res.status(400).json({
+                    success: false,
                     error: 'Missing required fields',
                     details: 'html, to, and subject are required'
                 });
             }
 
-            const result = await gmailService.sendEmail(to, subject, html);
-            res.json({ success: true, messageId: result.id });
+            const result = await gmailService.sendEmail(to, subject, html, {
+                replyToMessageId,
+                source
+            });
+
+            res.json({
+                success: true,
+                messageId: result.messageId,
+                threadId: result.threadId,
+                isReply: result.isReply
+            });
         } catch (error) {
             console.error('Error in send email route:', error);
             res.status(500).json({
-                error: 'Failed to send email',
-                details: error.message
+                success: false,
+                error: error.message
             });
         }
     });

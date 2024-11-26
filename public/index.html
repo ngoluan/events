@@ -535,13 +535,34 @@
                 <div id="connectedEmail" class="text-sm text-success"></div>
             </div>
 
-            <!-- Theme Section -->
             <div class="mb-6">
-                <h3 class="font-bold mb-2">Theme</h3>
-                <select class="select select-bordered w-full" id="themeSelect">
-                    <option value="light">Light</option>
-                    <option value="dark">Dark</option>
-                </select>
+                <h3 class="font-bold mb-2">Email Categories</h3>
+                <p class="text-sm text-base-content/70 mb-2">
+                    Customize the email categories used for categorization.
+                </p>
+                <div class="form-control">
+                    <table class="table w-full">
+                        <thead>
+                            <tr>
+                                <th>Category</th>
+                                <th>Description</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>
+                                    <input type="text" id="emailCategoryName-0" class="input input-bordered w-full"
+                                        placeholder="Category Name" />
+                                </td>
+                                <td>
+                                    <input type="text" id="emailCategoryDescription-0"
+                                        class="input input-bordered w-full" placeholder="Category Description" />
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <button class="btn btn-primary mt-2" id="addEmailCategory">Add Category</button>
+                </div>
             </div>
 
             <!-- New Background Information Section -->

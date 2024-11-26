@@ -6,6 +6,7 @@ const GoogleCalendarService = require('./googleCalendarService');
 var plivo = require('plivo');
 const historyManager = require('./HistoryManager');
 const Utils = require('./Utils');
+const User = require('./User');
 
 class EmailProcessorServer {
     constructor(googleAuth, gmailService, eventService) {  // Add gmailService parameter
@@ -15,9 +16,15 @@ class EmailProcessorServer {
         this.googleCalendarService = new GoogleCalendarService(googleAuth);
         this.gmailService = gmailService;  // Store the gmailService instance
         this.eventService = eventService;
+        this.user = new User();
 
         this.setupRoutes();
     }
+    
+      async setupUserSettings() {
+        this.user = new User();
+        this.user.loadSettings();
+      }
     getRouter() {
         return this.router;
     }
