@@ -274,7 +274,7 @@ class EmailProcessorServer {
                 const inquirySchema = z.object({
                     inquiries: z.array(
                         z.object({
-                            inquiryType: z.enum(['availability', 'additionalEventInfo', 'foodOrDrinkQuestion', 'confirmEvent', 'other']),
+                            inquiryType: z.enum(['availability', 'additionalEventInfo', 'foodOrDrinkQuestion', 'confirmEvent','askingForContract', 'other']),
                             date: z.string().optional(),
                             time: z.string().optional(),
                             fromEmail: z.string().optional(),
@@ -309,6 +309,7 @@ class EmailProcessorServer {
                 - additionalEventInfo: already have an event (i.e. has associated event details) and providing drink or food choices
                 - foodOrDrinkQuestion: asking about food or drink packages
                 - confirmEvent: indicated that they agree to the contract and sent in deposit
+                - askingForContract: indicated that they're ready to book
                 - other: all else
                 `;
 
@@ -386,6 +387,19 @@ class EmailProcessorServer {
                             });
                             hasIncludedBackground = hasIncludedBackground || followUpResponse.includedBackground;
                             break;
+                        case "askingForContract":
+                            followUpResponse = await aiService.generateResponse([
+                                {
+                                    role: 'user',
+                                    content: `Generate a response indicating that we'll send over a contract with all the details. If no phone number or email address is provided, ask for one.  Anwer any other question they may have: ${emailText}`
+                                }
+                            ], {
+                                includeBackground: !hasIncludedBackground,
+                                provider: 'google',
+                                model: 'gemini-1.5-flash'
+                            });
+                            hasIncludedBackground = hasIncludedBackground || followUpResponse.includedBackground;
+                            break;
                         default:
                             followUpResponse = await aiService.generateResponse([
                                 {
@@ -436,7 +450,8 @@ class EmailProcessorServer {
                     finalResponse = {
                         inquiries: followUpResponses,
                         response: combinedResponse.response,
-                        multipleInquiries: true
+                        multipleInquiries: true,
+                        reasoning:followUpResponses
                     };
                 } else {
                     // Single response case

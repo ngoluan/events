@@ -1,14 +1,31 @@
 [
   {
+    "role": "system",
+    "content": "You are a venue coordinator assistant analyzing email inquiries.",
+    "timestamp": "2024-11-26T02:01:38.907Z"
+  },
+  {
     "role": "user",
-    "content": "\n                    Summarize this email chain between the client and venue coordinator.\n                    Focus on: organizer, event type, timing, rooms, guest count, \n                    catering, AV needs, drink packages, layout, and special requests.\n\n                    Email content:\n                    To: Taco Taco Time: 11/24/2024 16:55 (an hour ago)\nHello!My husband and I were in today. Thank you to Michelle who showed us the spaces and answered questions!I would like to book the front space for Saturday, Feb. 22, 2025 from 7:30 pm 11:00 pm. We will do a combination of our own music and some karaoke!I am anticipating around 40 guests.I would like to do the $16 menu option. Perhaps I could come back in the new year to settle on exactly which appetizers and tacos?How would you like me to pay the deposit?Thank you very much!Shannon\n                ",
-    "timestamp": "2024-11-24T22:46:41.430Z"
+    "content": "\n                    Email content: \n                        \n                            From: Doug McQuiggan <doug.mcquiggan@gmail.com>\n                            To: Taco Taco <info@eattaco.ca>\n                            Subject: Re: Event Contract 07/25/2025\n                            Time: 11/24/2024 20:38 (a day ago)\n                        \n                        \n                            e-transfer has been sent.On Fri, Nov 22, 2024 at 6:35 AM Taco Taco  wrote:> Hi Doug,>> No problem! Confirm still available, once you send the deposit we can> fully book you in.>> TacoTaco Events Team> (647) 692-4768> >  | info@eattaco.ca> eattaco.ca>>>> On Thu, Nov 21, 2024 at 11:50 PM Doug McQuiggan > wrote:>>> Thank you for the contract. Apologies for the delay. We are confirming>> our interest and if the date is still available we will send our deposits>> right away.>>>> Here is my id>>>>>>>> On Sat, Oct 5, 2024, 1:28 PM  wrote:>>>>> Hi Doug McQuiggan,>>>>>> Please see attached for the event contract. The contract has been>>> pre-filled but if you can't see the details, please view the contract on a>>> computer rather than a phone. Let me know if you have any questions>>> otherwise you can simply respond to this email saying that you accept it,>>> and attach a picture of your ID. To fully reserve the date, please transfer>>> the deposit to info@eattaco.ca, with the password 'July25'.>>>>>> TacoTaco Events Team>>> TacoTaco>>> www.eattaco.ca>>>>>-- Doug.\n                        \n                    .\n                \n                        This person does not yet have an event with us. \n\n                    \n                Please analyze the email and determine the inquiry type. Provide a summary.\n                Inquiry types:\n                - availability: asking for availability and pricing\n                - additionalEventInfo: already have an event (i.e. has associated event details) and providing drink or food choices\n                - foodOrDrinkQuestion: asking about food or drink packages\n                - confirmEvent: indicated that they agree to the contract and sent in deposit\n                - askingForContract: indicated that they're ready to book\n                - other: all else\n                ",
+    "timestamp": "2024-11-26T02:01:38.907Z"
   },
   {
     "role": "assistant",
-    "content": "**Organizer:** Shannon  \n**Event Type:** Private event (type unspecified, but suggested karaoke and personal music)  \n**Timing:** Saturday, February 22, 2025, from 7:30 PM to 11:00 PM  \n**Rooms:** Moonlight Lounge (referred to as the front space)  \n**Guest Count:** Approximately 40 guests  \n**Catering:** $16 menu option (two tacos and appetizers); Shannon plans to return in the new year to finalize the specific items  \n**AV Needs:** Combination of personal music and karaoke  \n**Drink Packages:** Not specified in the email, but options are available  \n**Layout:** Not explicitly mentioned, but it can be inferred that a setup suitable for karaoke and personal music will be required  \n**Special Requests:** None explicitly stated, but Shannon indicates a desire to finalize menu items at a later date and inquires about the deposit process.  ",
-    "timestamp": "2024-11-24T22:46:41.430Z",
+    "content": "{\"inquiries\":[{\"inquiryType\":\"confirmEvent\",\"date\":\"07/25/2025\",\"time\":\"\",\"fromEmail\":\"doug.mcquiggan@gmail.com\",\"summary\":\"Doug McQuiggan has sent an e-transfer deposit to confirm the booking for his event on July 25, 2025, and is finalizing the contract details.\"}]}",
+    "timestamp": "2024-11-26T02:01:38.907Z",
     "provider": "openai",
     "model": "gpt-4o-mini-2024-07-18"
+  },
+  {
+    "role": "user",
+    "content": "Generate a confirmation email response for: \n                        \n                            From: Doug McQuiggan <doug.mcquiggan@gmail.com>\n                            To: Taco Taco <info@eattaco.ca>\n                            Subject: Re: Event Contract 07/25/2025\n                            Time: 11/24/2024 20:38 (a day ago)\n                        \n                        \n                            e-transfer has been sent.On Fri, Nov 22, 2024 at 6:35 AM Taco Taco  wrote:> Hi Doug,>> No problem! Confirm still available, once you send the deposit we can> fully book you in.>> TacoTaco Events Team> (647) 692-4768> >  | info@eattaco.ca> eattaco.ca>>>> On Thu, Nov 21, 2024 at 11:50 PM Doug McQuiggan > wrote:>>> Thank you for the contract. Apologies for the delay. We are confirming>> our interest and if the date is still available we will send our deposits>> right away.>>>> Here is my id>>>>>>>> On Sat, Oct 5, 2024, 1:28 PM  wrote:>>>>> Hi Doug McQuiggan,>>>>>> Please see attached for the event contract. The contract has been>>> pre-filled but if you can't see the details, please view the contract on a>>> computer rather than a phone. Let me know if you have any questions>>> otherwise you can simply respond to this email saying that you accept it,>>> and attach a picture of your ID. To fully reserve the date, please transfer>>> the deposit to info@eattaco.ca, with the password 'July25'.>>>>>> TacoTaco Events Team>>> TacoTaco>>> www.eattaco.ca>>>>>-- Doug.\n                        \n                    . Say that you're now booked.",
+    "timestamp": "2024-11-26T02:01:40.498Z"
+  },
+  {
+    "role": "assistant",
+    "content": "Subject: Re: Event Contract 07/25/2025 - Confirmed!\n\nHi Doug,\n\nThanks for sending the e-transfer! We've received it and your booking for July 25, 2025 is now fully confirmed.\n\nYou'll receive a more detailed event invitation shortly with all the finalized information and next steps.\n\nIn the meantime, please don't hesitate to reach out if you have any questions.\n\nThanks again,\n\nTacoTaco Events Team\n647-692-4768\ninfo@eattaco.ca\neattaco.ca\n",
+    "timestamp": "2024-11-26T02:01:40.498Z",
+    "provider": "google",
+    "model": "gemini-1.5-flash"
   }
 ]

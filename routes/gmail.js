@@ -43,11 +43,12 @@ module.exports = (googleAuth, gmailService) => {
             const type = req.query.type || 'all';
             const email = req.query.email;
             const forceRefresh = req.query.forceRefresh === 'true';
+            const count = req.query.count || 25;
 
             let emails;
             if (type === 'interac') {
                 // Handle Interac e-Transfer emails specifically
-                emails = await gmailService.getAllEmails(50, false, forceRefresh, "in:inbox-deposits");
+                emails = await gmailService.getAllEmails(count, false, forceRefresh, "in:inbox-deposits");
                 emails = emails.filter(email => {
                     const subject = email.subject?.toLowerCase() || '';
                     return subject.includes('interac');

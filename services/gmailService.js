@@ -339,7 +339,7 @@ class GmailService {
                 Analyze this email and categorize it into one of these categories:
                 - event_platform: Emails mentioning Tagvenue or Peerspace
                 - event: Emails related to event bookings, catering, drinks. do not include opentable emails.
-                - other: Any other type of email
+                - other: Any other type of email, including receipts
     
                 Email Subject: ${emailData.subject}
                 Email Content: ${emailData.text || emailData.snippet}

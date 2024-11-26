@@ -338,6 +338,7 @@ export class EventManageApp {
     async summarizeEmailAI(text) {
         text = text.replace(/[-<>]/g, "").replace(/^Sent:.*$/gm, '').substring(0, 11000);
         const data = await this.sendAIRequest("/api/summarizeAI", { text: text });
+        console.log(data)
         this.writeToAIResult(data.replace(/\n/g, "<br>"));
     }
     writeToAIResult(data) {
@@ -492,7 +493,7 @@ export class EventManageApp {
             }
 
             const data = await response.json();
-
+            console.log(data)
             // Simple text formatting
             const formattedResult = `${data.summary}.`;
 
@@ -672,10 +673,16 @@ export class EventManageApp {
             e.preventDefault();
             const val = $("#aiText").text() + `\n\nBe concise and semi-formal in the response.`;
             let result = await me.sendAIRequest("/ai/chat", { message: val });
+            console.log(result)
+
             me.writeToAIResult(result.response);
 
         });
 
+        $(document).on("click", ".sms ", (e) => {
+            e.preventDefault();
+            
+        });
         $(document).on("click", "#emailAI", (e) => {
             e.preventDefault();
             const val = $("#aiText").text();
