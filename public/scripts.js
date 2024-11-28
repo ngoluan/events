@@ -298,6 +298,36 @@ export class EventManageApp {
             console.error('Error loading templates:', error);
         }
     }
+    cleanEmailContent(emailContent) {
+        if (!emailContent) return '';
+
+        return emailContent
+            // Remove specific signatures while preserving email chain
+            .replace(/TacoTaco Events Team\s*\(\d{3}\)\s*\d{3}-\d{4}\s*\|\s*info@eattaco\.ca\s*eattaco\.ca/g, '')
+            .replace(/Founder and Director[\s\S]*?@drdinakulik/g, '')
+
+            // Remove image links while preserving email addresses in angle brackets
+            .replace(/\[https?:\/\/[^\]]+\]/g, '')
+            .replace(/<(?![\w.@-]+>)[^>]+>/g, '')  // Only remove HTML tags, not email addresses in brackets
+
+            // Clean up email client specific markers while preserving the chain
+            .replace(/\s*Get Outlook for iOS\s*/, '')
+            .replace(/\s*Learn why this is important\s*/, '')
+            .replace(/\s*You don't often get email from.*?\s*/g, '')
+
+            // Remove excess whitespace and formatting while preserving structure
+            .replace(/[\t ]+/g, ' ')           // Replace tabs and multiple spaces with single space
+            .replace(/\n\s*\n\s*\n/g, '\n\n')  // Reduce multiple blank lines to double
+            .replace(/^\s+|\s+$/gm, '')        // Trim start/end of each line
+            .replace(/________________________________/g, '\n---\n') // Replace long underscores with simple separator
+
+            // Clean up quoted content markers while preserving the actual content
+            .replace(/^[>\s>>>>>]+(?=\S)/gm, '') // Remove leading '>' only when followed by content
+
+            // Final whitespace cleanup
+            .replace(/[\r\n]+/g, '\n')         // Normalize line endings
+            .trim();
+    }
     async sendAIRequest(endpoint, data) {
         try {
             // Only include background info if specifically requested in data
@@ -318,7 +348,8 @@ export class EventManageApp {
     }
 
     async getEventDetailsFromEmail(text, email) {
-        text += ` Email: ${email}`;
+
+        text = this.cleanEmailContent(text)
         text = this.templates.eventPrompt + text;
 
         try {
@@ -1525,51 +1556,108 @@ export class EventManageApp {
     }
     async initializeBackgroundInfo() {
         try {
-          await this.emailProcessor.setupUserSettings();
-          const emailCategories = await this.emailProcessor.userSettings.loadSettings();
-      
-          const categoryRows = Object.entries(emailCategories.emailCategories).map(([name, description], index) => `
-            <tr>
-              <td>
-                <input type="text" id="emailCategoryName-${index}" class="input input-bordered w-full" value="${name}" />
-              </td>
-              <td>
-                <input type="text" id="emailCategoryDescription-${index}" class="input input-bordered w-full" value="${description}" />
-              </td>
-            </tr>
-          `).join('');
-      
-          $('#emailCategoryTable tbody').html(categoryRows);
-      
-          $('#addEmailCategory').on('click', () => {
-            const newRow = `
-              <tr>
-                <td>
-                  <input type="text" id="emailCategoryName-${$('#emailCategoryTable tbody tr').length}" class="input input-bordered w-full" placeholder="Category Name" />
-                </td>
-                <td>
-                  <input type="text" id="emailCategoryDescription-${$('#emailCategoryTable tbody tr').length}" class="input input-bordered w-full" placeholder="Category Description" />
-                </td>
-              </tr>
-            `;
-            $('#emailCategoryTable tbody').append(newRow);
-          });
-      
-          $('#saveBackgroundInfo').on('click', () => {
-            const emailCategories = {};
-            $('#emailCategoryTable tbody tr').each((index, row) => {
-              const name = $(`#emailCategoryName-${index}`, row).val();
-              const description = $(`#emailCategoryDescription-${index}`, row).val();
-              if (name.trim() !== '') {
-                emailCategories[name] = description;
-              }
+            // Load background info
+            const backgroundResponse = await fetch('/api/settings/background');
+            const backgroundData = await backgroundResponse.json();
+            $('#backgroundInfo').val(backgroundData.backgroundInfo || '');
+
+            // Load email categories
+            const categoriesResponse = await fetch('/api/settings/email-categories');
+            const data = await categoriesResponse.json();
+
+            if (!data.emailCategories || !Array.isArray(data.emailCategories)) {
+                throw new Error('Invalid email categories format');
+            }
+
+            // Generate rows from categories array
+            const categoryRows = data.emailCategories.map((category, index) => `
+                <tr>
+                    <td>
+                        <input type="text" 
+                               id="emailCategoryName-${index}" 
+                               class="input input-bordered w-full" 
+                               value="${_.escape(category.name)}" />
+                    </td>
+                    <td>
+                        <input type="text" 
+                               id="emailCategoryDescription-${index}" 
+                               class="input input-bordered w-full" 
+                               value="${_.escape(category.description)}" />
+                    </td>
+                    <td>
+                        <button class="btn btn-square btn-sm btn-error delete-category" data-index="${index}">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+
+            $('#emailCategoryTable tbody').html(categoryRows);
+
+            // Handle delete category
+            $(document).off('click', '.delete-category').on('click', '.delete-category', function () {
+                $(this).closest('tr').remove();
             });
-            this.emailProcessor.userSettings.saveSettings({ emailCategories });
-          });
+
+            $('#addEmailCategory').off('click').on('click', () => {
+                const newRow = `
+                    <tr>
+                        <td>
+                            <input type="text" 
+                                   id="emailCategoryName-${$('#emailCategoryTable tbody tr').length}" 
+                                   class="input input-bordered w-full" 
+                                   placeholder="Category Name" />
+                        </td>
+                        <td>
+                            <input type="text" 
+                                   id="emailCategoryDescription-${$('#emailCategoryTable tbody tr').length}" 
+                                   class="input input-bordered w-full" 
+                                   placeholder="Category Description" />
+                        </td>
+                        <td>
+                            <button class="btn btn-square btn-sm btn-error delete-category">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </td>
+                    </tr>
+                `;
+                $('#emailCategoryTable tbody').append(newRow);
+            });
+
+            $('#saveBackgroundInfo').off('click').on('click', async () => {
+                try {
+                    // Save background info
+                    const backgroundInfo = $('#backgroundInfo').val();
+                    await fetch('/api/settings/background', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ backgroundInfo })
+                    });
+
+                    // Save email categories
+                    const emailCategories = [];
+                    $('#emailCategoryTable tbody tr').each((index, row) => {
+                        const name = $(`#emailCategoryName-${index}`, row).val().trim();
+                        const description = $(`#emailCategoryDescription-${index}`, row).val().trim();
+                        if (name !== '') {
+                            emailCategories.push({ name, description });
+                        }
+                    });
+
+                    await this.emailProcessor.userSettings.saveSettings({ emailCategories });
+                    this.showToast('Settings saved successfully', 'success');
+                } catch (error) {
+                    console.error('Error saving settings:', error);
+                    this.showToast('Failed to save settings', 'error');
+                }
+            });
         } catch (error) {
-          console.error('Failed to load background info:', error);
+            console.error('Failed to load background info:', error);
+            this.showToast('Failed to load background info', 'error');
         }
-      }
+    }
     populateBackgroundFields() {
         // Populate form fields with loaded data
         $('#venueName').val(this.backgroundInfo.venueName || '');

@@ -624,16 +624,6 @@
         import { EventManageApp } from '/scripts.js';
         window.app = new EventManageApp();
 
-        // Theme handling
-        const themeSelect = document.getElementById('themeSelect');
-        // Set the select value to match the current theme
-        themeSelect.value = localStorage.getItem('theme') || 'dark';
-
-        themeSelect.addEventListener('change', (e) => {
-            const theme = e.target.value;
-            document.documentElement.setAttribute('data-theme', theme);
-            localStorage.setItem('theme', theme);
-        });
         document.addEventListener('DOMContentLoaded', function () {
             window.app.init();
         });

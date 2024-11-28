@@ -504,56 +504,7 @@ class EmailProcessorServer {
                     {
                         role: 'user',
                         content: `
-                      
-                              You are a booking assistant for TacoTaco restaurant. Extract event details from this email and provide them in JSON format. 
-
-                                Follow these guidelines carefully:
-                                1. EXCLUDE these as customer details (they are staff):
-                                - Names: "Liem Ngo" or "Luan Ngo"
-                                - Email: "info@eattaco.ca"
-                                - Phone: "(647) 692-4768"
-
-                                2. Room options MUST be one of:
-                                - "Lounge" (also known as Moonlight Lounge)
-                                - "DiningRoom" (also known as Dining Room)
-                                - "Patio" (for outdoor space)
-
-                                3. Services should be an array containing any of these exact values:
-                                - "dj" - for DJ services
-                                - "live" - for Live Band
-                                - "bar" - for Private Bar service
-                                - "lights" - for Party Lights
-                                - "audio" - for Audio Equipment
-                                - "music" - for Background Music
-                                - "kareoke" - for Karaoke
-                                - "catering" - for Food Service
-                                - "drink" - for Drink Packages
-
-                                5. Party Types should be specific (e.g., "Birthday Party", "Corporate Event", "Wedding Reception", etc.)
-
-                                6. Notes field should include:
-                                - Special requests
-                                - Dietary restrictions
-                                - Setup requirements
-                                - Payment discussions
-                                - But EXCLUDE basic venue information
-
-                                Provide the JSON in this exact format:
-                                {
-                                    "name": "contact name",
-                                    "email": "contact email",
-                                    "phone": "contact phone (optional, include only if specifically mentioned)",
-                                    "partyType": "type of event",
-                                    "startTime": "YYYY-MM-DD HH:mm",
-                                    "endTime": "YYYY-MM-DD HH:mm",
-                                    "room": "Lounge | DiningRoom | Patio",
-                                    "attendance": "number of expected guests",
-                                    "services": ["array of applicable services from the list above"],
-                                    "notes": "important details excluding venue information (optional)"
-                                }
-
-                                Email content:
-                                ${cleanedText}
+                      ${cleanedText}
                     `
                     }
                 ];

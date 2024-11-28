@@ -3,7 +3,49 @@ class EmailProcessor {
         this.currentConversationId = null;
         this.registerEvents();
         this.parent = parent;
-
+        this.userSettings = {
+            userSettings: {
+                async loadSettings() {
+                    try {
+                        const response = await fetch('/api/settings/email-categories');
+                        return await response.json();
+                    } catch (error) {
+                        console.error('Error loading user settings:', error);
+                        return {
+                            emailCategories: [
+                                {
+                                    "name": "event_platform",
+                                    "description": "Emails mentioning Tagvenue or Peerspace"
+                                },
+                                {
+                                    "name": "event",
+                                    "description": "Emails related to event bookings, catering, drinks. do not include opentable emails."
+                                },
+                                {
+                                    "name": "other",
+                                    "description": "Any other type of email, including receipts"
+                                }
+                            ]
+                        };
+                    }
+                },
+                async saveSettings(settings) {
+                    try {
+                        const response = await fetch('/api/settings/email-categories', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify(settings)
+                        });
+                        return await response.json();
+                    } catch (error) {
+                        console.error('Error saving user settings:', error);
+                        throw error;
+                    }
+                }
+            }
+        }
     }
 
     registerEvents() {

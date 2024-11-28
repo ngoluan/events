@@ -10,6 +10,7 @@ const backgroundRoutes = require('./routes/BackgroundRoutes');
 const GmailService = require('./services/gmailService');
 const EventService = require('./services/eventService');
 const cron = require('node-cron');
+const usersRoutes = require('./routes/users');
 
 // Initialize GoogleAuth
 const googleAuth = new GoogleAuth();
@@ -59,6 +60,7 @@ app.use('/calendar', calendarRoutes);
 app.use('/ai', aiRoutes);
 app.use('/', emailProcessor.getRouter());
 app.use('/', backgroundRoutes);  // Add this line
+app.use('/', usersRoutes);
 
 
 // Root route

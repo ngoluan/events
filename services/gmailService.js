@@ -4,13 +4,19 @@ const fs = require('fs');
 const moment = require('moment');
 const cheerio = require('cheerio');
 const { z } = require('zod');
-
+const User = require('./User');
 class GmailService {
     constructor(auth, eventService = null) {
         this.auth = auth;
         this.cacheFilePath = path.join(__dirname, '..', 'data', 'emails.json');
         this.lastRetrievalPath = path.join(__dirname, '..', 'data', 'lastRetrieval.json');
-
+   
+        // Initialize user instance
+        this.user = new User();
+        this.user.loadSettings().catch(err => {
+            console.error('Error loading user settings:', err);
+        });
+        
         // Initialize all caches
         // In constructor
         this.emailCache = new Map();
