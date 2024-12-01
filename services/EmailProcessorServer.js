@@ -100,7 +100,7 @@ class EmailProcessorServer {
 
                         Don't respond with a subject heading or start with Dear. Be concise. 
 
-                        If they mention food or drinks, provide them with information.                        
+                        If they mention food or drinks, provide them with information. And tell them about the services included.                       
                     `
                 }
             ], {

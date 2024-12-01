@@ -19519,9 +19519,10 @@
       "messageCount": 3,
       "historyIncluded": false,
       "id": 1190,
-      "status": "",
+      "status": "reserved",
       "rentalRate": "150",
-      "minSpend": "500"
+      "minSpend": "500",
+      "createdAt": "2024-12-01T23:13:11.898Z"
     },
     {
       "name": "Katrina D",
@@ -19578,6 +19579,25 @@
       "rentalRate": "250",
       "minSpend": "",
       "createdAt": "2024-12-01T19:03:20.845Z"
+    },
+    {
+      "name": "Edmund Wong",
+      "email": "wongwyedmund@gmail.com",
+      "phone": "",
+      "partyType": "Party",
+      "startTime": "2025-01-11T18:00",
+      "endTime": "2024-01-11T23:00",
+      "room": "DiningRoom",
+      "attendance": "50",
+      "services": "",
+      "notes": "$312.50 deposit to book.",
+      "messageCount": 3,
+      "historyIncluded": false,
+      "id": 1194,
+      "status": "",
+      "rentalRate": "625",
+      "minSpend": "1000",
+      "createdAt": "2024-12-01T23:16:23.688Z"
     }
   ]
 }

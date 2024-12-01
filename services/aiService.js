@@ -133,11 +133,8 @@ class AIService {
           };
 
           const systemIndex = contextualizedMessages.findIndex(m => m.role === 'system');
-          if (systemIndex >= 0) {
-            contextualizedMessages[systemIndex] = systemMessage;
-          } else {
-            contextualizedMessages.unshift(systemMessage);
-          }
+          contextualizedMessages.push(systemMessage);
+
         }
       }
 
