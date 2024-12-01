@@ -1,1296 +1,4 @@
 
-//--- File: /home/luan_ngo/web/events/services/gmailService.js ---
-const { google } = require('googleapis');
-const path = require('path');
-const fs = require('fs');
-const moment = require('moment');
-const cheerio = require('cheerio');
-const { z } = require('zod');
-const User = require('./User');
-class GmailService {
-    constructor(auth, eventService = null) {
-        this.auth = auth;
-        this.cacheFilePath = path.join(__dirname, '..', 'data', 'emails.json');
-        this.lastRetrievalPath = path.join(__dirname, '..', 'data', 'lastRetrieval.json');
-   
-        
-        this.user = new User();
-        this.user.loadSettings().catch(err => {
-            console.error('Error loading user settings:', err);
-        });
-        
-        
-        
-        this.emailCache = new Map();
-        this.messageCache = new Map(); 
-        this.eventsCache = [];
-        this.emailToEventMap = new Map();
-        this.threadCache = new Map(); 
-
-        
-        this.lastEventsCacheUpdate = 0;
-        this.lastRetrievalDate = this.loadLastRetrievalDate();
-
-        
-        this.aiService = require('./aiService');
-        this.eventService = eventService;
-
-        
-        const dataDir = path.join(__dirname, '..', 'data');
-        if (!fs.existsSync(dataDir)) {
-            fs.mkdirSync(dataDir, { recursive: true });
-        }
-
-        
-        this.loadEmailsFromCache();
-    }
-
-    setEventService(eventService) {
-        this.eventService = eventService;
-        this.refreshEventsCache();
-    }
-    async refreshEventsCache() {
-        if (this.eventService) {
-            this.eventsCache = this.eventService.loadEvents();
-
-            
-            this.emailToEventMap.clear();
-            this.eventsCache
-                .filter(event => event.email && event.email.trim() !== '')
-                .forEach(event => {
-                    this.emailToEventMap.set(event.email.toLowerCase().trim(), event);
-                });
-
-            this.lastEventsCacheUpdate = Date.now();
-        }
-    }
-
-
-    
-    shouldRefreshEventsCache() {
-        const CACHE_LIFETIME = 5 * 60 * 1000; 
-        return Date.now() - this.lastEventsCacheUpdate > CACHE_LIFETIME;
-    }
-    
-    async formatReplyContent(content, originalMessage) {
-        
-        const headers = originalMessage.payload.headers;
-        const originalDate = headers.find(h => h.name === 'Date')?.value;
-        const originalFrom = headers.find(h => h.name === 'From')?.value;
-        const originalContent = originalMessage.parsedContent.html ||
-            originalMessage.parsedContent.text ||
-            headers.find(h => h.name === 'snippet')?.value;
-
-        
-        const quotedContent = `
-        <div style="margin-top: 20px;">
-            <div style="padding: 10px 0;">On ${originalDate}, ${originalFrom} wrote:</div>
-            <blockquote style="margin:0 0 0 0.8ex; border-left:2px #ccc solid; padding-left:1ex;">
-                ${originalContent}
-            </blockquote>
-        </div>
-    `;
-
-        
-        if (content.includes('</body>')) {
-            return content.replace('</body>', `${quotedContent}</body>`);
-        }
-
-        
-        return `
-        <div>
-            ${content}
-            ${quotedContent}
-        </div>
-    `;
-    }
-    async sendEmail(to, subject, content, options = {}) {
-        try {
-            const authClient = await this.auth.getOAuth2Client();
-            const gmail = google.gmail({ version: 'v1', auth: authClient });
-
-            
-            const isReply = options.replyToMessageId ||
-                options.source === 'draftEventSpecificEmail' ||
-                options.source === 'generateConfirmationEmail' ||
-                options.source === 'sendToAiTextArea';
-
-            
-            let threadId = null;
-            let originalMessageId = null;
-            if (isReply && options.replyToMessageId) {
-                const originalMessage = await this.getMessage(options.replyToMessageId);
-                threadId = originalMessage.threadId;
-                const headers = originalMessage.payload.headers;
-                originalMessageId = headers.find(h => h.name === 'Message-ID')?.value;
-            }
-
-            
-            const headers = [
-                'MIME-Version: 1.0',
-                'Content-Type: text/html; charset=UTF-8',
-                `From: ${options.from || 'me'}`,
-                `To: ${to}`,
-                `Subject: =?UTF-8?B?${Buffer.from(isReply ? (subject.startsWith('Re:') ? subject : `Re: ${subject}`) : subject).toString('base64')}?=`
-            ];
-
-            
-            if (originalMessageId) {
-                headers.push(`In-Reply-To: ${originalMessageId}`);
-                headers.push(`References: ${originalMessageId}`);
-            }
-
-            
-            const formattedContent = this.formatEmailContent(content);
-
-            
-            const emailContent = `${headers.join('\r\n')}\r\n\r\n${formattedContent}`;
-
-            
-            const encodedMessage = Buffer.from(emailContent)
-                .toString('base64')
-                .replace(/\+/g, '-')
-                .replace(/\
-                .replace(/=+$/, '');
-
-            
-            const res = await gmail.users.messages.send({
-                userId: 'me',
-                requestBody: {
-                    raw: encodedMessage,
-                    ...(threadId && { threadId })
-                }
-            });
-
-            
-            if (options.replyToMessageId) {
-                const emailData = this.emailCache.get(options.replyToMessageId);
-                if (emailData) {
-                    emailData.replied = true;
-                    await this.updateEmailInCache(emailData);
-                }
-            }
-
-            return {
-                success: true,
-                messageId: res.data.id,
-                threadId: res.data.threadId,
-                isReply: !!originalMessageId
-            };
-
-        } catch (error) {
-            console.error('Error sending email:', error);
-            throw new Error(`Failed to send email: ${error.message}`);
-        }
-    }
-
-    formatEmailContent(content) {
-        
-        let cleanContent = content
-            .replace(/<html>.*?<body>/gs, '')
-            .replace(/<\/body>.*?<\/html>/gs, '')
-            .trim();
-
-        
-        cleanContent = cleanContent
-            .replace(/<br\s*\/?>/gi, '<br>')
-            .replace(/\n/g, '<br>')
-            .replace(/<br\s*\/?>(\s*<br\s*\/?>)+/gi, '<br><br>');
-
-        
-        return `
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <style>
-                    body {
-                        font-family: Arial, sans-serif;
-                        line-height: 1.6;
-                        color: #333;
-                        max-width: 800px;
-                        margin: 0 auto;
-                        padding: 20px;
-                    }
-                    p {
-                        margin-bottom: 1em;
-                    }
-                    a {
-                        color: #0066cc;
-                        text-decoration: none;
-                    }
-                    a:hover {
-                        text-decoration: underline;
-                    }
-                    .signature {
-                        margin-top: 20px;
-                        padding-top: 20px;
-                        border-top: 1px solid #eee;
-                        color: #666;
-                    }
-                </style>
-            </head>
-            <body>
-                ${cleanContent}
-            </body>
-            </html>
-        `.trim();
-    }
-    loadLastRetrievalDate() {
-        try {
-            if (fs.existsSync(this.lastRetrievalPath)) {
-                const data = JSON.parse(fs.readFileSync(this.lastRetrievalPath, 'utf8'));
-                return data.lastRetrieval;
-            }
-        } catch (error) {
-            console.error('Error loading last retrieval date:', error);
-        }
-        
-        return moment().subtract(30, 'minutes').format('YYYY-MM-DD HH:mm:ss');
-    }
-
-    saveLastRetrievalDate() {
-        try {
-            const data = {
-                lastRetrieval: moment().format('YYYY-MM-DD HH:mm:ss')
-            };
-            fs.writeFileSync(this.lastRetrievalPath, JSON.stringify(data, null, 2), 'utf8');
-        } catch (error) {
-            console.error('Error saving last retrieval date:', error);
-        }
-    }
-    async forwardEmail(messageId, to) {
-        try {
-            const originalMessage = await this.getMessage(messageId);
-            const originalHeaders = originalMessage.payload.headers;
-            const subject = originalHeaders.find(h => h.name === 'Subject')?.value;
-            const content = originalMessage.parsedContent.html || originalMessage.parsedContent.text;
-
-            const forwardedContent = `
-                <div>
-                    ---------- Forwarded message ----------<br>
-                    From: ${originalHeaders.find(h => h.name === 'From')?.value}<br>
-                    Date: ${originalHeaders.find(h => h.name === 'Date')?.value}<br>
-                    Subject: ${subject}<br>
-                    To: ${originalHeaders.find(h => h.name === 'To')?.value}<br>
-                    <br>
-                    ${content}
-                </div>
-            `;
-
-            return await this.sendEmail(to, `Fwd: ${subject}`, forwardedContent);
-        } catch (error) {
-            console.error('Error forwarding email:', error);
-            throw error;
-        }
-    }
-    saveEmailsToCache(emails) {
-        try {
-            
-            const sortedEmails = emails.sort((a, b) => {
-                return new Date(b.internalDate) - new Date(a.internalDate);
-            });
-            fs.writeFileSync(this.cacheFilePath, JSON.stringify(sortedEmails, null, 2), 'utf8');
-
-            
-            sortedEmails.forEach(email => {
-                this.emailCache.set(email.id, email);
-            });
-        } catch (error) {
-            console.error('Error saving emails to cache:', error);
-        }
-    }
-
-    loadEmailsFromCache() {
-        try {
-            if (fs.existsSync(this.cacheFilePath)) {
-                const emails = JSON.parse(fs.readFileSync(this.cacheFilePath, 'utf8'));
-                
-                emails.forEach(email => {
-                    this.emailCache.set(email.id, email);
-                });
-                return emails;
-            }
-        } catch (error) {
-            console.error('Error loading emails from cache:', error);
-        }
-        return [];
-    }
-    async listMessages(options = {}) {
-        try {
-            const authClient = await this.auth.getOAuth2Client();
-            const gmail = google.gmail({ version: 'v1', auth: authClient });
-
-            
-            const sentResponse = await gmail.users.messages.list({
-                userId: 'me',
-                maxResults: options.maxResults || 100,
-                q: options.email ? `from:me to:${options.email}` : 'in:sent',
-                orderBy: 'internalDate desc'
-            });
-
-            const sentMessages = sentResponse.data.messages || [];
-
-            
-            const fullSentMessages = await Promise.all(
-                sentMessages.map(async msg => {
-                    try {
-                        return await this.getMessage(msg.id);
-                    } catch (err) {
-                        console.error(`Error getting sent message ${msg.id}:`, err);
-                        return null;
-                    }
-                })
-            ).then(messages => messages.filter(msg => msg !== null));
-
-            let query = options.email ? `{to:${options.email} from:${options.email}}` : 'in:inbox';
-            if (options.query) {
-                query = ` ${options.query}`;
-            }
-            
-            const inboxResponse = await gmail.users.messages.list({
-                userId: 'me',
-                maxResults: options.maxResults || 100,
-                q: query,
-                orderBy: 'internalDate desc'
-            });
-
-            const inboxMessages = inboxResponse.data.messages || [];
-
-            
-            const processedMessages = await this.processMessageBatch(
-                inboxMessages,
-                fullSentMessages
-            );
-
-            if (!options.email) {
-                this.saveLastRetrievalDate();
-            }
-
-            return processedMessages;
-
-        } catch (error) {
-            console.error('Error listing messages:', error);
-            throw error;
-        }
-    }
-
-    async checkIfReplied(inboxMessage) {
-        try {
-            const threadId = inboxMessage.threadId;
-
-            
-            let threadMessages = this.threadCache.get(threadId);
-            if (!threadMessages) {
-                threadMessages = await this.getThreadMessages(threadId);
-                this.threadCache.set(threadId, threadMessages);
-            }
-
-            
-            const sentMessages = threadMessages.filter(msg => msg.labelIds.includes('SENT'));
-
-            const messageId = inboxMessage.payload.headers.find(h => h.name === 'Message-ID')?.value || '';
-
-            const hasReply = sentMessages.some(sentMessage => {
-                const inReplyTo = sentMessage.payload.headers.find(h => h.name === 'In-Reply-To')?.value || '';
-                const references = sentMessage.payload.headers.find(h => h.name === 'References')?.value || '';
-
-                if (messageId && (inReplyTo.includes(messageId) || references.includes(messageId))) {
-                    return true;
-                }
-
-                const sentDate = new Date(Number(sentMessage.internalDate));
-                const inboxDate = new Date(Number(inboxMessage.internalDate));
-
-                return sentDate > inboxDate;
-            });
-
-            return hasReply;
-        } catch (error) {
-            console.error('Error checking if replied:', error);
-            return false;
-        }
-    }
-
-
-    async getMessage(messageId) {
-        try {
-            
-            if (this.messageCache.has(messageId)) {
-                return this.messageCache.get(messageId);
-            }
-
-            const auth = await this.auth.getOAuth2Client();
-            const gmail = google.gmail({ version: 'v1', auth });
-            const emailData = await gmail.users.messages.get({
-                userId: 'me',
-                id: messageId,
-                format: 'full'
-            });
-            let html = '';
-            let text = '';
-            if (emailData.data.payload.mimeType === 'text/plain' && emailData.data.payload.body.data) {
-                text = Buffer.from(emailData.data.payload.body.data, 'base64').toString('utf8');
-            } else if (emailData.data.payload.mimeType === 'text/html' && emailData.data.payload.body.data) {
-                html = Buffer.from(emailData.data.payload.body.data, 'base64').toString('utf8');
-            } else if (emailData.data.payload.parts) {
-                const { html: htmlPart, text: textPart } = this.parseEmailParts(emailData.data.payload.parts);
-                html = htmlPart;
-                text = textPart;
-            }
-
-            
-            if (!text && html) {
-                text = this.extractPlainTextFromHtml(html);
-            }
-
-            
-            const fullMessage = {
-                id: messageId,
-                threadId: emailData.data.threadId,
-                labelIds: emailData.data.labelIds,
-                snippet: emailData.data.snippet,
-                internalDate: emailData.data.internalDate,
-                payload: emailData.data.payload,
-                parsedContent: {
-                    text,
-                    html
-                }
-            };
-            this.messageCache.set(messageId, fullMessage);
-
-            return fullMessage;
-        } catch (error) {
-            console.error('Error getting message:', error);
-            throw error;
-        }
-    }
-    parseEmailParts(parts) {
-        let htmlContent = '';
-        let textContent = '';
-
-        if (parts && parts.length > 0) {
-            parts.forEach(part => {
-                if (part.parts && part.parts.length > 0) {
-                    const { html, text } = this.parseEmailParts(part.parts);
-                    htmlContent += html;
-                    textContent += text;
-                } else {
-                    if (part.mimeType === 'text/html') {
-                        const data = part.body.data;
-                        if (data) {
-                            htmlContent += Buffer.from(data, 'base64').toString('utf8');
-                        }
-                    } else if (part.mimeType === 'text/plain') {
-                        const data = part.body.data;
-                        if (data) {
-                            textContent += Buffer.from(data, 'base64').toString('utf8');
-                        }
-                    }
-                }
-            });
-        }
-        return { html: htmlContent, text: textContent };
-    }
-
-    async categorizeEmail(emailData) {
-        try {
-            const categories = this.user.settings.emailCategories;
-            const prompt = `
-                Analyze this email and categorize it into one of these categories: ${categories.join(', ')}
-                
-                Email Subject: ${emailData.subject}
-                Email Content: ${emailData.text || emailData.snippet}
-            `;
-
-            const categorySchema = this.user.getCategorySchema();
-
-            const { parsedData } = await this.aiService.generateResponse(
-                [{ role: 'user', content: prompt }],
-                {
-                    schema: categorySchema,
-                    schemaName: 'EmailCategory',
-                    resetHistory: true
-                }
-            );
-
-            return parsedData.category;
-        } catch (error) {
-            console.error('Error categorizing email:', error);
-            return 'other';
-        }
-    }
-    async processMessageBatch(messages) {
-        if (!messages || !messages.length) return [];
-
-        const asyncLib = require('async');
-        let processedEmails = [];
-
-        await asyncLib.eachLimit(messages, 5, async (message) => {
-            try {
-                
-                if (this.emailCache.has(message.id)) {
-                    
-                    processedEmails.push(this.emailCache.get(message.id));
-                    return; 
-                }
-
-                
-                const fullMessage = await this.getMessage(message.id);
-
-                
-                const emailData = await this.processEmail(fullMessage);
-
-                
-                this.emailCache.set(message.id, emailData);
-                processedEmails.push(emailData);
-            } catch (err) {
-                console.error(`Error processing message ID ${message.id}:`, err);
-            }
-        });
-
-        return processedEmails.sort((a, b) => Number(b.internalDate) - Number(a.internalDate));
-    }
-    async processEmail(fullMessage) {
-        let emailData;
-
-        if (fullMessage?.payload?.headers) {
-            
-            const headers = fullMessage.payload.headers;
-            const replied = await this.checkIfReplied(fullMessage);
-
-            emailData = {
-                id: fullMessage.id,
-                threadId: fullMessage.threadId,
-                from: headers.find(h => h.name === 'From')?.value || '',
-                to: headers.find(h => h.name === 'To')?.value || '',
-                subject: headers.find(h => h.name === 'Subject')?.value || '',
-                timestamp: headers.find(h => h.name === 'Date')?.value || '',
-                internalDate: fullMessage.internalDate,
-                text: fullMessage?.parsedContent?.text || '',
-                html: fullMessage?.parsedContent?.html || '',
-                labels: fullMessage.labelIds || [],
-                snippet: fullMessage.snippet || '',
-                replied
-            };
-
-            
-            const [eventAssociation, category] = await Promise.all([
-                this.checkEventAssociation(emailData),
-                this.categorizeEmail(emailData)
-            ]);
-
-            
-            emailData.associatedEventId = eventAssociation.eventId;
-            emailData.associatedEventName = eventAssociation.eventName;
-            emailData.category = category;
-
-        } else {
-            
-            const replied = await this.checkIfReplied(fullMessage);
-
-            emailData = {
-                id: fullMessage.id || '',
-                threadId: fullMessage.threadId || '',
-                from: fullMessage.from || '',
-                to: fullMessage.to || '',
-                subject: fullMessage.subject || '',
-                timestamp: fullMessage.timestamp || '',
-                internalDate: fullMessage.internalDate || '',
-                text: fullMessage.text || fullMessage?.parsedContent?.text || '',
-                html: fullMessage.html || fullMessage?.parsedContent?.html || '',
-                labels: fullMessage.labels || fullMessage.labelIds || [],
-                snippet: fullMessage.snippet || '',
-                replied,
-                category: 'other',
-                associatedEventId: null,
-                associatedEventName: null
-            };
-
-            
-            const [eventAssociation, category] = await Promise.all([
-                this.checkEventAssociation(emailData),
-                this.categorizeEmail(emailData)
-            ]);
-
-            
-            emailData.associatedEventId = eventAssociation.eventId;
-            emailData.associatedEventName = eventAssociation.eventName;
-            emailData.category = category;
-        }
-
-        return emailData;
-    }
-
-    extractPlainTextFromHtml(html) {
-        let plainText = "";
-
-        try {
-            let cleanedHtml = html.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
-            cleanedHtml = cleanedHtml.replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n');
-            const $ = cheerio.load(cleanedHtml);
-            plainText = $.text().trim();
-            plainText = plainText.replace(/ {2,}/g, ' ');
-            plainText = plainText.replace(/\t+/g, ' ');
-            plainText = plainText.replace(/\n{3,}/g, '\n\n');
-            plainText = plainText.replace(/^\s+/gm, '');
-        } catch (e) {
-            console.log(e);
-        }
-
-        return plainText;
-    }
-    async checkEventAssociation(emailData) {
-        try {
-            if (this.shouldRefreshEventsCache()) {
-                await this.refreshEventsCache();
-            }
-
-            
-            const fromEmail = emailData.from.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)?.[0]?.toLowerCase();
-            const toEmail = emailData.to.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)?.[0]?.toLowerCase();
-
-            
-            let matchingEvent = null;
-            if (fromEmail && this.emailToEventMap.has(fromEmail)) {
-                matchingEvent = this.emailToEventMap.get(fromEmail);
-            } else if (toEmail && this.emailToEventMap.has(toEmail)) {
-                matchingEvent = this.emailToEventMap.get(toEmail);
-            }
-
-            if (matchingEvent) {
-                return {
-                    eventId: matchingEvent.id,
-                    eventName: matchingEvent.name
-                };
-            }
-
-            return {
-                eventId: null,
-                eventName: null
-            };
-        } catch (error) {
-            console.error('Error checking event association:', error);
-            return {
-                eventId: null,
-                eventName: null
-            };
-        }
-    }
-
-
-    convertHtmlToText(html) {
-        try {
-            
-            return html
-                .replace(/<style[^>]*>.*<\/style>/gs, '') 
-                .replace(/<script[^>]*>.*<\/script>/gs, '') 
-                .replace(/<[^>]+>/g, ' ') 
-                .replace(/&nbsp;/g, ' ') 
-                .replace(/\s+/g, ' ') 
-                .trim(); 
-        } catch (error) {
-            console.error('Error converting HTML to text:', error);
-            return '';
-        }
-    }
-    mergeEmails(cachedEmails, newEmails) {
-        const emailMap = new Map();
-
-        
-        cachedEmails.forEach(email => {
-            emailMap.set(email.id, {
-                ...email,
-                
-                hasNotified: email.hasNotified || false,
-                category: email.category || 'other',
-                processedForSuggestions: email.processedForSuggestions || false
-            });
-        });
-
-        
-        newEmails.forEach(email => {
-            const existingEmail = emailMap.get(email.id);
-            emailMap.set(email.id, {
-                ...(existingEmail || {}),  
-                ...email,  
-                
-                replied: email.replied || existingEmail?.replied || false,
-                hasNotified: existingEmail?.hasNotified || false,
-                category: email.category || existingEmail?.category || 'other',
-                processedForSuggestions: existingEmail?.processedForSuggestions || false,
-                
-                associatedEventId: email.associatedEventId || existingEmail?.associatedEventId,
-                associatedEventName: email.associatedEventName || existingEmail?.associatedEventName
-            });
-        });
-
-        const mergedEmails = Array.from(emailMap.values());
-        return mergedEmails.sort((a, b) => {
-            const dateA = Number(a.internalDate);
-            const dateB = Number(b.internalDate);
-            return dateB - dateA;
-        });
-    }
-    async listAllLabels() {
-        try {
-            const auth = await this.auth.getOAuth2Client();
-            const gmail = google.gmail({ version: 'v1', auth });
-
-            const response = await gmail.users.labels.list({
-                userId: 'me'
-            });
-
-            
-            return response.data.labels.map(label => ({
-                id: label.id,
-                name: label.name,
-                type: label.type,
-                messageListVisibility: label.messageListVisibility,
-                labelListVisibility: label.labelListVisibility
-            }));
-        } catch (error) {
-            console.error('Error listing labels:', error);
-            throw error;
-        }
-    }
-    async archiveEmail(messageId) {
-        try {
-            const auth = await this.auth.getOAuth2Client();
-            const gmail = google.gmail({ version: 'v1', auth });
-
-            
-            await gmail.users.messages.modify({
-                userId: 'me',
-                id: messageId,
-                requestBody: {
-                    removeLabelIds: ['INBOX'],
-                    addLabelIds: ["Label_6"]
-                }
-            });
-
-            
-            if (this.emailCache.has(messageId)) {
-                const emailData = this.emailCache.get(messageId);
-
-                
-                emailData.labels = emailData.labels || [];
-                emailData.labels = emailData.labels.filter(label => label !== 'INBOX');
-                if (!emailData.labels.includes('Label_6')) {
-                    emailData.labels.push('Label_6');
-                }
-
-                
-                this.emailCache.set(messageId, emailData);
-
-                
-                try {
-                    let cachedEmails = [];
-                    if (fs.existsSync(this.cacheFilePath)) {
-                        cachedEmails = JSON.parse(fs.readFileSync(this.cacheFilePath, 'utf8'));
-                    }
-
-                    
-                    const emailIndex = cachedEmails.findIndex(email => email.id === messageId);
-                    if (emailIndex !== -1) {
-                        cachedEmails[emailIndex] = emailData;
-                    }
-
-                    
-                    fs.writeFileSync(this.cacheFilePath, JSON.stringify(cachedEmails, null, 2), 'utf8');
-                } catch (cacheError) {
-                    console.error('Error updating cache file:', cacheError);
-                    
-                }
-            }
-
-            return true;
-        } catch (error) {
-            console.error('Error archiving email:', error);
-            
-            try {
-                const auth = await this.auth.getOAuth2Client();
-                const gmail = google.gmail({ version: 'v1', auth });
-
-                await gmail.users.messages.modify({
-                    userId: 'me',
-                    id: messageId,
-                    requestBody: {
-                        removeLabelIds: ['INBOX'],
-                        addLabelIds: ['Label_6']
-                    }
-                });
-
-                
-                if (this.emailCache.has(messageId)) {
-                    const emailData = this.emailCache.get(messageId);
-                    emailData.labels = emailData.labels.filter(label => label !== 'INBOX');
-                    this.emailCache.set(messageId, emailData);
-
-                    
-                    try {
-                        let cachedEmails = [];
-                        if (fs.existsSync(this.cacheFilePath)) {
-                            cachedEmails = JSON.parse(fs.readFileSync(this.cacheFilePath, 'utf8'));
-                        }
-                        const emailIndex = cachedEmails.findIndex(email => email.id === messageId);
-                        if (emailIndex !== -1) {
-                            cachedEmails[emailIndex] = emailData;
-                        }
-                        fs.writeFileSync(this.cacheFilePath, JSON.stringify(cachedEmails, null, 2), 'utf8');
-                    } catch (cacheError) {
-                        console.error('Error updating cache file:', cacheError);
-                    }
-                }
-
-                return true;
-            } catch (fallbackError) {
-                console.error('Fallback archive failed:', fallbackError);
-                throw fallbackError;
-            }
-        }
-    }
-    
-    async updateEmailInCache(emailData) {
-        
-        this.emailCache.set(emailData.id, {
-            ...emailData,
-            hasNotified: emailData.hasNotified || false
-        });
-
-        try {
-            let cachedEmails = [];
-            if (fs.existsSync(this.cacheFilePath)) {
-                cachedEmails = JSON.parse(fs.readFileSync(this.cacheFilePath, 'utf8'));
-            }
-
-            const emailIndex = cachedEmails.findIndex(email => email.id === emailData.id);
-            if (emailIndex !== -1) {
-                cachedEmails[emailIndex] = {
-                    ...emailData,
-                    hasNotified: emailData.hasNotified || false
-                };
-            } else {
-                cachedEmails.push({
-                    ...emailData,
-                    hasNotified: emailData.hasNotified || false
-                });
-            }
-
-            
-            cachedEmails.sort((a, b) => {
-                const dateA = Number(a.internalDate);
-                const dateB = Number(b.internalDate);
-                return dateB - dateA;
-            });
-
-            fs.writeFileSync(this.cacheFilePath, JSON.stringify(cachedEmails, null, 2), 'utf8');
-        } catch (error) {
-            console.error('Error updating email in cache:', error);
-        }
-    }
-    async getEmailsForContact(email) {
-        try {
-            
-            const cachedEmails = this.loadEmailsFromCache();
-            const contactEmails = cachedEmails.filter(e => {
-                const fromMatch = e.from.includes(email);
-                const toMatch = e.to.includes(email);
-                return fromMatch || toMatch;
-            });
-
-            
-            const messages = await this.listMessages({
-                email: email,
-                maxResults: 50
-            });
-
-            
-            const allContactEmails = this.mergeEmails(contactEmails, messages);
-
-            
-            this.updateCacheWithEmails(messages);
-
-            return allContactEmails;
-        } catch (error) {
-            console.error('Error getting emails for contact:', error);
-            
-            return this.loadEmailsFromCache().filter(e => {
-                const fromMatch = e.from.includes(email);
-                const toMatch = e.to.includes(email);
-                return fromMatch || toMatch;
-            });
-        }
-    }
-    async getAllEmails(maxResults = 100, onlyImportant = false, forcedRefresh = false, query = null) {
-        try {
-            
-            let cachedEmails = this.loadEmailsFromCache();
-
-            
-            const lastRetrievalDate = moment(this.loadLastRetrievalDate(), "YYYY-MM-DD HH:mm");
-            const now = moment();
-            const needsUpdate = !cachedEmails.length || lastRetrievalDate.isBefore(now, 'minute');
-
-            if (!needsUpdate && !forcedRefresh) {
-                return cachedEmails;
-            }
-
-            
-            const authClient = await this.auth.getOAuth2Client();
-            const gmail = google.gmail({ version: 'v1', auth: authClient });
-            let queryStr = 'in:inbox';
-            if (query) {
-                queryStr += ` ${query}`;
-            }
-            const response = await gmail.users.messages.list({
-                userId: 'me',
-                maxResults,
-                q: queryStr,
-                orderBy: 'internalDate desc'
-            });
-
-            const messageList = response.data.messages || [];
-
-            
-            const messagesToProcess = [];
-            const processedEmails = [];
-
-            for (const message of messageList) {
-                if (this.emailCache.has(message.id)) {
-                    processedEmails.push(this.emailCache.get(message.id));
-                } else {
-                    messagesToProcess.push(message);
-                }
-            }
-
-            
-            const newEmails = await this.processMessageBatch(messagesToProcess);
-
-            
-            const allEmails = this.mergeEmails(cachedEmails, newEmails);
-
-            
-            this.saveEmailsToCache(allEmails);
-
-            return allEmails.slice(0, maxResults);
-        } catch (error) {
-            console.error('Error getting all emails:', error);
-            return this.loadEmailsFromCache();
-        }
-    }
-
-
-    updateCacheWithEmails(newEmails) {
-        const cachedEmails = this.loadEmailsFromCache();
-        const updatedEmails = this.mergeEmails(cachedEmails, newEmails);
-        this.saveEmailsToCache(updatedEmails);
-    }
-
-    async getThreadMessages(threadId) {
-        try {
-            const authClient = await this.auth.getOAuth2Client();
-            const gmail = google.gmail({ version: 'v1', auth: authClient });
-            const res = await gmail.users.threads.get({
-                userId: 'me',
-                id: threadId,
-                format: 'full',
-            });
-            return res.data.messages || [];
-        } catch (error) {
-            console.error('Error fetching thread messages:', error);
-            throw error;
-        }
-    }
-
-    async forceFullRefresh() {
-        try {
-            
-            this.lastRetrievalDate = moment().subtract(1, 'year').format('YYYY/MM/DD');
-            const messages = await this.listMessages({
-                maxResults: 500 
-            });
-            const emails = await this.processMessageBatch(messages);
-            this.saveEmailsToCache(emails);
-            this.saveLastRetrievalDate(); 
-            return emails;
-        } catch (error) {
-            console.error('Error during full refresh:', error);
-            throw error;
-        }
-    }
-
-    clearCache() {
-        try {
-            this.emailCache.clear();
-            if (fs.existsSync(this.cacheFilePath)) {
-                fs.unlinkSync(this.cacheFilePath);
-            }
-        } catch (error) {
-            console.error('Error clearing cache:', error);
-        }
-    }
-}
-
-module.exports = GmailService;
-
-//--- File: /home/luan_ngo/web/events/services/aiService.js ---
-const OpenAI = require('openai');
-const fs = require('fs');
-const path = require('path');
-const backgroundService = require('./BackgroundService');
-const { zodResponseFormat } = require('openai/helpers/zod');
-const Groq = require("groq-sdk");
-const { GoogleGenerativeAI } = require('@google/generative-ai');
-class AIService {
-  constructor() {
-    
-    this.providers = {
-      openai: new OpenAI({ apiKey: process.env.OPENAI_API_KEY }),
-      groq: new Groq({ apiKey: process.env.GROQ_API_KEY }),
-      google: new GoogleGenerativeAI(process.env.GOOGLE_API_KEY)
-    };
-    
-    this.currentProvider = {
-      name: 'openai',
-      model: 'gpt-4o-mini-2024-07-18'
-    };
-    
-    this.modelMappings = {
-      openai: {
-        default: 'gpt-4o-mini-2024-07-18',
-        alternative: 'gpt-4'
-      },
-      groq: {
-        default: 'mixtral-8x7b-32768',
-        alternative: 'llama2-70b-4096'
-      },
-      google: {
-        default: 'gemini-1.5-flash',
-        alternative: 'gemini-1.5-pro'
-      }
-    };
-    this.dataDir = path.join(__dirname, '..', 'data');
-    this.conversationsPath = path.join(this.dataDir, 'conversations.json');
-
-    
-    if (!fs.existsSync(this.dataDir)) {
-      fs.mkdirSync(this.dataDir, { recursive: true });
-    }
-
-    
-    this.messageHistory = [];
-    this.currentConversationId = null;
-
-    
-    this.loadConversations();
-  }
-
-  setProvider(providerName, modelName = null) {
-    if (!this.providers[providerName]) {
-      throw new Error(`Unsupported provider: ${providerName}`);
-    }
-
-    this.currentProvider.name = providerName;
-    this.currentProvider.model = modelName || this.modelMappings[providerName].default;
-  }
-  loadConversations() {
-    try {
-      if (fs.existsSync(this.conversationsPath)) {
-        const conversations = JSON.parse(fs.readFileSync(this.conversationsPath, 'utf8'));
-        if (conversations.length > 0) {
-          const lastConversation = conversations[conversations.length - 1];
-          this.messageHistory = lastConversation.messages;
-          this.currentConversationId = lastConversation.id;
-        }
-      }
-    } catch (error) {
-      console.error('Error loading conversations:', error);
-      this.messageHistory = [];
-    }
-  }
-
-  resetHistory(save = true) {
-    this.messageHistory = [];
-    this.currentConversationId = Date.now().toString();
-
-    if (save) {
-      this.saveConversations();
-    }
-
-    return this.currentConversationId;
-  }
-  saveConversations() {
-    try {
-      
-      const processedHistory = this.messageHistory.map(message => {
-        const processedMessage = { ...message };
-        if (typeof processedMessage.content === 'object' && processedMessage.content !== null) {
-          processedMessage.content = JSON.stringify(processedMessage.content);
-        }
-        return processedMessage;
-      });
-
-      fs.writeFileSync(this.conversationsPath, JSON.stringify(processedHistory, null, 2));
-    } catch (error) {
-      console.error('Error saving conversations:', error);
-    }
-  }
-
-  async generateResponse(messages, options = {}) {
-    try {
-      const {
-        includeBackground = false,
-        maxTokens = undefined,
-        resetHistory = false,
-        includeHistory = true,
-        schema = null,
-        schemaName = null,
-        provider = this.currentProvider.name,
-        model = this.currentProvider.model
-      } = options;
-
-      if (resetHistory)
-        this.resetHistory();
-
-      let contextualizedMessages = [];
-
-      if (includeHistory && !resetHistory && this.messageHistory.length > 0) {
-        contextualizedMessages.push(...this.messageHistory);
-      }
-
-      contextualizedMessages.push(...messages);
-
-      if (includeBackground) {
-        const { backgroundInfo } = backgroundService.getBackground();
-        if (backgroundInfo) {
-          const systemMessage = {
-            role: 'system',
-            content: `Use this venue information as context for your response:\n\n${backgroundInfo}\n\n${messages.find(m => m.role === 'system')?.content || ''}`
-          };
-
-          const systemIndex = contextualizedMessages.findIndex(m => m.role === 'system');
-          if (systemIndex >= 0) {
-            contextualizedMessages[systemIndex] = systemMessage;
-          } else {
-            contextualizedMessages.unshift(systemMessage);
-          }
-        }
-      }
-
-      let response;
-      let parsedData;
-
-      
-      switch (provider) {
-        case 'openai':
-          if (schema) {
-            const result = await this.providers.openai.beta.chat.completions.parse({
-              model,
-              messages: contextualizedMessages,
-              response_format: zodResponseFormat(schema, schemaName),
-              ...(maxTokens && { max_tokens: maxTokens })
-            });
-            parsedData = result.choices[0].message.parsed;
-            response = parsedData;
-          } else {
-            const contents = contextualizedMessages.map(msg => {
-              if (typeof msg.content === 'object' && msg.content !== null) {
-                msg.content = JSON.stringify(msg.content);
-              }
-              return {
-                role: msg.role,
-                content: msg.content
-              }; F
-            });
-            const result = await this.providers.openai.chat.completions.create({
-              model,
-              messages: contents,
-              ...(maxTokens && { max_tokens: maxTokens })
-            });
-            response = result.choices[0].message.content;
-          }
-          break;
-
-        case 'groq':
-          const groqResult = await this.providers.groq.chat.completions.create({
-            model,
-            messages: contextualizedMessages,
-            ...(maxTokens && { max_tokens: maxTokens })
-          });
-          response = groqResult.choices[0].message.content;
-          break;
-
-        case 'google':
-          const geminiModel = this.providers.google.getGenerativeModel({ model });
-          const contents = contextualizedMessages.map(msg => {
-            if (typeof msg.content === 'object' && msg.content !== null) {
-              msg.content = JSON.stringify(msg.content);
-            }
-            return {
-              role: msg.role === 'assistant' ? 'model' : (msg.role === 'system' ? 'user' : msg.role),
-              parts: [{ text: msg.content }]
-            };
-          });
-          const geminiResult = await geminiModel.generateContent({ contents });
-          response = geminiResult.response.text();
-          break;
-
-        default:
-          throw new Error(`Unsupported provider: ${provider}`);
-      }
-
-      const timestamp = new Date().toISOString();
-      const messagesWithTimestamp = messages.map(msg => ({
-        ...msg,
-        timestamp
-      }));
-      const responseWithTimestamp = {
-        role: 'assistant',
-        content: response,
-        timestamp,
-        provider,
-        model
-      };
-
-      this.messageHistory.push(...messagesWithTimestamp);
-      this.messageHistory.push(responseWithTimestamp);
-
-      if (this.messageHistory.length > 50) {
-        this.messageHistory = this.messageHistory.slice(-50);
-      }
-
-      this.saveConversations();
-
-      return {
-        response,
-        parsedData: schema ? parsedData : undefined,
-        historyIncluded: includeHistory && !resetHistory,
-        historyReset: resetHistory,
-        messageCount: this.messageHistory.length,
-        provider,
-        model
-      };
-
-    } catch (error) {
-      console.error('Error generating AI response:', error);
-      throw error;
-    }
-  }
-  clearHistory() {
-    this.messageHistory = [];
-    this.currentConversationId = Date.now().toString();
-    this.saveConversations();
-  }
-
-  getMessageHistory() {
-    return this.messageHistory;
-  }
-}
-
-module.exports = new AIService();
-
 //--- File: /home/luan_ngo/web/events/services/User.js ---
 const fs = require('fs');
 const path = require('path');
@@ -1844,56 +552,7 @@ class EmailProcessorServer {
                     {
                         role: 'user',
                         content: `
-                      
-                              You are a booking assistant for TacoTaco restaurant. Extract event details from this email and provide them in JSON format. 
-
-                                Follow these guidelines carefully:
-                                1. EXCLUDE these as customer details (they are staff):
-                                - Names: "Liem Ngo" or "Luan Ngo"
-                                - Email: "info@eattaco.ca"
-                                - Phone: "(647) 692-4768"
-
-                                2. Room options MUST be one of:
-                                - "Lounge" (also known as Moonlight Lounge)
-                                - "DiningRoom" (also known as Dining Room)
-                                - "Patio" (for outdoor space)
-
-                                3. Services should be an array containing any of these exact values:
-                                - "dj" - for DJ services
-                                - "live" - for Live Band
-                                - "bar" - for Private Bar service
-                                - "lights" - for Party Lights
-                                - "audio" - for Audio Equipment
-                                - "music" - for Background Music
-                                - "kareoke" - for Karaoke
-                                - "catering" - for Food Service
-                                - "drink" - for Drink Packages
-
-                                5. Party Types should be specific (e.g., "Birthday Party", "Corporate Event", "Wedding Reception", etc.)
-
-                                6. Notes field should include:
-                                - Special requests
-                                - Dietary restrictions
-                                - Setup requirements
-                                - Payment discussions
-                                - But EXCLUDE basic venue information
-
-                                Provide the JSON in this exact format:
-                                {
-                                    "name": "contact name",
-                                    "email": "contact email",
-                                    "phone": "contact phone (optional, include only if specifically mentioned)",
-                                    "partyType": "type of event",
-                                    "startTime": "YYYY-MM-DD HH:mm",
-                                    "endTime": "YYYY-MM-DD HH:mm",
-                                    "room": "Lounge | DiningRoom | Patio",
-                                    "attendance": "number of expected guests",
-                                    "services": ["array of applicable services from the list above"],
-                                    "notes": "important details excluding venue information (optional)"
-                                }
-
-                                Email content:
-                                ${cleanedText}
+                      ${cleanedText}
                     `
                     }
                 ];
@@ -2340,308 +999,72 @@ class EmailProcessorServer {
 module.exports = EmailProcessorServer;
 
 
-//--- File: /home/luan_ngo/web/events/services/BackgroundService.js ---
+//--- File: /home/luan_ngo/web/events/routes/BackgroundRoutes.js ---
 
 
-const fs = require('fs');
-const path = require('path');
-
-class BackgroundService {
-    constructor() {
-        this.backgroundFilePath = path.join(__dirname, '..', 'data', 'background.json');
-        this.initializeBackgroundFile();
-    }
-
-    initializeBackgroundFile() {
-        const dataDir = path.join(__dirname, '..', 'data');
-        
-        
-        if (!fs.existsSync(dataDir)) {
-            fs.mkdirSync(dataDir, { recursive: true });
-        }
-
-        
-        if (!fs.existsSync(this.backgroundFilePath)) {
-            this.saveBackground('');
-        }
-    }
-
-    getBackground() {
-        try {
-            const data = fs.readFileSync(this.backgroundFilePath, 'utf8');
-            return JSON.parse(data);
-        } catch (error) {
-            console.error('Error reading background info:', error);
-            return { backgroundInfo: '' };
-        }
-    }
-
-    saveBackground(backgroundInfo) {
-        try {
-            fs.writeFileSync(
-                this.backgroundFilePath, 
-                JSON.stringify({ backgroundInfo }, null, 2),
-                'utf8'
-            );
-            return true;
-        } catch (error) {
-            console.error('Error saving background info:', error);
-            return false;
-        }
-    }
-}
-
-module.exports = new BackgroundService();
-
-//--- File: /home/luan_ngo/web/events/routes/gmail.js ---
 const express = require('express');
 const router = express.Router();
+const backgroundService = require('../services/BackgroundService');
 
-module.exports = (googleAuth, gmailService) => {
 
-    router.post('/archiveEmail/:id', async (req, res) => {
-        try {
-            const messageId = req.params.id;
-            await gmailService.archiveEmail(messageId);
-            res.json({ success: true });
-        } catch (error) {
-            console.error('Error archiving email:', error);
-            res.status(500).json({
-                error: 'Error archiving email',
-                details: error.message
-            });
-        }
-    });
-    router.post('/sendEmail', async (req, res) => {
-        try {
-            const { html, to, subject, replyToMessageId, source } = req.body;
-
-            if (!html || !to || !subject) {
-                return res.status(400).json({
-                    success: false,
-                    error: 'Missing required fields',
-                    details: 'html, to, and subject are required'
-                });
-            }
-
-            const result = await gmailService.sendEmail(to, subject, html, {
-                replyToMessageId,
-                source
-            });
-
-            res.json({
-                success: true,
-                messageId: result.messageId,
-                threadId: result.threadId,
-                isReply: result.isReply
-            });
-        } catch (error) {
-            console.error('Error in send email route:', error);
-            res.status(500).json({
-                success: false,
-                error: error.message
-            });
-        }
-    });
-    router.get('/readGmail', async (req, res) => {
-        try {
-            const type = req.query.type || 'all';
-            const email = req.query.email;
-            const forceRefresh = req.query.forceRefresh === 'true';
-            const count = req.query.count || 25;
-
-            let emails;
-            if (type === 'interac') {
-                
-                emails = await gmailService.getAllEmails(count, false, forceRefresh, "in:inbox-deposits");
-                emails = emails.filter(email => {
-                    const subject = email.subject?.toLowerCase() || '';
-                    return subject.includes('interac');
-                });
-            } else if (type === 'contact' && email) {
-                emails = await gmailService.getEmailsForContact(email);
-            } else {
-                emails = await gmailService.getAllEmails(50, false, forceRefresh);
-            }
-
-            
-            if (type !== 'interac') {
-                emails = emails.filter(email => email.labels.includes('INBOX'));
-            }
-
-            res.json(emails);
-        } catch (error) {
-            console.error('Error reading Gmail:', error);
-            res.status(500).json({
-                error: 'Error reading Gmail',
-                details: error.message,
-            });
-        }
-    });
-    router.post('/forwardEmail', async (req, res) => {
-        try {
-            const { messageId, to } = req.body;
-            const message = await gmailService.getMessage(messageId);
-
-            
-            await gmailService.sendEmail(
-                to,
-                `Fwd: ${message.payload.headers.find(h => h.name === 'Subject')?.value}`,
-                message.parsedContent.html || message.parsedContent.text
-            );
-
-            res.json({ success: true });
-        } catch (error) {
-            console.error('Error forwarding email:', error);
-            res.status(500).json({
-                error: 'Error forwarding email',
-                details: error.message
-            });
-        }
-    });
-
-    router.get('/messages/:id', async (req, res) => {
-        try {
-            const message = await gmailService.getMessage(req.params.id);
-            const content = await gmailService.parseEmailContent(message);
-            res.json({
-                id: message.id,
-                from: message.payload.headers.find(h => h.name === 'From')?.value || '',
-                to: message.payload.headers.find(h => h.name === 'To')?.value || '',
-                subject: message.payload.headers.find(h => h.name === 'Subject')?.value || '',
-                timestamp: message.payload.headers.find(h => h.name === 'Date')?.value || '',
-                text: content,
-                labels: message.labelIds || []
-            });
-        } catch (error) {
-            console.error('Error retrieving message:', error);
-            res.status(500).json({
-                error: 'Error retrieving message',
-                details: error.message
-            });
-        }
-    });
-
-    async function checkForReplies(emails, cachedEmailMap) {
-        
-        const threadGroups = new Map();
-        emails.forEach(email => {
-            if (!email.labels.includes('SENT')) { 
-                if (!threadGroups.has(email.threadId)) {
-                    threadGroups.set(email.threadId, []);
-                }
-                threadGroups.set(email.threadId, [...threadGroups.get(email.threadId), email]);
-            }
+router.get('/api/settings/background', (req, res) => {
+    try {
+        const data = backgroundService.getBackground();
+        res.json(data);
+    } catch (error) {
+        console.error('Error retrieving background info:', error);
+        res.status(500).json({
+            error: 'Failed to retrieve background information',
+            details: error.message
         });
+    }
+});
 
-        for (const [threadId, threadEmails] of threadGroups) {
-            try {
-                const threadMessages = await gmailService.getThreadMessages(threadId);
 
-                
-                const sentMessages = threadMessages.filter(msg => msg.labelIds.includes('SENT'));
-
-                
-                threadEmails.forEach(inboxEmail => {
-                    const replied = sentMessages.some(sentMsg =>
-                        parseInt(sentMsg.internalDate) > parseInt(inboxEmail.internalDate)
-                    );
-
-                    if (cachedEmailMap[inboxEmail.id]) {
-                        cachedEmailMap[inboxEmail.id].replied = replied;
-                    }
-                });
-            } catch (err) {
-                console.error(`Error checking replies for thread ${threadId}:`, err);
-            }
+router.post('/api/settings/background', (req, res) => {
+    try {
+        if (!req.body || typeof req.body.backgroundInfo !== 'string') {
+            return res.status(400).json({
+                error: 'Invalid request body. Expected { backgroundInfo: string }',
+                receivedBody: req.body
+            });
         }
+
+        const success = backgroundService.saveBackground(req.body.backgroundInfo);
+
+        if (success) {
+            res.json({ success: true });
+        } else {
+            res.status(500).json({ error: 'Failed to save background information' });
+        }
+    } catch (error) {
+        console.error('Error saving background info:', error);
+        res.status(500).json({
+            error: 'Failed to save background information',
+            details: error.message
+        });
     }
-
-    return router;
-};
-
-//--- File: /home/luan_ngo/web/events/routes/ai.js ---
-
-const express = require('express');
-const router = express.Router();
-const aiService = require('../services/aiService');
-
-
-router.post('/chat', async (req, res) => {
-  const { message, provider } = req.body;
-  try {
-    
-    if (provider) {
-      aiService.setProvider(provider);
-    }
-
-    
-    const aiResponse = await aiService.generateResponse([
-      {role:'user',
-        content:message
-      }
-    ],
-      {
-        provider: 'google',
-        model: 'gemini-1.5-flash'
-      }
-    );
-
-    res.json({ response: aiResponse.response });
-  } catch (error) {
-    res.status(500).json({ error: 'AI service error' });
-  }
-});
-router.post('/analyzeEventUpdate', async (req, res) => {
-  try {
-    const { eventDetails, emailContent } = req.body;
-
-    const prompt = `
-          Read only the most recent email in the email chain. 
-
-          Current Event Details:
-          ${JSON.stringify(eventDetails, null, 2)}
-          
-          New Email Content:
-          ${emailContent}
-          
-          Provide a concise but summary of what should be added to the event notes.
-          Focus on any changes to: attendance, catering preferences, drink selections, setup requests, 
-          timing details, or special accommodations. Only respond with the organizers requets, no introduction. 
-      `;
-
-    const { response } = await aiService.generateResponse([
-
-      {
-        role: 'user',
-        content: prompt
-      }
-    ], {
-      includeBackground: true,
-      resetHistory: true
-    });
-
-    res.json({
-      success: true,
-      summary: response
-    });
-
-  } catch (error) {
-    console.error('Error analyzing event update:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-router.get('/resetHistory', (req, res) => {
-  aiService.resetHistory([]);
-  res.json({ message: 'Conversation history reset' });
 });
 
 module.exports = router;
 
+//--- File: /home/luan_ngo/web/events/data/userSettings.json ---
+{
+    "emailCategories": [
+        {
+            "name": "event_platform",
+            "description": "Emails mentioning Tagvenue or Peerspace"
+        },
+        {
+            "name": "event",
+            "description": "Emails related to event bookings, catering, drinks. do not include opentable emails."
+        },
+        {
+            "name": "other",
+            "description": "Any other type of email, including receipts"
+        }
+    ]
+}
 
 //--- File: /home/luan_ngo/web/events/public/scripts.js ---
 
@@ -2707,7 +1130,7 @@ export class EventManageApp {
         this.initializeBackgroundInfo();
         this.initializeMobileNavigation();
     }
-
+    
     initializeMobileNavigation() {
         window.scrollToSection = (sectionId) => {
             const section = document.getElementById(sectionId);
@@ -2944,6 +1367,36 @@ export class EventManageApp {
             console.error('Error loading templates:', error);
         }
     }
+    cleanEmailContent(emailContent) {
+        if (!emailContent) return '';
+
+        return emailContent
+            
+            .replace(/TacoTaco Events Team\s*\(\d{3}\)\s*\d{3}-\d{4}\s*\|\s*info@eattaco\.ca\s*eattaco\.ca/g, '')
+            .replace(/Founder and Director[\s\S]*?@drdinakulik/g, '')
+
+            
+            .replace(/\[https?:\/\/[^\]]+\]/g, '')
+            .replace(/<(?![\w.@-]+>)[^>]+>/g, '')  
+
+            
+            .replace(/\s*Get Outlook for iOS\s*/, '')
+            .replace(/\s*Learn why this is important\s*/, '')
+            .replace(/\s*You don't often get email from.*?\s*/g, '')
+
+            
+            .replace(/[\t ]+/g, ' ')           
+            .replace(/\n\s*\n\s*\n/g, '\n\n')  
+            .replace(/^\s+|\s+$/gm, '')        
+            .replace(/________________________________/g, '\n---\n') 
+
+            
+            .replace(/^[>\s>>>>>]+(?=\S)/gm, '') 
+
+            
+            .replace(/[\r\n]+/g, '\n')         
+            .trim();
+    }
     async sendAIRequest(endpoint, data) {
         try {
             
@@ -2964,7 +1417,8 @@ export class EventManageApp {
     }
 
     async getEventDetailsFromEmail(text, email) {
-        text += ` Email: ${email}`;
+
+        text = this.cleanEmailContent(text)
         text = this.templates.eventPrompt + text;
 
         try {
@@ -3405,10 +1859,10 @@ export class EventManageApp {
             this.calculateRate();
         });
 
-        $(document).on("click", ".contactBtn", (e) => {
+        $(document).on("click", ".contactBtn", function(e)  {
             e.preventDefault();
             $('html, body').animate({ scrollTop: $('#info').offset().top }, 500);
-            this.loadContact($(e.target).parent().data("id"));
+            me.loadContact($(this).parent().data("id"));
         });
 
         $(document).on("click", ".sendToAiFromResult", (e) => {
@@ -4172,8 +2626,18 @@ export class EventManageApp {
     async initializeBackgroundInfo() {
         try {
             
-            const data = await this.emailProcessor.userSettings.loadSettings();
+            const backgroundResponse = await fetch('/api/settings/background');
+            const backgroundData = await backgroundResponse.json();
+            $('#backgroundInfo').val(backgroundData.backgroundInfo || '');
+
             
+            const categoriesResponse = await fetch('/api/settings/email-categories');
+            const data = await categoriesResponse.json();
+
+            if (!data.emailCategories || !Array.isArray(data.emailCategories)) {
+                throw new Error('Invalid email categories format');
+            }
+
             
             const categoryRows = data.emailCategories.map((category, index) => `
                 <tr>
@@ -4196,11 +2660,11 @@ export class EventManageApp {
                     </td>
                 </tr>
             `).join('');
-      
+
             $('#emailCategoryTable tbody').html(categoryRows);
-      
+
             
-            $(document).off('click', '.delete-category').on('click', '.delete-category', function() {
+            $(document).off('click', '.delete-category').on('click', '.delete-category', function () {
                 $(this).closest('tr').remove();
             });
 
@@ -4228,31 +2692,41 @@ export class EventManageApp {
                 `;
                 $('#emailCategoryTable tbody').append(newRow);
             });
-      
+
             $('#saveBackgroundInfo').off('click').on('click', async () => {
                 try {
-                    const emailCategories = {};
+                    
+                    const backgroundInfo = $('#backgroundInfo').val();
+                    await fetch('/api/settings/background', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ backgroundInfo })
+                    });
+
+                    
+                    const emailCategories = [];
                     $('#emailCategoryTable tbody tr').each((index, row) => {
                         const name = $(`#emailCategoryName-${index}`, row).val().trim();
                         const description = $(`#emailCategoryDescription-${index}`, row).val().trim();
                         if (name !== '') {
-                            emailCategories[name] = description;
+                            emailCategories.push({ name, description });
                         }
                     });
-                    
+
                     await this.emailProcessor.userSettings.saveSettings({ emailCategories });
-                    this.showToast('Email categories saved successfully', 'success');
+                    this.showToast('Settings saved successfully', 'success');
                 } catch (error) {
                     console.error('Error saving settings:', error);
-                    this.showToast('Failed to save email categories', 'error');
+                    this.showToast('Failed to save settings', 'error');
                 }
             });
         } catch (error) {
             console.error('Failed to load background info:', error);
-            this.showToast('Failed to load email categories', 'error');
+            this.showToast('Failed to load background info', 'error');
         }
     }
-
     populateBackgroundFields() {
         
         $('#venueName').val(this.backgroundInfo.venueName || '');
@@ -4809,73 +3283,1060 @@ export class EventManageApp {
 }
 
 
-//--- File: /home/luan_ngo/web/events/app.js ---
+//--- File: /home/luan_ngo/web/events/public/index.html ---
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>EventSync</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    
+    <script>
+        
+        const savedTheme = localStorage.getItem('theme') || 'light';
+        document.documentElement.setAttribute('data-theme', savedTheme);
+    </script>
+    
+    <link href="https:
+    <link href="https:
+    <link href="/styles.css" rel="stylesheet">
+</head>
+
+<body class="min-h-screen bg-base-100">
+    
+    <header class="sticky top-0 z-50 bg-base-100 border-b border-base-200">
+        <div class="mx-auto px-4 py-3">
+            <h1 class="text-2xl font-bold text-base-content">Event Management</h1>
+        </div>
+        
+        <div class="hidden lg:flex fixed top-4 right-4 gap-2 z-50">
+            <button class="btn btn-ghost btn-circle tooltip tooltip-left" data-tip="Contacts">
+                <i class="bi bi-address-book text-xl"></i>
+            </button>
+            <button class="btn btn-ghost btn-circle tooltip tooltip-left" data-tip="Event Details">
+                <i class="bi bi-info-circle text-xl"></i>
+            </button>
+            <button class="btn btn-ghost btn-circle tooltip tooltip-left" data-tip="Messages">
+                <i class="bi bi-envelope text-xl"></i>
+            </button>
+            <button class="btn btn-ghost btn-circle tooltip tooltip-left" data-tip="Actions">
+                <i class="bi bi-list text-xl"></i>
+            </button>
+            <button class="btn btn-ghost btn-circle tooltip tooltip-left" data-tip="Calendar">
+                <i class="bi bi-calendar text-xl"></i>
+            </button>
+            <button onclick="window.user_settings_modal.showModal()"
+                class="btn btn-ghost btn-circle tooltip tooltip-left" data-tip="Settings">
+                <i class="bi bi-gear text-xl"></i>
+            </button>
+        </div>
+    </header>
+
+    
+    <div class="mx-auto px-4 py-6">
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            
+            <aside class="lg:col-span-1">
+                <div class="sticky top-20">
+                    <div class="card bg-base-100 shadow-lg">
+                        <div class="card-body p-4">
+                            <div class="flex justify-between items-center">
+                                <h2 class="card-title text-lg">Contacts</h2>
+                                <div class="dropdown dropdown-end">
+                                    <button tabindex="0" class="btn btn-ghost btn-sm btn-square tooltip"
+                                        data-tip="Filter">
+                                        <i class="bi bi-filter"></i>
+                                    </button>
+                                    <ul tabindex="0"
+                                        class="dropdown-content menu p-2 shadow bg-base-100 rounded-box w-52">
+                                        <li><a href="#" id="sortByName">Sort By Name</a></li>
+                                        <li><a href="#" id="sortByDateBooked">Sort By Date Booked</a></li>
+                                        <li><a href="#" id="sortByEventDate">Sort By Event Date</a></li>
+                                        <li class="mt-2">
+                                            <input type="text" class="input input-bordered w-full" id="searchInput"
+                                                placeholder="Search">
+                                        </li>
+                                    </ul>
+                                </div>
+                            </div>
+                            <div class="divider my-2"></div>
+                            <div class="overflow-y-auto max-h-[calc(100vh-200px)]" id="contacts">
+                                
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
+            
+            <main class="lg:col-span-3 space-y-6">
+                
+                <section id="info" class="card bg-base-100 shadow-lg">
+                    <div class="card-body">
+                        <h2 class="card-title text-lg mb-4">Event Details</h2>
+
+                        
+                        <div class="grid lg:grid-cols-4 gap-6">
+
+                            
+                            <div class="lg:col-span-3 space-y-8">
+
+                                
+                                <div class="space-y-4">
+                                    <h3 class="font-medium text-base flex items-center gap-2 text-primary">
+                                        <i class="bi bi-person"></i>
+                                        Contact Information
+                                    </h3>
+                                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        
+                                        <div class="form-control">
+                                            <label class="label">
+                                                <span class="label-text font-medium">Name</span>
+                                            </label>
+                                            <input type="text" id="infoName"
+                                                class="input input-bordered w-full focus:border-primary" />
+                                        </div>
+                                        
+                                        <div class="form-control">
+                                            <label class="label">
+                                                <span class="label-text font-medium">Phone</span>
+                                            </label>
+                                            <input type="tel" id="actionsPhone" class="input input-bordered w-full"
+                                                pattern="[0-9]{3}-[0-9]{3}-[0-9]{4}" />
+                                        </div>
+                                        
+                                        <div class="form-control">
+                                            <label class="label">
+                                                <span class="label-text font-medium">Email</span>
+                                            </label>
+                                            <input type="email" id="infoEmail" class="input input-bordered w-full" />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                
+                                <div class="space-y-4">
+                                    <h3 class="font-medium text-base flex items-center gap-2 text-primary">
+                                        <i class="bi bi-clock"></i>
+                                        Event Timing
+                                    </h3>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        
+                                        <div class="form-control">
+                                            <label class="label">
+                                                <span class="label-text font-medium">Start Time</span>
+                                            </label>
+                                            <input type="datetime-local" id="infoStartTime"
+                                                class="input input-bordered w-full" />
+                                        </div>
+                                        
+                                        <div class="form-control">
+                                            <label class="label">
+                                                <span class="label-text font-medium">End Time</span>
+                                            </label>
+                                            <input type="datetime-local" id="infoEndTime"
+                                                class="input input-bordered w-full" />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                
+                                <div class="space-y-4">
+                                    <h3 class="font-medium text-base flex items-center gap-2 text-primary">
+                                        <i class="bi bi-info-circle"></i>
+                                        Event Information
+                                    </h3>
+                                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        
+                                        <div class="form-control">
+                                            <label class="label">
+                                                <span class="label-text font-medium">Party Type</span>
+                                            </label>
+                                            <input type="text" id="infoPartyType" class="input input-bordered w-full" />
+                                        </div>
+                                        
+                                        <div class="form-control">
+                                            <label class="label">
+                                                <span class="label-text font-medium">Expected Attendance</span>
+                                            </label>
+                                            <input type="number" id="infoAttendance"
+                                                class="input input-bordered w-full" />
+                                        </div>
+                                        <div class="form-control">
+                                            <label class="label">
+                                                <span class="label-text font-medium">Status</span>
+                                            </label>
+                                            <select id="infoStatus" class="select select-bordered w-full" multiple>
+                                                <option value="contractSent">Contract Sent</option>
+                                                <option value="depositPaid">Deposit Paid</option>
+                                                <option value="reserved">Reserved</option>
+                                                <option value="completed">Event Completed</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                
+                                <div class="space-y-4">
+                                    <h3 class="font-medium text-base flex items-center gap-2 text-primary">
+                                        <i class="bi bi-building"></i>
+                                        Venue Details
+                                    </h3>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        
+                                        <div class="form-control">
+                                            <label class="label">
+                                                <span class="label-text font-medium">Room Selection</span>
+                                            </label>
+                                            <select id="infoRoom" class="select select-bordered w-full">
+                                                <option value="Lounge">Lounge</option>
+                                                <option value="DiningRoom">Dining Room</option>
+                                                <option value="Patio">Patio</option>
+                                            </select>
+                                        </div>
+                                        
+                                        <div class="form-control">
+                                            <label class="label">
+                                                <span class="label-text font-medium">Services</span>
+                                            </label>
+                                            <select id="infoServices" class="select select-bordered w-full" multiple>
+                                                <option value="dj">DJ</option>
+                                                <option value="live">Live Band</option>
+                                                <option value="bar">Private Bar</option>
+                                                <option value="lights">Party Lights</option>
+                                                <option value="audio">Audio Equipment</option>
+                                                <option value="music">Music</option>
+                                                <option value="kareoke">Karaoke</option>
+                                                <option value="catering">Catering</option>
+                                                <option value="drink">Drink Package</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                
+                                <div class="space-y-4">
+                                    <h3 class="font-medium text-base flex items-center gap-2 text-primary">
+                                        <i class="bi bi-currency-dollar"></i>
+                                        Financial Details
+                                    </h3>
+                                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        
+                                        <div class="form-control">
+                                            <label class="label">
+                                                <span class="label-text font-medium">Rental Rate</span>
+                                            </label>
+                                            <div class="relative">
+                                                <span
+                                                    class="absolute left-3 top-1/2 transform -translate-y-1/2">$</span>
+                                                <input type="number" id="infoRentalRate"
+                                                    class="input input-bordered w-full pl-7" />
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="form-control">
+                                            <label class="label">
+                                                <span class="label-text font-medium">Minimum Spend</span>
+                                            </label>
+                                            <div class="relative">
+                                                <span
+                                                    class="absolute left-3 top-1/2 transform -translate-y-1/2">$</span>
+                                                <input type="number" id="infoMinSpend"
+                                                    class="input input-bordered w-full pl-7" />
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="form-control">
+                                            <label class="label">
+                                                <span class="label-text font-medium">Hourly Rate</span>
+                                            </label>
+                                            <div class="flex items-center gap-2">
+                                                <div class="relative flex-1">
+                                                    <span
+                                                        class="absolute left-3 top-1/2 transform -translate-y-1/2">$</span>
+                                                    <input type="number" id="hourlyRate"
+                                                        class="input input-bordered w-full pl-7" value="125" />
+                                                </div>
+                                                <button id="calcRate" class="btn btn-primary tooltip"
+                                                    data-tip="Calculate">
+                                                    <i class="bi bi-calculator"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                
+                                <div class="border-t border-base-300 pt-6">
+                                    <div class="flex flex-wrap gap-2">
+                                        <button
+                                            class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
+                                            id="infoSave">
+                                            <i class="bi bi-save text-xl text-primary"></i>
+                                            <span class="text-xs font-medium">Save</span>
+                                        </button>
+                                        <button
+                                            class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
+                                            id="infoAddContact">
+                                            <i class="bi bi-person-plus text-xl text-primary"></i>
+                                            <span class="text-xs font-medium">Add Contact</span>
+                                        </button>
+                                        <button
+                                            class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
+                                            id="receipt">
+                                            <i class="bi bi-receipt text-xl text-primary"></i>
+                                            <span class="text-xs font-medium">Receipt</span>
+                                        </button>
+                                        <button
+                                            class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
+                                            id="summarizeEvent">
+                                            <i class="bi bi-file-earmark-text text-xl text-primary"></i>
+                                            <span class="text-xs font-medium">Summarize</span>
+                                        </button>
+                                        <button
+                                            class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
+                                            id="generateDeposit">
+                                            <i class="bi bi-cash text-xl text-primary"></i>
+                                            <span class="text-xs font-medium">Add Deposit</span>
+                                        </button>
+                                        <button
+                                            class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
+                                            id="actionsCreateContract">
+                                            <i class="bi bi-file-text text-xl text-primary"></i>
+                                            <span class="text-xs font-medium">Make Contract</span>
+                                        </button>
+                                        <button
+                                            class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
+                                            id="actionsEmailContract">
+                                            <i class="bi bi-envelope text-xl text-primary"></i>
+                                            <span class="text-xs font-medium">Email Contract</span>
+                                        </button>
+                                        <button
+                                            class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
+                                            id="actionsBookCalendar">
+                                            <i class="bi bi-calendar-check text-xl text-primary"></i>
+                                            <span class="text-xs font-medium">Add Calendar</span>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                
+                                <div id="depositPw" class="text-sm text-base-content/70"></div>
+                            </div>
+
+                            
+                            <div class="lg:col-span-1 flex flex-col h-full space-y-4">
+                                <h3 class="font-medium text-base flex items-center gap-2 text-primary">
+                                    <i class="bi bi-journal-text"></i>
+                                    Additional Notes
+                                </h3>
+                                <div class="form-control flex-1">
+                                    <textarea id="infoNotes" class="textarea textarea-bordered w-full flex-1"
+                                        placeholder="Enter any additional notes or special requirements..."></textarea>
+                                </div>
+                            </div>
+
+                        </div>
+                    </div>
+                </section>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[calc(100vh-12rem)]">
+                    
+                    <section id="messages" class="card bg-base-100 shadow-lg h-full">
+                        <div class="card-body flex flex-col h-full p-6">
+                            <div class="flex justify-between items-center mb-4">
+                                <h2 class="card-title text-lg">Messages</h2>
+                                <div class="flex gap-2">
+                                    <div id="toggleRepliedEmails"></div> 
+
+                                    <button class="btn btn-ghost btn-sm btn-square tooltip tooltip-left"
+                                        data-tip="Read Email" id="readAllEmails">
+                                        <i class="bi bi-envelope"></i>
+                                    </button>
+                                    <button class="btn btn-ghost btn-sm btn-square tooltip tooltip-left"
+                                        data-tip="Get Interac" id="getInterac">
+                                        <i class="bi bi-cash-coin"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="messages-container flex-1 overflow-y-auto">
+                                
+                            </div>
+                        </div>
+                    </section>
+
+                    
+                    <section id="actions" class="card bg-base-100 shadow-lg h-full">
+                        <div class="card-body flex flex-col h-full p-6">
+                            <h2 class="card-title text-lg mb-4">Actions & AI Assistant</h2>
+                            <div class="flex flex-wrap gap-2 mb-4">
+                            </div>
+
+                            
+                            <div class="flex-1 flex flex-col bg-base-200 rounded-lg p-4">
+                                
+                                <div class="flex justify-between items-center mb-2">
+                                    <h3 class="font-bold">AI Conversation</h3>
+                                    <button id="maximizeAiResult" class="btn btn-ghost btn-xs btn-square tooltip"
+                                        data-tip="Maximize">
+                                        <i class="bi bi-arrows-fullscreen"></i>
+                                    </button>
+                                </div>
+
+                                
+                                <div class="flex-1 overflow-y-auto bg-base-100 rounded-lg p-2 mb-4" id="aiResult">
+                                </div>
+
+                                
+                                <div class="mt-auto">
+                                    <div class="flex items-center gap-2 mb-2">
+                                        <h3 class="font-bold">Message</h3>
+                                        <button id="toggleButton" class="btn btn-ghost btn-xs btn-square tooltip"
+                                            data-tip="Expand">
+                                            <i class="bi bi-arrows-fullscreen"></i>
+                                        </button>
+                                    </div>
+                                    <div contenteditable="true"
+                                        class="bg-base-100 rounded-lg p-2 h-32 overflow-y-auto focus:outline-none border border-base-300 mb-4"
+                                        id="aiText">
+                                    </div>
+                                    <div class="space-y-4">
+                                        <div class="flex flex-wrap gap-4">
+                                            <button
+                                                class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
+                                                id="actionSendAI">
+                                                <i class="bi bi-chat-dots text-xl text-primary"></i>
+                                                <span class="text-xs font-medium">Chat</span>
+                                            </button>
+                                            <button
+                                                class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
+                                                id="confirmAI">
+                                                <i class="bi bi-check-circle text-xl text-primary"></i>
+                                                <span class="text-xs font-medium">Confirm</span>
+                                            </button>
+                                            <button
+                                                class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
+                                                id="clearAiText">
+                                                <i class="bi bi-trash text-xl text-primary"></i>
+                                                <span class="text-xs font-medium">Clear</span>
+                                            </button>
+                                            <button
+                                                class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
+                                                id="eventAI">
+                                                <i class="bi bi-calendar-plus text-xl text-primary"></i>
+                                                <span class="text-xs font-medium">Event</span>
+                                            </button>
+                                            <button
+                                                class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
+                                                id="emailAI">
+                                                <i class="bi bi-envelope text-xl text-primary"></i>
+                                                <span class="text-xs font-medium">Email</span>
+                                            </button>
+                                        </div>
+
+                                        <div class="flex items-center gap-2">
+                                            <input type="text" id="sendMailEmail" class="input input-bordered flex-1"
+                                                placeholder="Email">
+                                            <input type="text" id="sendMailSubject" class="input input-bordered flex-1"
+                                                placeholder="Subject">
+                                            <button
+                                                class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
+                                                id="sendEmail">
+                                                <i class="bi bi-send text-xl text-primary"></i>
+                                                <span class="text-xs font-medium">Send</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+            </main>
+        </div>
+        <div class="py-6">
+            <section id="calendar" class="card bg-base-100 shadow-lg">
+                <div class="card-body">
+                    <h2 class="card-title text-lg mb-4">Calendar</h2>
+                    <div id="calendarContainer" class="w-full">
+                        
+                    </div>
+                </div>
+            </section>
+        </div>
+    </div>
 
 
-const express = require('express');
-const path = require('path');
-const bodyParser = require('body-parser');
-const session = require('express-session');
-const GoogleAuth = require('./services/GoogleAuth');
-const EmailProcessorServer = require('./services/EmailProcessorServer');
-const backgroundRoutes = require('./routes/BackgroundRoutes');
-const GmailService = require('./services/gmailService');
-const EventService = require('./services/eventService');
-const cron = require('node-cron');
+    <div class="md:hidden btm-nav"> 
+        <button onclick="scrollToSection('contacts')" class="tooltip tooltip-top" data-tip="Contacts">
+            <i class="bi bi-people text-xl"></i> 
+        </button>
+        <button onclick="scrollToSection('info')" class="tooltip tooltip-top" data-tip="Event Details">
+            <i class="bi bi-info-circle text-xl"></i>
+        </button>
+        <button onclick="scrollToSection('messages')" class="tooltip tooltip-top" data-tip="Messages">
+            <i class="bi bi-envelope text-xl"></i>
+        </button>
+        <button onclick="scrollToSection('actions')" class="tooltip tooltip-top" data-tip="Actions">
+            <i class="bi bi-list text-xl"></i>
+        </button>
+        <button onclick="scrollToSection('calendar')" class="tooltip tooltip-top" data-tip="Calendar">
+            <i class="bi bi-calendar text-xl"></i>
+        </button>
+        <button onclick="window.user_settings_modal.showModal()" class="tooltip tooltip-top" data-tip="Settings">
+            <i class="bi bi-gear text-xl"></i>
+        </button>
+    </div>
+    <dialog id="maximize_content_modal" class="modal">
+        <div class="modal-box w-11/12 max-w-7xl h-[90vh]"> 
+            <h3 class="font-bold text-lg mb-4" id="maximizeModalTitle">Content View</h3>
+            <div id="maximizedContent" class="overflow-y-auto max-h-[calc(100%-8rem)] bg-base-100 rounded-lg p-4"
+                contenteditable="false">
+                
+            </div>
+            <div class="modal-action">
+                <form method="dialog">
+                    <button class="btn">Close</button>
+                </form>
+            </div>
+        </div>
+    </dialog>
+    
+    <dialog id="user_settings_modal" class="modal">
+        <div class="modal-box">
+            <h2 class="text-xl font-semibold mb-4">User Settings</h2>
+
+            
+            <div class="mb-6">
+                <h3 class="font-bold mb-2">Google Account Access</h3>
+                <p class="text-sm text-base-content/70 mb-2">
+                    Connect your Google account to access emails and calendar events.
+                </p>
+                <button id="googleOAuthButton" class="btn btn-primary btn-block gap-2 mb-2">
+                    <i class="bi bi-google"></i>
+                    Sign in with Google
+                </button>
+                <div id="connectedEmail" class="text-sm text-success"></div>
+            </div>
+
+            <div class="mb-6">
+                <h3 class="font-bold mb-2">Email Categories</h3>
+                <p class="text-sm text-base-content/70 mb-2">
+                    Customize the email categories used for categorization.
+                </p>
+                <div class="form-control">
+                    <table class="table w-full">
+                        <thead>
+                            <tr>
+                                <th>Category</th>
+                                <th>Description</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>
+                                    <input type="text" id="emailCategoryName-0" class="input input-bordered w-full"
+                                        placeholder="Category Name" />
+                                </td>
+                                <td>
+                                    <input type="text" id="emailCategoryDescription-0"
+                                        class="input input-bordered w-full" placeholder="Category Description" />
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <button class="btn btn-primary mt-2" id="addEmailCategory">Add Category</button>
+                </div>
+            </div>
+
+            
+            
+            <div class="mb-6">
+                <h3 class="font-bold mb-2">AI Background Information</h3>
+                <p class="text-sm text-base-content/70 mb-2">
+                    This information will be used to provide context to the AI about your venue, services, and policies.
+                </p>
+                <div class="form-control">
+                    <textarea id="backgroundInfo" class="textarea textarea-bordered min-h-[200px]"
+                        placeholder="Enter venue details, services, policies, and any other relevant information the AI should know about..."></textarea>
+                </div>
+                <div id="saveStatus" class="alert mt-2 hidden">
+                    <i class="bi bi-info-circle"></i>
+                    <span id="saveStatusText"></span>
+                </div>
+                <button id="saveBackgroundInfo" class="btn btn-primary gap-2 mt-4">
+                    <i class="bi bi-save"></i>
+                    Save Background Info
+                </button>
+            </div>
+            
+            <div class="mb-6">
+                <h3 class="font-bold mb-2">Account</h3>
+                <button id="logoutButton" class="btn btn-outline btn-error btn-block gap-2">
+                    <i class="bi bi-box-arrow-right"></i>
+                    Logout
+                </button>
+            </div>
+
+            <div class="modal-action">
+                <form method="dialog">
+                    <button class="btn">Close</button>
+                </form>
+            </div>
+        </div>
+    </dialog>
+
+    
+    <script src="https:
+    <script src="https:
+        integrity="sha512-WFN04846sdKMIP5LKNphMaWzU7YpMyCU245etK3g/2ARYbPK9Ub18eG+ljU96qKRCWh+quCY7yefSmlkQw1ANQ=="
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https:
+    <script
+        src="https:
+        integrity="sha512-s932Fui209TZcBY5LqdHKbANLKNneRzBib2GE3HkZUQtoWY3LBUN2kaaZDK7+8z8WnFY23TPUNsDmIAY1AplPg=="
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https:
+    <script src="https:
+    <script src="https:
+
+    <script src="/EmailEventUpdater.js"></script>
+    <script src="/EmailProcessor.js"></script>
+    <script src="/ReceiptManager.js"></script>
+    <script src="/calendar.js"></script>
+    <script type="module">
+        import { EventManageApp } from '/scripts.js';
+        window.app = new EventManageApp();
+
+        document.addEventListener('DOMContentLoaded', function () {
+            window.app.init();
+        });
+    </script>
+</body>
+
+</html>
+
+//--- File: /home/luan_ngo/web/events/public/EmailProcessor.js ---
+class EmailProcessor {
+    constructor(parent) {
+        this.currentConversationId = null;
+        this.registerEvents();
+        this.parent = parent;
+        this.userSettings = {
+            userSettings: {
+                async loadSettings() {
+                    try {
+                        const response = await fetch('/api/settings/email-categories');
+                        return await response.json();
+                    } catch (error) {
+                        console.error('Error loading user settings:', error);
+                        return {
+                            emailCategories: [
+                                {
+                                    "name": "event_platform",
+                                    "description": "Emails mentioning Tagvenue or Peerspace"
+                                },
+                                {
+                                    "name": "event",
+                                    "description": "Emails related to event bookings, catering, drinks. do not include opentable emails."
+                                },
+                                {
+                                    "name": "other",
+                                    "description": "Any other type of email, including receipts"
+                                }
+                            ]
+                        };
+                    }
+                },
+                async saveSettings(settings) {
+                    try {
+                        const response = await fetch('/api/settings/email-categories', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify(settings)
+                        });
+                        return await response.json();
+                    } catch (error) {
+                        console.error('Error saving user settings:', error);
+                        throw error;
+                    }
+                }
+            }
+        }
+        this.initializeEmailFilters(); 
+    }
+    async initializeEmailFilters() {
+        try {
+            
+            const categories = await this.userSettings.userSettings.loadSettings();
+
+            
+            const $filterButton = $('#toggleRepliedEmails');
+            const $dropdown = $(`
+                <div class="dropdown dropdown-end">
+                    <button class="btn btn-sm" tabindex="0">
+                        <i class="bi bi-filter"></i>
+                        <span class="ml-2">Filter</span>
+                    </button>
+                    <ul tabindex="0" class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-52">
+                        <li class="menu-title pt-0">
+                            <span>Show Emails</span>
+                        </li>
+                        <li>
+                            <label class="flex items-center gap-2">
+                                <input type="checkbox" class="checkbox checkbox-sm" data-filter="replied">
+                                <span>Replied</span>
+                            </label>
+                        </li>
+                        <li>
+                            <label class="flex items-center gap-2">
+                                <input type="checkbox" class="checkbox checkbox-sm" data-filter="archived">
+                                <span>Archived</span>
+                            </label>
+                        </li>
+                        <li class="menu-title">
+                            <span>Categories</span>
+                        </li>
+                        ${categories.emailCategories.map(category => `
+                            <li>
+                                <label class="flex items-center gap-2">
+                                    <input type="checkbox" class="checkbox checkbox-sm" data-filter="category" data-category="${category.name}">
+                                    <span>${category.name}</span>
+                                </label>
+                            </li>
+                        `).join('')}
+                    </ul>
+                </div>
+            `);
+
+            $filterButton.replaceWith($dropdown);
+
+            
+            this.filters = {
+                replied: false,
+                archived: false,
+                categories: new Set()
+            };
+
+            
+            this.originalEmails = [];
+
+            
+            $dropdown.find('input[type="checkbox"]').on('change', (e) => {
+                const $checkbox = $(e.target);
+                const filterType = $checkbox.data('filter');
+                const isChecked = $checkbox.prop('checked');
+
+                if (filterType === 'category') {
+                    const category = $checkbox.data('category');
+                    if (isChecked) {
+                        this.filters.categories.add(category);
+                    } else {
+                        this.filters.categories.delete(category);
+                    }
+                } else {
+                    this.filters[filterType] = isChecked;
+                }
+
+                
+                this.applyFilters();
+            });
+
+            
+            const originalReadGmail = this.parent.readGmail;
+            this.parent.readGmail = async (...args) => {
+                const response = await originalReadGmail.apply(this.parent, args);
+                if (Array.isArray(response)) {
+                    this.originalEmails = response;
+                }
+                return response;
+            };
+        } catch (error) {
+            console.error('Error initializing email filters:', error);
+        }
+    }
+
+    applyFilters() {
+        if (!Array.isArray(this.originalEmails)) return;
+
+        let filteredEmails = this.originalEmails.filter(email => {
+            
+            if (!this.filters.replied &&
+                !this.filters.archived &&
+                this.filters.categories.size === 0) {
+                return true;
+            }
+
+            
+            let showEmail = false;
+
+            
+            if (this.filters.replied && email.replied) {
+                showEmail = true;
+            }
+
+            
+            if (this.filters.archived && email.labels?.includes('Label_6')) {
+                showEmail = true;
+            }
+
+            
+            if (this.filters.categories.size > 0 && email.category) {
+                if (this.filters.categories.has(email.category)) {
+                    showEmail = true;
+                }
+            }
+
+            return showEmail;
+        });
+
+        
+        this.parent.processEmails(filteredEmails, { ignoreFilters: true });
+
+        
+        const $filterButton = $('.dropdown > button');
+        const activeFilters = [
+            this.filters.replied && 'Replied',
+            this.filters.archived && 'Archived',
+            ...Array.from(this.filters.categories)
+        ].filter(Boolean);
+
+        if (activeFilters.length > 0) {
+            $filterButton.addClass('btn-primary');
+            $filterButton.html(`
+                <i class="bi bi-filter"></i>
+                <span class="ml-2">${activeFilters.length} active</span>
+            `);
+        } else {
+            $filterButton.removeClass('btn-primary');
+            $filterButton.html(`
+                <i class="bi bi-filter"></i>
+                <span class="ml-2">Filter</span>
+            `);
+        }
+    }
+
+    registerEvents() {
+        $(document).on('click', '.draftEventSpecificEmail', async (e) => {
+            e.preventDefault();
+            const $target = $(e.target);
+            const $button = $target.hasClass('draftEventSpecificEmail') ?
+                $target : $target.closest('.draftEventSpecificEmail');
+            const $emailContainer = $button.closest('.sms');
+
+            const messageId = $emailContainer.data('id');
+            const emailAddress = $emailContainer.attr('to');
+            const subject = $emailContainer.attr('subject');
+            const emailContent = $emailContainer.find('.email').text();
+
+            
+            $('#aiText').data('replyToMessageId', messageId);
+            $('#aiText').data('source', 'draftEventSpecificEmail');
+
+            
+            const originalHtml = $button.html();
+            $button.html('<i class="bi bi-hourglass-split animate-spin"></i>');
+
+            try {
+                await this.handleDraftEventEmail(emailContent, subject, emailAddress, messageId);
+            } finally {
+                
+                $button.html(originalHtml);
+            }
+        });
+
+        $(document).on('click', '.sendToAiTextArea', async (e) => {
+            e.preventDefault();
+            const $target = $(e.target);
+            const $button = $target.hasClass('sendToAiTextArea') ?
+                $target : $target.closest('.sendToAiTextArea');
+            const $emailContainer = $button.closest('.sms');
+
+            const messageId = $emailContainer.data('id');
+            const emailAddress = $emailContainer.attr('to');
+            const subject = $emailContainer.attr('subject');
+            const emailContent = $emailContainer.find('.email').text();
+
+            
+            $('#aiText').data('replyToMessageId', messageId);
+            $('#aiText').data('source', 'sendToAiTextArea');
+
+            await this.sendToAiTextArea(emailContent, subject, emailAddress, messageId);
+        });
+        
+        $(document).on('click', '.summarizeEmailAI', async (e) => {
+            e.preventDefault();
+            const emailContent = $(e.target).closest('.sms').find('.email').text();
+            await this.handleSummarizeEmail(emailContent);
+        });
+
+        
+
+        $(document).on('click', '.archiveEmail', async (e) => {
+            e.preventDefault();
+            const $emailContainer = $(e.target).closest('.sms');
+            const messageId = $emailContainer.data('id');
+
+            const success = await this.archiveEmail(messageId);
+            if (success) {
+                window.app.showToast('Email archived successfully', 'success');
+            } else {
+                window.app.showToast('Failed to archive email', 'error');
+            }
+        });
+
+        
+        $(document).on('click', '#newConversation', () => {
+            this.startNewConversation();
+        });
+    }
+
+    startNewConversation() {
+        this.currentConversationId = null;
+        $('#aiText').html('');
+        $('#aiResult').html('');
+        $('#sendMailSubject').val(''); 
+
+    }
+
+    async handleSummarizeEmail(emailContent) {
+        try {
+            
+            const cleanedText = emailContent
+                .replace(/[-<>]/g, '')
+                .replace(/^Sent:.*$/gm, '')
+                .substring(0, 11000);
+
+            const response = await $.post('/api/summarizeAI', {
+                text: cleanedText,
+                conversationId: this.currentConversationId
+            });
+
+            
+            this.currentConversationId = response.conversationId;
+
+            
+            this.parent.writeToAIResult(response.summary);
+
+        } catch (error) {
+            console.error('Error summarizing email:', error);
+            alert('Failed to summarize email');
+        }
+    }
 
 
-const googleAuth = new GoogleAuth();
 
+    async archiveEmail(messageId) {
+        try {
+            const response = await $.post(`/gmail/archiveEmail/${messageId}`);
+            if (response.success) {
+                
+                $(`.sms[data-id="${messageId}"]`).fadeOut(300, function () {
+                    $(this).remove();
+                });
+                return true;
+            }
+            return false;
+        } catch (error) {
+            console.error('Error archiving email:', error);
+            return false;
+        }
+    }
+    async handleDraftEventEmail(emailContent, subject, emailAddress, messageId) {
+        try {
+            const response = await $.post('/api/getAIEmail', {
+                emailText: emailContent,
+                conversationId: this.currentConversationId,
+                includeBackground: true
+            });
 
-const app = express();
+            
+            this.setupEmailForm({
+                emailAddress,
+                subject,
+                messageId,
+                response,
+                source: 'draftEventSpecificEmail'
+            });
 
-const gmailService = new GmailService(googleAuth);
-const eventService = new EventService(googleAuth);
+            
+            this.parent.writeToAIResult(response.response.toString().replace(/\n/g, '<br>'));
 
+            
+            if (this.parent.sounds?.orderUp) {
+                this.parent.sounds.orderUp.play();
+            }
 
-gmailService.setEventService(eventService);
-eventService.setGmailService(gmailService);
+        } catch (error) {
+            console.error('Error drafting event email:', error);
+            this.parent.showToast('Failed to draft event email', 'error');
+        }
+    }
+    async sendToAiTextArea(emailContent, subject, emailAddress, messageId) {
+        
+        const formattedContent = this.formatEmailContent(emailContent);
 
-const emailProcessor = new EmailProcessorServer(googleAuth, gmailService,eventService);
+        
+        this.setupEmailForm({
+            emailAddress,
+            subject,
+            messageId,
+            source: 'sendToAiTextArea'
+        });
 
+        
+        $('#aiText').html(this.currentConversationId ?
+            $('#aiText').html() + '<br><br>--------------------<br><br>' + formattedContent :
+            formattedContent
+        );
 
+        
+        $('html, body').animate({
+            scrollTop: $('#aiText').offset().top
+        }, 500);
 
+        $('#aiText').focus();
+    }
+    setupEmailForm({ emailAddress, subject, messageId, response = {}, source }) {
+        
+        if (emailAddress) {
+            $('#sendMailEmail').val(emailAddress);
+        }
 
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
-app.use(express.static(path.join(__dirname, 'public'))); 
-app.use(session({
-  secret: 'yourSecretKey',
-  resave: false,
-  saveUninitialized: true,
-}));
+        
+        if (subject) {
+            const subjectText = subject.toLowerCase().startsWith('re:') ? subject : `Re: ${subject}`;
+            $('#sendMailSubject').val(subjectText);
+        }
 
-const oauthRoutes = require('./routes/oauth')(googleAuth);
-const gmailRoutes = require('./routes/gmail')(googleAuth, gmailService);
-const calendarRoutes = require('./routes/calendar')(googleAuth);
-const eventsRoutes = require('./routes/events')(googleAuth, eventService);
-const aiRoutes = require('./routes/ai');
+        
+        $('#aiText').data('replyToMessageId', messageId);
+        $('#aiText').data('source', source);
 
+        
+        if (response.conversationId) {
+            this.currentConversationId = response.conversationId;
+        }
 
-app.use('/auth', oauthRoutes);
-app.use('/gmail', gmailRoutes);
-app.use('/', eventsRoutes);
-app.use('/calendar', calendarRoutes);
-app.use('/ai', aiRoutes);
-app.use('/', emailProcessor.getRouter());
-app.use('/', backgroundRoutes);  
+        
+        if (response.messageCount) {
+            this.updateConversationStatus(response.messageCount);
+        }
+    }
 
-
-
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html')); 
-});
-
-
-const PORT = 3003;
-app.listen(PORT, () => {
-  console.log(`Server is running on http:
-});
-
-module.exports = app;
-
+    formatEmailContent(content) {
+        return content
+            .replace(/\r\n/g, '\n')
+            .replace(/\r/g, '\n')
+            .replace(/\n{3,}/g, '\n\n')
+            .replace(/\n/g, '<br>');
+    }
+    updateConversationStatus(messageCount) {
+        if (messageCount) {
+            const statusHtml = `<div class="text-muted small mt-2">Conversation messages: ${messageCount}</div>`;
+            $('.aiChatReponse').first().find('.aiChatReponseContent').after(statusHtml);
+        }
+    }
+}

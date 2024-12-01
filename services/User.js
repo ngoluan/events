@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { z } = require('zod');
 
 class User {
     constructor() {
@@ -34,7 +35,7 @@ class User {
     }
 
     getCategorySchema() {
-        const categories = Object.keys(this.settings?.emailCategories || { 'other': '' });
+        const categories = this.settings?.emailCategories?.map(cat => cat.name) || ['other'];
         return z.object({
             category: z.enum(categories),
         });

@@ -502,7 +502,7 @@ class GmailService {
         try {
             const categories = this.user.settings.emailCategories;
             const prompt = `
-                Analyze this email and categorize it into one of these categories: ${categories.join(', ')}
+                Analyze this email and categorize it into one of these categories: ${JSON.stringify(categories)}
                 
                 Email Subject: ${emailData.subject}
                 Email Content: ${emailData.text || emailData.snippet}

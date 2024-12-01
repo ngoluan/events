@@ -1,11 +1,9 @@
 [
-  "services/gmailService.js",
-  "services/aiService.js",
   "services/User.js",
   "services/EmailProcessorServer.js",
-  "services/BackgroundService.js",
-  "routes/gmail.js",
-  "routes/ai.js",
+  "routes/BackgroundRoutes.js",
+  "data/userSettings.json",
   "public/scripts.js",
-  "app.js"
+  "public/index.html",
+  "public/EmailProcessor.js"
 ]

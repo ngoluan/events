@@ -3,51 +3,246 @@ class EmailProcessor {
         this.currentConversationId = null;
         this.registerEvents();
         this.parent = parent;
+        this.filters = this.loadFilterState();
+
         this.userSettings = {
-            userSettings: {
-                async loadSettings() {
-                    try {
-                        const response = await fetch('/api/settings/email-categories');
-                        return await response.json();
-                    } catch (error) {
-                        console.error('Error loading user settings:', error);
-                        return {
-                            emailCategories: [
-                                {
-                                    "name": "event_platform",
-                                    "description": "Emails mentioning Tagvenue or Peerspace"
-                                },
-                                {
-                                    "name": "event",
-                                    "description": "Emails related to event bookings, catering, drinks. do not include opentable emails."
-                                },
-                                {
-                                    "name": "other",
-                                    "description": "Any other type of email, including receipts"
-                                }
-                            ]
-                        };
-                    }
-                },
-                async saveSettings(settings) {
-                    try {
-                        const response = await fetch('/api/settings/email-categories', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify(settings)
-                        });
-                        return await response.json();
-                    } catch (error) {
-                        console.error('Error saving user settings:', error);
-                        throw error;
-                    }
+            async loadSettings() {
+                try {
+                    const response = await fetch('/api/settings/email-categories');
+                    const data = await response.json();
+                    return data; // Return the whole object
+                } catch (error) {
+                    console.error('Error loading user settings:', error);
+                    return {
+                        emailCategories: [{
+                            name: "event_platform",
+                            description: "Emails mentioning Tagvenue or Peerspace"
+                        }, {
+                            name: "event",
+                            description: "Emails related to event bookings, catering, drinks. do not include opentable emails."
+                        }, {
+                            name: "other",
+                            description: "Any other type of email, including receipts"
+                        }]
+                    };
+                }
+            },
+            async saveSettings(settings) {
+                try {
+                    const response = await fetch('/api/settings/email-categories', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(settings)
+                    });
+                    return await response.json();
+                } catch (error) {
+                    console.error('Error saving user settings:', error);
+                    throw error;
                 }
             }
+        };
+        this.initializeEmailFilters();
+    }
+    loadFilterState() {
+        try {
+            const savedState = localStorage.getItem('emailFilters');
+            if (savedState) {
+                const parsed = JSON.parse(savedState);
+                return {
+                    replied: parsed.replied || false,
+                    archived: parsed.archived || false,
+                    categories: new Set(parsed.categories || [])
+                };
+            }
+        } catch (error) {
+            console.error('Error loading filter state:', error);
+        }
+
+        return {
+            replied: false,
+            archived: false,
+            categories: new Set()
+        };
+    }
+
+    saveFilterState() {
+        try {
+            const state = {
+                replied: this.filters.replied,
+                archived: this.filters.archived,
+                categories: Array.from(this.filters.categories)
+            };
+            localStorage.setItem('emailFilters', JSON.stringify(state));
+        } catch (error) {
+            console.error('Error saving filter state:', error);
         }
     }
 
+    async initializeEmailFilters() {
+        try {
+            // Load the email categories
+            const settings = await this.userSettings.loadSettings();
+            const categories = settings.emailCategories;
+
+            if (!Array.isArray(categories)) {
+                throw new Error('Invalid categories data received');
+            }
+
+            // Create the filter dropdown
+            const $filterButton = $('#toggleRepliedEmails');
+            const categoriesHtml = categories.map(category => {
+                const name = _.escape(category.name || '');
+                const description = _.escape(category.description || '');
+                return `
+                    <li>
+                        <label class="label cursor-pointer justify-start gap-2">
+                            <input type="checkbox" 
+                                   class="checkbox checkbox-sm" 
+                                   data-filter="category" 
+                                   data-category="${name}">
+                            <span class="label-text" title="${description}">
+                                ${name} ${description ? `- ${description}` : ''}
+                            </span>
+                        </label>
+                    </li>
+                `;
+            }).join('');
+
+            const $dropdown = $(`
+                <div class="dropdown dropdown-end">
+                    <button class="btn btn-ghost btn-sm btn-square tooltip" data-tip="Filter Emails">
+                        <i class="bi bi-filter"></i>
+                    </button>
+                    <ul tabindex="0" class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-52">
+                        <li class="menu-title pt-0">
+                            <span>Email Status</span>
+                        </li>
+                        <li>
+                            <label class="label cursor-pointer justify-start gap-2">
+                                <input type="checkbox" 
+                                       class="checkbox checkbox-sm" 
+                                       data-filter="replied">
+                                <span class="label-text">Replied</span>
+                            </label>
+                        </li>
+                        <li>
+                            <label class="label cursor-pointer justify-start gap-2">
+                                <input type="checkbox" 
+                                       class="checkbox checkbox-sm" 
+                                       data-filter="archived">
+                                <span class="label-text">Archived</span>
+                            </label>
+                        </li>
+                        <li class="menu-title">
+                            <span>Categories</span>
+                        </li>
+                        ${categoriesHtml}
+                    </ul>
+                </div>
+            `);
+
+            $filterButton.replaceWith($dropdown);
+
+            // Initialize checkboxes with saved state
+            $dropdown.find('input[type="checkbox"]').each((_, checkbox) => {
+                const $checkbox = $(checkbox);
+                const filterType = $checkbox.data('filter');
+                const category = $checkbox.data('category');
+
+                if (filterType === 'category') {
+                    $checkbox.prop('checked', this.filters.categories.has(category));
+                } else {
+                    $checkbox.prop('checked', this.filters[filterType]);
+                }
+            });
+
+            this.originalEmails = [];
+
+            // Handle checkbox changes with state persistence
+            $dropdown.find('input[type="checkbox"]').on('change', (e) => {
+                const $checkbox = $(e.target);
+                const filterType = $checkbox.data('filter');
+                const isChecked = $checkbox.prop('checked');
+
+                if (filterType === 'category') {
+                    const category = $checkbox.data('category');
+                    if (isChecked) {
+                        this.filters.categories.add(category);
+                    } else {
+                        this.filters.categories.delete(category);
+                    }
+                } else {
+                    this.filters[filterType] = isChecked;
+                }
+
+                this.saveFilterState();
+                this.applyFilters();
+                this.updateFilterButtonStatus();
+            });
+
+            // Override readGmail to store original emails
+            const originalReadGmail = this.parent.readGmail;
+            this.parent.readGmail = async (...args) => {
+                const response = await originalReadGmail.apply(this.parent, args);
+                if (Array.isArray(response)) {
+                    this.originalEmails = response;
+                }
+                this.applyFilters();
+                return response;
+            };
+
+            // Apply initial filters if any are active
+            if (this.filters.replied || this.filters.archived || this.filters.categories.size > 0) {
+                this.updateFilterButtonStatus();
+            }
+
+        } catch (error) {
+            console.error('Error initializing email filters:', error);
+            this.parent.showToast('Failed to initialize email filters', 'error');
+        }
+    }
+    applyFilters() {
+        if (!Array.isArray(this.originalEmails)) return;
+    
+        const filteredEmails = this.originalEmails.filter(email => {
+            // If no filters are active, show all emails
+            if (!this.filters.replied && 
+                !this.filters.archived && 
+                this.filters.categories.size === 0) {
+                return true;
+            }
+    
+            // Check each active filter
+            if (this.filters.replied && email.replied) return true;
+            if (this.filters.archived && email.labels?.includes('Label_6')) return true;
+            if (this.filters.categories.size > 0 && 
+                email.category && 
+                this.filters.categories.has(email.category)) return true;
+    
+            return false;
+        });
+    
+        // Process and display the filtered emails
+        this.processEmails(filteredEmails, { ignoreFilters: true });
+    
+        // Update the email count display
+        const totalEmails = this.originalEmails.length;
+        const filteredCount = filteredEmails.length;
+        const $messageHeader = $('.messages-container').siblings('.flex');
+        const $countDisplay = $messageHeader.find('.email-count');
+        
+        if ($countDisplay.length === 0) {
+            $messageHeader.append(`
+                <span class="email-count text-sm opacity-70">
+                    Showing ${filteredCount} of ${totalEmails} emails
+                </span>
+            `);
+        } else {
+            $countDisplay.text(`Showing ${filteredCount} of ${totalEmails} emails`);
+        }
+    }
     registerEvents() {
         $(document).on('click', '.draftEventSpecificEmail', async (e) => {
             e.preventDefault();
@@ -253,6 +448,24 @@ class EmailProcessor {
         // Update conversation status if needed
         if (response.messageCount) {
             this.updateConversationStatus(response.messageCount);
+        }
+    }
+    updateFilterButtonStatus() {
+        const $filterButton = $('.dropdown > button');
+        const activeFilters = [
+            this.filters.replied && 'Replied',
+            this.filters.archived && 'Archived',
+            ...Array.from(this.filters.categories)
+        ].filter(Boolean);
+
+        if (activeFilters.length > 0) {
+            $filterButton
+                .addClass('btn-primary')
+                .attr('data-tip', `Active Filters: ${activeFilters.join(', ')}`);
+        } else {
+            $filterButton
+                .removeClass('btn-primary')
+                .attr('data-tip', 'Filter Emails');
         }
     }
 

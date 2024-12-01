@@ -19559,6 +19559,25 @@
       "status": "",
       "rentalRate": "",
       "minSpend": "600"
+    },
+    {
+      "name": "Lauren Kilgour",
+      "email": "kilgour.lauren@gmail.com",
+      "phone": "6476799446",
+      "partyType": "Holiday Social Event",
+      "startTime": "2024-12-13T18:00",
+      "endTime": "2024-12-13T20:00",
+      "room": "Lounge",
+      "attendance": "100",
+      "services": "",
+      "notes": "$125.00 deposit to book.",
+      "messageCount": 3,
+      "historyIncluded": false,
+      "id": 1193,
+      "status": "reserved",
+      "rentalRate": "250",
+      "minSpend": "",
+      "createdAt": "2024-12-01T19:03:20.845Z"
     }
   ]
 }

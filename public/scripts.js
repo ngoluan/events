@@ -21,10 +21,6 @@ export class EventManageApp {
 
     }
     async init() {
-        // Initialize utilities
-        this.sounds = {
-            orderUp: new Howl({ src: ['./orderup.m4a'] })
-        };
 
         // Load templates first
         await this.loadTemplates();
@@ -790,7 +786,7 @@ export class EventManageApp {
             this.calculateRate();
         });
 
-        $(document).on("click", ".contactBtn", function(e)  {
+        $(document).on("click", ".contactBtn", function (e) {
             e.preventDefault();
             $('html, body').animate({ scrollTop: $('#info').offset().top }, 500);
             me.loadContact($(this).parent().data("id"));
@@ -906,10 +902,7 @@ export class EventManageApp {
                 $("#aiText").removeData('replyToMessageId');
                 $("#aiText").removeData('source');
 
-                // Play sound notification if available
-                if (this.sounds?.orderUp) {
-                    this.sounds.orderUp.play();
-                }
+
 
                 // Refresh emails list if it was a reply
                 if (replyToMessageId) {
@@ -1069,33 +1062,10 @@ export class EventManageApp {
             return;
         }
 
-        // Apply filters only if this is not a contact-specific email load
-        let filteredEmails = data;
-        if (!options.ignoreFilters) {
-            filteredEmails = data.filter(email => {
-                // Skip archived emails (Label_6)
-                if (email.labels && email.labels.includes('Label_6')) {
-                    return false;
-                }
+        // Apply filter logic only if not explicitly ignored
+        let filteredEmails = options.ignoreFilters ? data : this.emailProcessor.applyFilters();
 
-                // Skip replied emails
-                if (email.replied) {
-                    return false;
-                }
-
-                // When showing important only, filter for events or important emails
-                if (this.emailFilters.showImportant) {
-                    return (
-                        (email.category === 'event') ||
-                        (email.labels && email.labels.includes('IMPORTANT'))
-                    );
-                }
-
-                return true;
-            });
-        }
-
-        // Sort emails by timestamp, regardless of filters
+        // Sort emails by timestamp
         filteredEmails.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
         const exclusionArray = ["calendar-notification", "accepted this invitation", "peerspace", "tagvenue"];
@@ -1233,8 +1203,7 @@ export class EventManageApp {
                 </div>
             `);
         }
-    }
-    initializeTooltips() {
+    } initializeTooltips() {
         // Remove any existing tooltip initialization
         $('.icon-btn[data-tooltip]').tooltip('dispose');
 
@@ -1908,9 +1877,6 @@ export class EventManageApp {
         });
     }
 
-
-
-    /*** Contact Methods ***/
 
     saveContactInfo() {
         let contact = _.find(this.contacts, ["id", this.currentId]);

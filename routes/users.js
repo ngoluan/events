@@ -1,4 +1,3 @@
-// routes/users.js
 const express = require('express');
 const router = express.Router();
 const path = require('path');
@@ -17,12 +16,28 @@ class UsersRoute {
         this.router.get('/api/settings/email-categories', async (req, res) => {
             try {
                 const settings = await this.user.loadSettings();
-                res.json({
-                    emailCategories: Object.entries(settings.emailCategories).map(([name, description]) => ({
-                        name,
-                        description
-                    }))
-                });
+
+                if (!settings || !settings.emailCategories) {
+                    // Return default categories if none exist
+                    return res.json({
+                        emailCategories: [
+                            {
+                                name: "event_platform",
+                                description: "Emails mentioning Tagvenue or Peerspace"
+                            },
+                            {
+                                name: "event",
+                                description: "Emails related to event bookings, catering, drinks. do not include opentable emails."
+                            },
+                            {
+                                name: "other",
+                                description: "Any other type of email, including receipts"
+                            }
+                        ]
+                    });
+                }
+
+                res.json({ emailCategories: settings.emailCategories });
             } catch (error) {
                 console.error('Error loading email categories:', error);
                 res.status(500).json({
@@ -36,23 +51,28 @@ class UsersRoute {
         this.router.post('/api/settings/email-categories', async (req, res) => {
             try {
                 const { emailCategories } = req.body;
-                
-                // Convert array of objects to key-value pairs
-                const formattedCategories = {};
-                emailCategories.forEach(category => {
-                    if (category.name && category.description) {
-                        formattedCategories[category.name] = category.description;
-                    }
-                });
 
-                // Save settings with formatted categories
+                if (!Array.isArray(emailCategories)) {
+                    return res.status(400).json({
+                        error: 'Invalid format. Expected array of categories.'
+                    });
+                }
+
+                // Validate each category has required fields
+                const validCategories = emailCategories.filter(category =>
+                    category &&
+                    typeof category.name === 'string' &&
+                    typeof category.description === 'string'
+                );
+
                 await this.user.saveSettings({
-                    emailCategories: formattedCategories
+                    emailCategories: validCategories
                 });
 
                 res.json({
                     success: true,
-                    message: 'Email categories updated successfully'
+                    message: 'Email categories updated successfully',
+                    emailCategories: validCategories
                 });
             } catch (error) {
                 console.error('Error saving email categories:', error);

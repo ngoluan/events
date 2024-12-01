@@ -14,6 +14,7 @@ const filesToCombine = [
     '!./public/tailwind.config.js',  // Exclude tailwind.config.js
     "./services/*.js",
     "./routes/*.js",
+    "./data/*.json",
     "./public/*",
     "./src/*",
     "./*.js"
