@@ -1,10 +1,10 @@
 // Ensure Moment Timezone is imported if using modules
 // import moment from 'moment-timezone';
+import { CalendarManager } from './CalendarManager.js'; // Adjust the path as necessary
+
 
 export class EventManageApp {
     constructor() {
-        this.calendarEvents = [];
-        this.mainCalendar = null;
         this.emailProcessor = new EmailProcessor(this);
         this.contacts = new Contacts(this); // Contacts instance
         this.userEmail = '';
@@ -15,6 +15,9 @@ export class EventManageApp {
         this.backgroundInfo = {};
         this.emailEventUpdater = new EmailEventUpdater(this);
         this.initializeToastContainer(); // Required by EmailProcessor
+
+        // Initialize CalendarManager
+        this.calendarManager = new CalendarManager(this);
     }
     async init() {
         // Load templates first
@@ -24,10 +27,11 @@ export class EventManageApp {
         await this.contacts.getAllContacts();
         await this.contacts.initializeFuse();
 
-        this.createCalendar();
+        // Initialize the calendar through CalendarManager
+        await this.calendarManager.initializeCalendar();
+
         this.emailProcessor.loadInitialEmails();
-        this.syncEvents();
-        this.initializeMaximizeButtons();
+        this.calendarManager.initializeMaximizeButtons(); // Initialize maximize buttons from CalendarManager
 
         // Set up event listeners
         this.registerEvents();
@@ -550,7 +554,7 @@ export class EventManageApp {
             e.preventDefault();
             await this.summarizeEventAiHandler();
         });
-       
+
         $('#clearAiText').on('click', (e) => {
             e.preventDefault();
             $("#aiText").html('');
@@ -559,10 +563,6 @@ export class EventManageApp {
         $("#receipt").on("click", (e) => {
             e.preventDefault();
             this.showReceiptManager();
-        });
-        $('#refreshCalendarSync').on('click', (e) => {
-            e.preventDefault();
-            this.refreshCalendarSync();
         });
 
 
@@ -645,14 +645,14 @@ export class EventManageApp {
         // Other events
         $(document).on("click", "#actionsBookCalendar", (e) => {
             e.preventDefault();
-            this.createBooking();
+            this.calendarManager.createBooking();
         });
+        
 
         $(document).on("click", "#actionsCreateContract", (e) => {
             e.preventDefault();
             this.createContract();
         });
-
 
 
 
@@ -671,7 +671,7 @@ export class EventManageApp {
             this.calculateRate();
         });
 
-     
+
 
         $(document).on("click", ".sendToAiFromResult", (e) => {
             e.preventDefault();
@@ -680,7 +680,6 @@ export class EventManageApp {
 
 
     }
-
 
 
     extractEmail() {
@@ -722,15 +721,7 @@ export class EventManageApp {
         $("#aiText").focus();
     }
 
-    async refreshCalendarSync() {
-        try {
-            await this.createCalendar();
-            this.showToast("Calendar sync refreshed", "success");
-        } catch (error) {
-            console.error('Error refreshing calendar sync:', error);
-            this.showToast("Failed to refresh calendar sync", "error");
-        }
-    }
+
 
 
     initializeTooltips() {
@@ -743,79 +734,7 @@ export class EventManageApp {
             trigger: 'hover'
         });
     }
-    async createCalendar() {
-        this.mainCalendar = new Calendar('calendar');
-        try {
-            const data = await $.get("/calendar/getEventCalendar");
-            const timezone = 'America/New_York';
-    
-            // Create a map of contacts by date for faster lookup
-            const contactsByDate = {};
-            this.contacts.getContacts().forEach(contact => {
-                if (contact.startTime && contact.name) {
-                    const contactDate = moment.tz(contact.startTime, timezone).format('YYYY-MM-DD');
-                    if (!contactsByDate[contactDate]) {
-                        contactsByDate[contactDate] = [];
-                    }
-                    contactsByDate[contactDate].push({
-                        name: contact.name.toLowerCase(),
-                        attendance: contact.attendance
-                    });
-                }
-            });
-    
-            // Transform calendar events
-            this.calendarEvents = data.map((event, index) => {
-                const startTime = moment.tz(event.start.dateTime || event.start.date, timezone);
-                const endTime = moment.tz(event.end.dateTime || event.end.date, timezone);
-                const eventDate = startTime.format('YYYY-MM-DD');
-                const eventName = event.summary.toLowerCase();
-    
-                // Find matching contact
-                let matchingContact = null;
-                const contactsOnDate = contactsByDate[eventDate] || [];
-                for (const contact of contactsOnDate) {
-                    if (eventName.includes(contact.name)) {
-                        matchingContact = contact;
-                        break;
-                    }
-                }
-    
-                // Add attendance to summary if available
-                const attendanceInfo = matchingContact?.attendance ? ` (${matchingContact.attendance} ppl)` : '';
-                event.summary = `${event.summary} <br>${startTime.format("HHmm")}-${endTime.format("HHmm")}${attendanceInfo}`;
-    
-                let calendarEnd = endTime.clone();
-                if (endTime.isAfter(startTime.clone().hour(23).minute(59))) {
-                    calendarEnd = startTime.clone().hour(23).minute(59);
-                }
-    
-                return {
-                    id: index,
-                    title: event.summary || 'No Title',
-                    startTime: startTime.format(),
-                    endTime: calendarEnd.format(),
-                    description: event.description || '',
-                    room: event.location || '',
-                    attendance: matchingContact?.attendance
-                };
-            });
-    
-            // Load events into calendar
-            this.mainCalendar.loadEvents(this.calendarEvents);
-    
-            // Refresh contacts display using the Contacts class method
-            if (this.contacts.getContacts().length > 0) {
-                this.contacts.renderContactsWithCalendarSync();
-            }
-    
-        } catch (error) {
-            console.error('Error loading calendar events:', error);
-            this.showToast('Failed to load calendar events', 'error');
-        }
-    }
-    
-    
+
 
     loadContact(id) {
         const contact = this.contacts.getContactById(id);
@@ -1103,31 +1022,16 @@ export class EventManageApp {
     }
 
 
-
     async syncEvents() {
         try {
-            const response = await fetch('/api/events/sync', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                }
-            });
-
-            if (!response.ok) {
-                throw new Error('Sync failed');
-            }
-
-            // Show toast notification
-            this.showToast('Events synchronized successfully', 'success');
-
+            await this.calendarManager.refreshSync();
             // Refresh the contacts list
-            this.contacts.getAllContacts();
+            await this.contacts.getAllContacts();
         } catch (error) {
             console.error('Error syncing events:', error);
             this.showToast('Failed to sync events', 'error');
         }
     }
-
 
     async actionsEmailContract() {
         if (this.currentId === -1) {
@@ -1156,107 +1060,7 @@ export class EventManageApp {
 
         window.location.href = mailtoLink;
     }
-    async createBooking() {
-        if (this.contacts.currentId === -1) {
-            this.showToast("Error: No contact selected.", "error");
-            return;
-        }
 
-        const contact = this.contacts.getContactById(this.contacts.currentId);
-        if (!contact) {
-            this.showToast("Error: Contact not found.", "error");
-            return;
-        }
-
-        try {
-            // Create the calendar event
-            await this.openGoogleCalendar(contact);
-
-            // Update contact status
-            if (typeof contact.status === 'string') {
-                contact.status = contact.status.split(';');
-            } else if (!Array.isArray(contact.status)) {
-                contact.status = [];
-            }
-
-            if (!contact.status.includes("reserved")) {
-                contact.status.push("reserved");
-            }
-
-            // Save the updated contact
-            this.contacts.saveContactInfo();
-
-            // Refresh calendar events and update display
-            await this.createCalendar();
-
-            this.showToast("Booking created successfully", "success");
-
-            // Ask about sending confirmation email
-            const sendEmail = confirm("Would you like to send a confirmation email to the event organizer?");
-
-            if (sendEmail) {
-                const eventDate = moment(contact.startTime).format('MMMM Do');
-                const eventTime = `${moment(contact.startTime).format('h:mm A')} - ${moment(contact.endTime).format('h:mm A')}`;
-
-                const emailSubject = "You're all set for " + eventDate + "";
-                const emailBody = `
-    Hi ${contact.name}!
-    
-    Great news - you're officially booked in for ${eventDate} from ${eventTime}! 
-    
-    We've received your contract and deposit, and I've just sent you a calendar invite. You'll have access to ${contact.room} for your event.
-    
-    Quick reminder: Three days before the big day, could you let us know:
-    - Final guest count
-    - Catering preferences (if you'd like our food & beverage service)
-    
-    Can't wait to help make your event amazing! Let me know if you need anything before then.
-    
-    Cheers,
-    TacoTaco Events Team'
-                `.trim();
-
-                try {
-                    await $.post("/gmail/sendEmail", {
-                        html: emailBody.replace(/\n/g, '<br>'),
-                        to: contact.email,
-                        subject: emailSubject
-                    });
-                    this.showToast("Confirmation email sent successfully", "success");
-                } catch (error) {
-                    console.error("Failed to send confirmation email:", error);
-                    this.showToast("Failed to send confirmation email", "error");
-                }
-            }
-
-        } catch (error) {
-            console.error('Error creating booking:', error);
-            this.showToast("Failed to create booking", "error");
-        }
-    }
-
-    openGoogleCalendar(contact) {
-        // Define the timezone
-        const timezone = 'America/New_York';
-
-        // Parse the start and end times in EST/EDT
-        const startMoment = moment.tz(contact.startTime, "YYYY-MM-DD HH:mm", timezone);
-        const endMoment = moment.tz(contact.endTime, "YYYY-MM-DD HH:mm", timezone);
-
-        // Convert the times to UTC
-        const startDateUTC = startMoment.clone().utc().format("YYYYMMDDTHHmmss") + "Z";
-        const endDateUTC = endMoment.clone().utc().format("YYYYMMDDTHHmmss") + "Z";
-
-        // Define the event title and details
-        const title = `${contact.name} (${contact.room.join(", ")})`;
-        const details = `${contact.notes} - Email: ${contact.email}`;
-
-        // Construct the Google Calendar URL
-        const googleCalendarUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(title)}&dates=${startDateUTC}/${endDateUTC}&details=${encodeURIComponent(details)}`;
-
-        // Open the Google Calendar URL in a new tab
-        window.open(googleCalendarUrl, '_blank');
-    }
 
     createContract() {
         if (this.currentId === -1) {

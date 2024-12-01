@@ -165,7 +165,7 @@ class Contacts {
 
     renderContactsWithCalendarSync() {
         const eventsByDate = {};
-        this.parent.calendarEvents.forEach(event => {
+        this.parent.calendarManager.calendarEvents.forEach(event => {
             if (!event?.startTime) return;
             const eventDate = moment.tz(event.startTime, 'America/New_York').format('YYYY-MM-DD');
             if (!eventsByDate[eventDate]) {
