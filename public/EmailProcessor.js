@@ -95,7 +95,8 @@ class EmailProcessor {
 
             // Find matching contacts using Fuse
             let matchingContactsHtml = '';
-            const matches = this.parent.fuse ? this.parent.fuse.search(senderName) : [];
+// Inside EmailProcessor methods
+const matches = this.parent.contacts.fuse ? this.parent.contacts.fuse.search(senderName) : [];
             const contact = matches.length > 0 ? matches[0].item : null;
             if (contact) {
                 const depositPw = this.calcDepositPassword(contact);

@@ -5,10 +5,8 @@ export class EventManageApp {
     constructor() {
         this.calendarEvents = [];
         this.mainCalendar = null;
-        this.fuse = null;
-        this.contacts = [];
-        this.currentId = -1;
         this.emailProcessor = new EmailProcessor(this);
+        this.contacts = new Contacts(this); // Contacts instance
         this.userEmail = '';
         const showImportantSetting = localStorage.getItem('showImportantEmails');
         this.emailFilters = {
@@ -17,24 +15,23 @@ export class EventManageApp {
         this.backgroundInfo = {};
         this.emailEventUpdater = new EmailEventUpdater(this);
         this.initializeToastContainer(); // Required by EmailProcessor
-
     }
     async init() {
-
         // Load templates first
         await this.loadTemplates();
 
+        // Load initial data
+        await this.contacts.getAllContacts();
+        await this.contacts.initializeFuse();
+
+        this.createCalendar();
+        this.emailProcessor.loadInitialEmails();
         this.syncEvents();
         this.initializeMaximizeButtons();
-        await this.initializeFuse();
 
         // Set up event listeners
         this.registerEvents();
-
-        // Load initial data
-        await this.getAllContacts();
-        this.createCalendar();
-        this.emailProcessor.loadInitialEmails();
+        this.contacts.registerEvents(); // Register contact events
 
         fetch(`/ai/resetHistory`);
 
@@ -47,16 +44,17 @@ export class EventManageApp {
         }
 
         $(document).on('eventDetailsReceived', async (e, eventDetails) => {
-            const lastId = this.contacts.length > 0 ? this.contacts[this.contacts.length - 1].id : 0;
+            const lastId = this.contacts.getContacts().length > 0
+                ? this.contacts.getContacts()[this.contacts.getContacts().length - 1].id
+                : 0;
             eventDetails.id = lastId + 1;
-            this.contacts.push(eventDetails);
-            this.loadContact(eventDetails.id);
+            this.contacts.getContacts().push(eventDetails);
+            this.contacts.loadContact(eventDetails.id);
         });
 
         this.initializeBackgroundInfo();
         this.initializeMobileNavigation();
     }
-
     initializeMobileNavigation() {
         window.scrollToSection = (sectionId) => {
             const section = document.getElementById(sectionId);
@@ -123,13 +121,14 @@ export class EventManageApp {
             }
         });
     }
+    // Adjust methods that use contacts
     showReceiptManager() {
-        if (this.currentId === -1) {
+        if (this.contacts.currentId === -1) {
             this.showToast("Error: No contact selected.", "error");
             return;
         }
 
-        const contact = _.find(this.contacts, ["id", this.currentId]);
+        const contact = this.contacts.getContactById(this.contacts.currentId);
         if (!contact) {
             this.showToast("Error: Contact not found.", "error");
             return;
@@ -484,7 +483,7 @@ export class EventManageApp {
 
         $contacts.each((_, contact) => {
             const $contact = $(contact);
-            const contactData = this.contacts.find(c => c.id === parseInt($contact.data('id')));
+            const contactData = this.contacts.getContactById(parseInt($contact.data('id')));
 
             if (!contactData) {
                 $contact.hide();
@@ -551,27 +550,7 @@ export class EventManageApp {
             e.preventDefault();
             await this.summarizeEventAiHandler();
         });
-        // Add these new handlers
-        $('#sortByName').on('click', (e) => {
-            e.preventDefault();
-            this.sortContacts('name');
-        });
-
-        $('#sortByDateBooked').on('click', (e) => {
-            e.preventDefault();
-            this.sortContacts('dateBooked');
-        });
-
-        $('#sortByEventDate').on('click', (e) => {
-            e.preventDefault();
-            this.sortContacts('eventDate');
-        });
-
-        // Update the existing searchInput handler to be more robust
-        $('#searchInput').on('input', (e) => {
-            const searchTerm = e.target.value.toLowerCase().trim();
-            this.filterContacts(searchTerm);
-        });
+       
         $('#clearAiText').on('click', (e) => {
             e.preventDefault();
             $("#aiText").html('');
@@ -586,7 +565,7 @@ export class EventManageApp {
             this.refreshCalendarSync();
         });
 
-     
+
         $(document).on("click", "#actionsEmailContract", (e) => {
             e.preventDefault();
             this.actionsEmailContract();
@@ -674,10 +653,6 @@ export class EventManageApp {
             this.createContract();
         });
 
-        $(document).on("click", "#infoSave", (e) => {
-            e.preventDefault();
-            this.saveContactInfo();
-        });
 
 
 
@@ -696,11 +671,7 @@ export class EventManageApp {
             this.calculateRate();
         });
 
-        $(document).on("click", ".contactBtn", function (e) {
-            e.preventDefault();
-            $('html, body').animate({ scrollTop: $('#info').offset().top }, 500);
-            me.loadContact($(this).parent().data("id"));
-        });
+     
 
         $(document).on("click", ".sendToAiFromResult", (e) => {
             e.preventDefault();
@@ -708,30 +679,9 @@ export class EventManageApp {
         });
 
 
-        $('#searchInput').on('input', (e) => {
-            const searchTerm = e.target.value.toLowerCase();
-            $('#contacts .contactCont').each((index, contactElement) => {
-                const contactName = $(contactElement).find('.contactBtn').text().toLowerCase();
-                $(contactElement).toggle(contactName.includes(searchTerm));
-            });
-        });
-        // Other event handlers can be added here
     }
 
 
-    /*** Helper Methods ***/
-
-    ensureArrayFields(contact) {
-        ['status', 'services', 'room'].forEach(field => {
-            if (!Array.isArray(contact[field])) {
-                if (typeof contact[field] === 'string') {
-                    contact[field] = contact[field].split(';');
-                } else {
-                    contact[field] = [];
-                }
-            }
-        });
-    }
 
     extractEmail() {
         const aiText = $("#aiText").text();
@@ -782,7 +732,7 @@ export class EventManageApp {
         }
     }
 
-     
+
     initializeTooltips() {
         // Remove any existing tooltip initialization
         $('.icon-btn[data-tooltip]').tooltip('dispose');
@@ -793,37 +743,15 @@ export class EventManageApp {
             trigger: 'hover'
         });
     }
-
-    // Also update the processEmails method to handle missing data gracefully
-
-
-    // Modify getAllContacts to use the new API endpoint
-    async getAllContacts() {
-        fetch("/api/events")
-            .then(response => response.json())
-            .then(contacts => {
-                // Add creation time if not present
-                this.contacts = contacts.map(contact => ({
-                    ...contact,
-                    createdAt: contact.createdAt || new Date().toISOString()
-                }));
-                return this.contacts;
-                //this.renderContactsWithCalendarSync();
-            })
-            .catch(error => {
-                console.error("Error getting contacts:", error);
-                this.showToast('Failed to load contacts', 'error');
-            });
-    }
     async createCalendar() {
         this.mainCalendar = new Calendar('calendar');
         try {
             const data = await $.get("/calendar/getEventCalendar");
             const timezone = 'America/New_York';
-
+    
             // Create a map of contacts by date for faster lookup
             const contactsByDate = {};
-            this.contacts.forEach(contact => {
+            this.contacts.getContacts().forEach(contact => {
                 if (contact.startTime && contact.name) {
                     const contactDate = moment.tz(contact.startTime, timezone).format('YYYY-MM-DD');
                     if (!contactsByDate[contactDate]) {
@@ -835,14 +763,14 @@ export class EventManageApp {
                     });
                 }
             });
-
+    
             // Transform calendar events
             this.calendarEvents = data.map((event, index) => {
                 const startTime = moment.tz(event.start.dateTime || event.start.date, timezone);
                 const endTime = moment.tz(event.end.dateTime || event.end.date, timezone);
                 const eventDate = startTime.format('YYYY-MM-DD');
                 const eventName = event.summary.toLowerCase();
-
+    
                 // Find matching contact
                 let matchingContact = null;
                 const contactsOnDate = contactsByDate[eventDate] || [];
@@ -852,16 +780,16 @@ export class EventManageApp {
                         break;
                     }
                 }
-
+    
                 // Add attendance to summary if available
                 const attendanceInfo = matchingContact?.attendance ? ` (${matchingContact.attendance} ppl)` : '';
                 event.summary = `${event.summary} <br>${startTime.format("HHmm")}-${endTime.format("HHmm")}${attendanceInfo}`;
-
+    
                 let calendarEnd = endTime.clone();
                 if (endTime.isAfter(startTime.clone().hour(23).minute(59))) {
                     calendarEnd = startTime.clone().hour(23).minute(59);
                 }
-
+    
                 return {
                     id: index,
                     title: event.summary || 'No Title',
@@ -872,184 +800,31 @@ export class EventManageApp {
                     attendance: matchingContact?.attendance
                 };
             });
-
+    
             // Load events into calendar
             this.mainCalendar.loadEvents(this.calendarEvents);
-
-            // Refresh contacts display if needed
-            if (this.contacts.length > 0) {
-                this.renderContactsWithCalendarSync();
+    
+            // Refresh contacts display using the Contacts class method
+            if (this.contacts.getContacts().length > 0) {
+                this.contacts.renderContactsWithCalendarSync();
             }
-
+    
         } catch (error) {
             console.error('Error loading calendar events:', error);
             this.showToast('Failed to load calendar events', 'error');
         }
     }
-
-    renderContactsWithCalendarSync() {
-        // Create map of calendar events organized by date
-        const eventsByDate = {};
-        this.calendarEvents.forEach(event => {
-            if (!event?.startTime) return;
-            const eventDate = moment.tz(event.startTime, 'America/New_York').format('YYYY-MM-DD');
-            if (!eventsByDate[eventDate]) {
-                eventsByDate[eventDate] = [];
-            }
-            event.summary = event.summary || '';
-            eventsByDate[eventDate].push(event);
-        });
-
-        // Build all HTML at once
-        let html = '';
-        const statusUpdates = []; // Track contacts that need status updates
-
-        this.contacts.slice().reverse().forEach(contact => {
-            if (!contact || !contact.startTime || !contact.name) return;
-
-            const contactDate = moment.tz(contact.startTime, 'America/New_York');
-            const formattedDate = contactDate.format("MM/DD/YYYY");
-            const lookupDate = contactDate.format('YYYY-MM-DD');
-            const contactFirstWord = contact.name.toLowerCase().split(' ')[0];
-
-            let colour = "blue";
-            let statusIcons = '';
-            let hasCalendarEntry = false;
-
-            // Check if there are any events on this date
-            const eventsOnDate = eventsByDate[lookupDate] || [];
-            if (eventsOnDate.length > 0) {
-                hasCalendarEntry = eventsOnDate.some(event => {
-                    const eventTitle = event.title || '';
-                    const eventFirstWord = eventTitle.toLowerCase().split(' ')[0];
-                    return eventFirstWord === contactFirstWord;
-                });
-            }
-
-            // Normalize status to array
-            let statusArray = [];
-            if (typeof contact.status === 'string') {
-                statusArray = [...new Set(contact.status.split(';').filter(s => s))]; // Remove duplicates and empty strings
-            } else if (Array.isArray(contact.status)) {
-                statusArray = [...new Set(contact.status.filter(s => s))]; // Remove duplicates and empty strings
-            }
-
-            // Update status based on calendar entry
-            if (hasCalendarEntry) {
-                statusIcons += '<i class="bi bi-calendar-check-fill text-success ml-2"></i>';
-
-                // Add reserved status if not present
-                if (!statusArray.includes("reserved")) {
-                    statusArray.push("reserved");
-                    // Store the full contact data for update
-                    statusUpdates.push({
-                        id: contact.id,
-                        contact: {
-                            ...contact,
-                            status: statusArray // Will be joined before sending to server
-                        }
-                    });
-                }
-            } else {
-                // Add status icons based on current status
-                if (statusArray.includes("depositPaid")) {
-                    statusIcons += '<i class="bi bi-cash text-success ml-2"></i>';
-                }
-                if (statusArray.includes("reserved")) {
-                    statusIcons += '<i class="bi bi-bookmark-check text-primary ml-2"></i>';
-                }
-            }
-
-            if (contactDate.isBefore(moment().subtract(2, "days"))) {
-                colour = "lightgrey";
-            }
-
-            html += `
-                <div class="contactCont hover:bg-base-200 transition-colors" 
-                     data-id="${_.escape(contact.id)}" 
-                     data-date="${_.escape(formattedDate)}">
-                    <a href="#" class="contactBtn flex items-center justify-between p-2" 
-                       style="color:${_.escape(colour)};" 
-                       data-id="${_.escape(contact.id)}">
-                        <span class="flex-1">
-                            ${_.escape(contact.name)} (${_.escape(formattedDate)})
-                        </span>
-                        <span class="flex items-center">${statusIcons}</span>
-                    </a>
-                </div>`;
-        });
-
-        // Write to DOM once
-        $("#contacts").empty().append(html);
-
-        // Process status updates
-        if (statusUpdates.length > 0) {
-            this.updateContactStatuses(statusUpdates);
-        }
-    }
-    async updateContactStatuses(updates) {
-        for (const update of updates) {
-            try {
-                // Ensure services and room are properly formatted
-                const services = Array.isArray(update.contact.services)
-                    ? update.contact.services.join(';')
-                    : update.contact.services;
-
-                const room = Array.isArray(update.contact.room)
-                    ? update.contact.room.join(';')
-                    : update.contact.room;
-
-                // Ensure status is properly formatted and deduplicated
-                const status = Array.isArray(update.contact.status)
-                    ? [...new Set(update.contact.status)].join(';')
-                    : [...new Set(update.contact.status.split(';').filter(s => s))].join(';');
-
-                const response = await fetch(`/api/events/${update.id}`, {
-                    method: 'PUT',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        name: update.contact.name,
-                        email: update.contact.email,
-                        startTime: update.contact.startTime,
-                        endTime: update.contact.endTime,
-                        status: status,
-                        services: services,
-                        room: room,
-                        phone: update.contact.phone,
-                        notes: update.contact.notes,
-                        rentalRate: update.contact.rentalRate,
-                        minSpend: update.contact.minSpend,
-                        partyType: update.contact.partyType,
-                        attendance: update.contact.attendance
-                    })
-                });
-
-                if (!response.ok) {
-                    console.error(`Failed to update status for contact ${update.id}:`, await response.text());
-                } else {
-                    // Update local contact data
-                    const contact = this.contacts.find(c => c.id === update.id);
-                    if (contact) {
-                        contact.status = status; // Update with the deduplicated status string
-                    }
-                    console.log(`Successfully updated status for contact ${update.id}`);
-                }
-            } catch (error) {
-                console.error(`Error updating contact ${update.id} status:`, error);
-            }
-        }
-    }
+    
+    
 
     loadContact(id) {
-        const contact = _.find(this.contacts, ["id", id]);
+        const contact = this.contacts.getContactById(id);
         if (!contact) {
-            this.currentId = this.contacts.length;
+            this.currentId = -1;
             return;
         }
         this.currentId = contact.id;
-        this.ensureArrayFields(contact);
+        this.contacts.ensureArrayFields(contact);
 
         // Populate form fields
         $("#infoId").val(contact.id);
@@ -1100,7 +875,7 @@ export class EventManageApp {
         $("#depositPw").html(this.emailProcessor.calcDepositPassword(contact));
     }
 
-        async initializeBackgroundInfo() {
+    async initializeBackgroundInfo() {
         try {
             // Load background info
             const backgroundResponse = await fetch('/api/settings/background');
@@ -1256,19 +1031,10 @@ export class EventManageApp {
         }, 3000);
     }
     // Add these methods to your EventManageApp class
-    async initializeFuse() {
-        if (this.contacts.length > 0) {
-            this.fuse = new Fuse(this.contacts, {
-                keys: ['name'],
-                threshold: 0.3
-            });
-        }
-    }
 
-  
 
     saveContactInfo() {
-        let contact = _.find(this.contacts, ["id", this.currentId]);
+        let contact = this.contacts.getContactById(this.currentId);
         if (!contact) {
             // If contact doesn't exist, create a new one
             contact = {};
@@ -1355,7 +1121,7 @@ export class EventManageApp {
             this.showToast('Events synchronized successfully', 'success');
 
             // Refresh the contacts list
-            this.getAllContacts();
+            this.contacts.getAllContacts();
         } catch (error) {
             console.error('Error syncing events:', error);
             this.showToast('Failed to sync events', 'error');
@@ -1391,12 +1157,12 @@ export class EventManageApp {
         window.location.href = mailtoLink;
     }
     async createBooking() {
-        if (this.currentId === -1) {
+        if (this.contacts.currentId === -1) {
             this.showToast("Error: No contact selected.", "error");
             return;
         }
 
-        const contact = _.find(this.contacts, ["id", this.currentId]);
+        const contact = this.contacts.getContactById(this.contacts.currentId);
         if (!contact) {
             this.showToast("Error: Contact not found.", "error");
             return;
@@ -1418,7 +1184,7 @@ export class EventManageApp {
             }
 
             // Save the updated contact
-            await this.saveContactInfo();
+            this.contacts.saveContactInfo();
 
             // Refresh calendar events and update display
             await this.createCalendar();
