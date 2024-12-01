@@ -15,9 +15,8 @@ export class EventManageApp {
             showImportant: showImportantSetting === null ? false : showImportantSetting === 'true'
         };
         this.backgroundInfo = {};
-        this.emailsLoaded = false;
         this.emailEventUpdater = new EmailEventUpdater(this);
-        this.initializeToastContainer();
+        this.initializeToastContainer(); // Required by EmailProcessor
 
     }
     async init() {
@@ -35,7 +34,7 @@ export class EventManageApp {
         // Load initial data
         await this.getAllContacts();
         this.createCalendar();
-        this.loadInitialEmails();
+        this.emailProcessor.loadInitialEmails();
 
         fetch(`/ai/resetHistory`);
 
@@ -208,37 +207,6 @@ export class EventManageApp {
         }
     }
 
-    async loadInitialEmails() {
-        if (this.emailsLoaded) return;
-
-        try {
-            const emails = await this.readGmail();
-            this.emailsLoaded = true;
-            return emails;
-        } catch (error) {
-            console.error("Failed to load initial emails:", error);
-            throw error;
-        }
-    }
-
-    adjustMessagesContainerHeight() {
-        const messagesCard = document.querySelector('#messages .card-body');
-        const messagesContainer = document.querySelector('.messages-container');
-
-        if (!messagesCard || !messagesContainer) return;
-
-        // Get the top position of the messagesContainer relative to the messagesCard
-        const containerTop = messagesContainer.offsetTop;
-
-        // Get the total height of the card's content area
-        const cardContentHeight = messagesCard.clientHeight;
-
-        // Set the container height
-        const newHeight = cardContentHeight - containerTop;
-        messagesContainer.style.maxHeight = `${Math.max(newHeight, 100)}px`;
-    }
-
-
 
     async initiateGoogleOAuth() {
         try {
@@ -338,10 +306,6 @@ export class EventManageApp {
             throw error;
         }
     }
-    async generateConfirmationEmail(text, email) {
-        const aiPrompt = `Write an email to confirm that the event is tomorrow and some of the key details. Also, ask if they have an updated attendance count and ask about catering choices. Be semi-formal.\n\nEvent details: ${text}\nEmail: ${email}.`;
-        return await this.sendAIRequest("/api/sendAIText", { aiText: aiPrompt });
-    }
 
     async getEventDetailsFromEmail(text, email) {
 
@@ -424,33 +388,7 @@ export class EventManageApp {
             });
         });
     }
-    toggleImportant(e) {
-        // Toggle the filter state
-        this.emailFilters.showImportant = !this.emailFilters.showImportant;
 
-        // Save to localStorage
-        localStorage.setItem('showImportantEmails', this.emailFilters.showImportant);
-
-        // Update button text and icon
-        const $button = $(e.currentTarget);
-        if (this.emailFilters.showImportant) {
-            $button.html('<i class="bi bi-star-fill"></i>');
-            $button.attr('data-tip', 'Show All Emails');
-        } else {
-            $button.html('<i class="bi bi-star"></i>');
-            $button.attr('data-tip', 'Show Important Only');
-        }
-
-        // Add a brief animation
-        $button.addClass('animate-press');
-        setTimeout(() => $button.removeClass('animate-press'), 200);
-
-        // Refresh emails with current filter state
-        this.readGmail().catch(error => {
-            console.error("Error refreshing emails:", error);
-            this.showToast("Failed to refresh emails", "error");
-        });
-    }
     sortContacts(criteria) {
         switch (criteria) {
             case 'name':
@@ -648,10 +586,7 @@ export class EventManageApp {
             this.refreshCalendarSync();
         });
 
-        $('#toggleRepliedEmails').off('click').on('click', (e) => {
-            e.preventDefault();
-            this.toggleImportant(e);
-        });
+     
         $(document).on("click", "#actionsEmailContract", (e) => {
             e.preventDefault();
             this.actionsEmailContract();
@@ -710,21 +645,8 @@ export class EventManageApp {
             e.preventDefault();
 
         });
-        $(document).on("click", "#emailAI", (e) => {
-            e.preventDefault();
-            const val = $("#aiText").text();
-            this.emailProcessor.handleDraftEventEmail(val, "");
-        });
 
-        $(document).on("click", ".generateConfirmationEmail", async (e) => {
-            e.preventDefault();
-            const parent = $(e.target).closest(".sms");
-            const text = parent.find(".email").text();
-            const email = parent.attr("to");
-            $("#sendMailEmail").val(email);
-            $("#sendEmail").attr("subject", "Confirmation of Event");
-            await this.sendConfirmEmail(text, email);
-        });
+
 
         $(document).on("click", ".getEventDetails", async (e) => {
             e.preventDefault();
@@ -757,12 +679,6 @@ export class EventManageApp {
             this.saveContactInfo();
         });
 
-        $(document).on("click", "#readAllEmails", (e) => {
-            e.preventDefault();
-            this.readGmail("all");
-        });
-
-
 
 
         // Initiate Google OAuth
@@ -773,12 +689,6 @@ export class EventManageApp {
         // Logout
         $('#logoutButton').on('click', () => {
             this.logout();
-        });
-        // Place additional event handlers here, grouped logically
-        // For example, handlers related to email actions
-        $(document).on("click", "#sendEmail", (e) => {
-            e.preventDefault();
-            this.sendEmail();
         });
 
         $(document).on("click", "#calcRate", (e) => {
@@ -797,20 +707,7 @@ export class EventManageApp {
             this.sendToAiFromResult(e);
         });
 
-        $(document).off('click', '.toggle-button').on('click', '.toggle-button', (e) => {
-            e.preventDefault();
-            const $button = $(e.currentTarget);
-            const $email = $button.closest('.sms').find('.email');
-            const $icon = $button.find('i');
 
-            $email.toggleClass('expanded');
-
-            if ($email.hasClass('expanded')) {
-                $icon.removeClass('bi-chevron-down').addClass('bi-chevron-up');
-            } else {
-                $icon.removeClass('bi-chevron-up').addClass('bi-chevron-down');
-            }
-        });
         $('#searchInput').on('input', (e) => {
             const searchTerm = e.target.value.toLowerCase();
             $('#contacts .contactCont').each((index, contactElement) => {
@@ -853,83 +750,6 @@ export class EventManageApp {
         this.loadContact(newId);
     }
 
-    async sendConfirmEmail(text, email) {
-        $("#aiText").append(`---------------------<br><br>${text.replace(/\n/g, "<br>")}`);
-        try {
-            let data = await this.generateConfirmationEmail(text, email);
-            data = data.replace(/```/g, "").replace(/html/g, "").replace(/\n/g, "<br>");
-            $("#aiText").prepend(data + "<br><br>");
-            this.utils.alert("Confirmation email generated and displayed.");
-        } catch (error) {
-            this.utils.alert("Failed to generate confirmation email: " + error);
-        }
-    }
-    async sendEmail() {
-        try {
-            const content = $("#aiText").html();
-            const to = $("#sendMailEmail").val();
-            const subject = $("#sendMailSubject").val();
-            const replyToMessageId = $("#aiText").data('replyToMessageId');
-            const source = $("#aiText").data('source');
-
-            if (!content || !to || !subject) {
-                this.showToast("Please fill in all required fields", "error");
-                return;
-            }
-
-            if (!confirm("Are you sure you want to send this email?")) {
-                return;
-            }
-
-            // Prepare email data
-            const emailData = {
-                html: content,
-                to: to,
-                subject: subject,
-                replyToMessageId: replyToMessageId,
-                source: source
-            };
-
-            const response = await $.post("/gmail/sendEmail", emailData);
-
-            if (response.success) {
-                this.showToast("Email sent successfully", "success");
-
-                // Clear the form
-                $("#aiText").html('');
-                $("#sendMailEmail").val('');
-                $("#sendMailSubject").val('');
-                $("#aiText").removeData('replyToMessageId');
-                $("#aiText").removeData('source');
-
-
-
-                // Refresh emails list if it was a reply
-                if (replyToMessageId) {
-                    await this.readGmail();
-                }
-
-                // Handle any necessary UI updates for the replied email
-                if (replyToMessageId) {
-                    $(`.sms[data-id="${replyToMessageId}"]`).addClass('replied');
-                    const $replyIcon = $(`.sms[data-id="${replyToMessageId}"] .icon-btn[data-tip="Replied"]`);
-                    if (!$replyIcon.length) {
-                        const iconHtml = `
-                            <button class="icon-btn tooltip" data-tip="Replied">
-                                <i class="bi bi-reply-fill text-success"></i>
-                            </button>
-                        `;
-                        $(`.sms[data-id="${replyToMessageId}"] .flex.gap-2`).append(iconHtml);
-                    }
-                }
-            } else {
-                throw new Error(response.error || 'Failed to send email');
-            }
-        } catch (error) {
-            console.error("Failed to send email:", error);
-            this.showToast("Failed to send email: " + error.message, "error");
-        }
-    }
 
 
     calculateRate() {
@@ -951,60 +771,7 @@ export class EventManageApp {
         $('html, body').animate({ scrollTop: $("#aiText").offset().top }, 500);
         $("#aiText").focus();
     }
-    async readGmail(email = null, options = {}) {
-        this.adjustMessagesContainerHeight();
-        $(".messages-container").html(`
-            <div class="alert alert-info">
-                <i class="bi bi-hourglass-split"></i>
-                Loading emails...
-            </div>
-        `);
 
-        try {
-            let response;
-            if (email) {
-                // When loading emails for a specific contact
-                response = await $.get("/gmail/readGmail", {
-                    email: email,
-                    type: 'contact',
-                    orderBy: 'timestamp',
-                    order: 'desc'
-                });
-            } else {
-                // When loading all emails
-                const type = $('#messages').data('currentView') === 'interac' ? 'interac' : 'all';
-                response = await $.get("/gmail/readGmail", {
-                    type: type,
-                    forceRefresh: false,
-                    orderBy: 'timestamp',
-                    order: 'desc',
-                    showImportant: this.emailFilters.showImportant // Changed from showReplied
-                });
-            }
-
-            if (!Array.isArray(response)) {
-                throw new Error("Invalid response format");
-            }
-
-            if ($('#messages').data('currentView') === 'interac') {
-                this.processInteracEmails(response);
-            } else {
-                // Pass the options to processEmails to handle filtering
-                this.processEmails(response, options);
-            }
-
-            return response;
-        } catch (error) {
-            console.error("Failed to read Gmail:", error);
-            $(".messages-container").html(`
-                <div class="alert alert-error">
-                    <i class="bi bi-exclamation-triangle"></i>
-                    Failed to load emails: ${error.message || 'Unknown error'}
-                </div>
-            `);
-            throw error;
-        }
-    }
     async refreshCalendarSync() {
         try {
             await this.createCalendar();
@@ -1014,196 +781,9 @@ export class EventManageApp {
             this.showToast("Failed to refresh calendar sync", "error");
         }
     }
-    refreshEmails() {
-        const messagesContainer = $("#messages .messages-container");
-        const loadingHtml = `
-            <div class="alert alert-info">
-                <i class="bi bi-hourglass-split"></i>
-                Filtering emails...
-            </div>
-        `;
-        messagesContainer.html(loadingHtml);
 
-        // Get the cached emails
-        $.get("/gmail/readGmail", {
-            email: 'all',
-            showCount: 25
-        }).then(response => {
-            this.processEmails(response);
-        }).catch(error => {
-            console.error("Failed to refresh emails:", error);
-            messagesContainer.html(`
-                <div class="alert alert-danger">
-                    <i class="bi bi-exclamation-triangle"></i>
-                    Failed to refresh emails: ${error.message || 'Unknown error'}
-                </div>
-            `);
-        });
-    }
-    initializeEmailToggles() {
-        $(document).off('click', '.toggle-button').on('click', '.toggle-button', (e) => {
-            e.preventDefault();
-            const $button = $(e.currentTarget);
-            const $email = $button.closest('.sms').find('.email');
-            const $icon = $button.find('i');
-
-            $email.toggleClass('expanded');
-
-            if ($email.hasClass('expanded')) {
-                $icon.removeClass('bi-chevron-down').addClass('bi-chevron-up');
-            } else {
-                $icon.removeClass('bi-chevron-up').addClass('bi-chevron-down');
-            }
-        });
-    }
-    processEmails(data, options = {}) {
-        if (!Array.isArray(data)) {
-            console.error("Invalid data format:", data);
-            return;
-        }
-
-        // Apply filter logic only if not explicitly ignored
-        let filteredEmails = options.ignoreFilters ? data : this.emailProcessor.applyFilters();
-
-        // Sort emails by timestamp
-        filteredEmails.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-
-        const exclusionArray = ["calendar-notification", "accepted this invitation", "peerspace", "tagvenue"];
-        let html = '';
-
-        filteredEmails.forEach((email) => {
-            if (!email || !email.subject) {
-                console.warn("Skipping invalid email entry:", email);
-                return;
-            }
-
-            // Process email content with proper newline handling
-            let emailContent = '';
-            if (email.text) {
-                emailContent = email.text
-                    .replace(/\r\n/g, '\n')
-                    .replace(/\r/g, '\n')
-                    .replace(/\n{3,}/g, '\n\n')
-                    .replace(/\n/g, '<br>');
-            } else if (email.html) {
-                const tempDiv = document.createElement('div');
-                tempDiv.innerHTML = email.html;
-
-                const scripts = tempDiv.getElementsByTagName('script');
-                const styles = tempDiv.getElementsByTagName('style');
-                for (let i = scripts.length - 1; i >= 0; i--) scripts[i].remove();
-                for (let i = styles.length - 1; i >= 0; i--) styles[i].remove();
-
-                emailContent = tempDiv.innerHTML
-                    .replace(/<div[^>]*>/gi, '')
-                    .replace(/<\/div>/gi, '<br>')
-                    .replace(/<p[^>]*>/gi, '')
-                    .replace(/<\/p>/gi, '<br><br>')
-                    .replace(/<br\s*\/?>\s*<br\s*\/?>/gi, '<br><br>')
-                    .replace(/(<br\s*\/?>\s*){3,}/gi, '<br><br>');
-            } else {
-                console.warn("Email has no content:", email);
-                return;
-            }
-
-            // Skip emails with exclusion terms
-            if (exclusionArray.some((exclusion) =>
-                email.subject.toLowerCase().includes(exclusion) ||
-                emailContent.toLowerCase().includes(exclusion)
-            )) {
-                return;
-            }
-
-            const emailAddressMatch = email.from.match(/<([^>]+)>/);
-            const emailAddress = emailAddressMatch ? emailAddressMatch[1] : email.from;
-
-            const isUnread = email.labels && email.labels.includes("UNREAD");
-            const isImportant = email.labels && email.labels.includes("IMPORTANT");
-
-            const unreadIcon = isUnread
-                ? `<button class="icon-btn tooltip" data-tip="Unread"><i class="bi bi-envelope-open-text text-warning"></i></button>`
-                : `<button class="icon-btn tooltip" data-tip="Read"><i class="bi bi-envelope text-secondary"></i></button>`;
-
-            const importantIcon = isImportant
-                ? `<button class="icon-btn tooltip" data-tip="Important"><i class="bi bi-star-fill text-warning"></i></button>`
-                : '';
-
-            const replyIcon = email.replied
-                ? `<button class="icon-btn tooltip" data-tip="Replied">
-                     <i class="bi bi-reply-fill text-success"></i>
-                   </button>`
-                : '';
-
-            const timestamp = moment.tz(email.timestamp, 'America/New_York');
-            const timeDisplay = timestamp.format("MM/DD/YYYY HH:mm");
-            const timeAgo = timestamp.fromNow();
-
-            html += `
-                <div class="sms ${email.replied ? 'replied' : ''}" 
-                     subject="${_.escape(email.subject)}" 
-                     to="${_.escape(emailAddress)}" 
-                     data-id="${_.escape(email.id)}">
-                    <div class="flex items-center justify-between mb-2">
-                        <button class="icon-btn toggle-button tooltip" data-tip="Toggle Content">
-                            <i class="bi bi-chevron-down"></i>
-                        </button>
-                        <div class="flex gap-2">
-                            ${unreadIcon}
-                            ${importantIcon}
-                            ${replyIcon}
-                        </div>
-                    </div>
-                    
-                    <div class="email collapsed">
-                        <div class="email-header text-sm space-y-1">
-                            <div><strong>From:</strong> ${_.escape(email.from)}</div>
-                            <div><strong>To:</strong> ${_.escape(email.to)}</div>
-                            <div><strong>Subject:</strong> ${_.escape(email.subject)}</div>
-                            <div><strong>Time:</strong> ${timeDisplay} (${timeAgo})</div>
-                        </div>
-                        <div class="email-body mt-3">
-                            ${emailContent}
-                        </div>
-                    </div>
-    
-                    <div class="action-buttons flex flex-wrap gap-2 mt-2">
-                        <button class="icon-btn summarizeEmailAI tooltip tooltip-top" data-tip="Summarize Email">
-                            <i class="bi bi-list-task"></i>
-                        </button>
-                        <button class="icon-btn draftEventSpecificEmail tooltip tooltip-top" data-tip="Draft Event Email">
-                            <i class="bi bi-pencil"></i>
-                        </button>
-                        <button class="icon-btn getEventDetails tooltip tooltip-top" data-id="${_.escape(email.id)}" data-tip="Get Event Information">
-                            <i class="bi bi-calendar-plus"></i>
-                        </button>
-                        <button class="icon-btn generateConfirmationEmail tooltip tooltip-top" data-id="${_.escape(email.id)}" data-tip="Generate Confirmation">
-                            <i class="bi bi-envelope"></i>
-                        </button>
-                        <button class="icon-btn sendToAiTextArea tooltip tooltip-top" subject="${_.escape(email.subject)}" to="${_.escape(emailAddress)}" data-id="${_.escape(email.id)}" data-tip="Send to AI">
-                            <i class="bi bi-send"></i>
-                        </button>
-                        <button class="icon-btn archiveEmail tooltip tooltip-top" data-tip="Archive Email">
-                            <i class="bi bi-archive"></i>
-                        </button>
-                        <button class="icon-btn updateEventInfo tooltip tooltip-top" data-tip="Update Event Info">
-                            <i class="bi bi-arrow-up-circle"></i>
-                        </button>
-                    </div>
-                </div>`;
-        });
-
-        if (html) {
-            $(".messages-container").html(html);
-            this.initializeEmailToggles();
-        } else {
-            $(".messages-container").html(`
-                <div class="alert alert-info">
-                    <i class="bi bi-info-circle"></i>
-                    No emails found
-                </div>
-            `);
-        }
-    } initializeTooltips() {
+     
+    initializeTooltips() {
         // Remove any existing tooltip initialization
         $('.icon-btn[data-tooltip]').tooltip('dispose');
 
@@ -1512,18 +1092,15 @@ export class EventManageApp {
 
         if (contact.email) {
             // Pass options to show all emails for this contact without filters
-            this.readGmail(contact.email, {
+            this.emailProcessor.readGmail(contact.email, {
                 showAll: true,
                 ignoreFilters: true
             });
         }
-        $("#depositPw").html(this.calcDepositPassword(contact));
+        $("#depositPw").html(this.emailProcessor.calcDepositPassword(contact));
     }
 
-    calcDepositPassword(contact) {
-        return moment.tz(contact.startTime, 'America/New_York').format("MMMMDD");
-    }
-    async initializeBackgroundInfo() {
+        async initializeBackgroundInfo() {
         try {
             // Load background info
             const backgroundResponse = await fetch('/api/settings/background');
@@ -1687,196 +1264,8 @@ export class EventManageApp {
             });
         }
     }
-    processInteracEmails(data) {
-        if (!Array.isArray(data)) {
-            console.error("Invalid data format:", data);
-            return;
-        }
 
-        let html = '';
-        data.forEach((email) => {
-            // Extract Interac details using regex
-            const emailContent = email.text || email.html;
-            const nameMatch = emailContent.match(/Sent From:\s*(.*?)(?:\n|$)/);
-            const amountMatch = emailContent.match(/Amount:\s*\$([\d.]+)/);
-
-            const senderName = nameMatch ? nameMatch[1].trim() : 'Unknown';
-            const amount = amountMatch ? amountMatch[1] : '0.00';
-
-            // Get timestamp
-            const timestamp = moment.tz(email.timestamp, 'America/New_York');
-            const timeDisplay = timestamp.format("MM/DD/YYYY HH:mm");
-            const timeAgo = timestamp.fromNow();
-
-            // Find matching contacts using Fuse
-            let matchingContactsHtml = '';
-            if (this.fuse) {
-                const matches = this.fuse.search(senderName);
-                const contact = matches.length > 0 ? matches[0].item : null;
-                if (contact) {
-                    const depositPw = this.calcDepositPassword(contact);
-                    matchingContactsHtml = `
-                    <div class="alert alert-success mt-2">
-                        <i class="bi bi-check-circle"></i> 
-                        Matching contact: ${contact.name}<br>
-                        Deposit Password: ${depositPw}
-                    </div>
-                `;
-                }
-            }
-
-            html += `
-            <div class="sms" data-id="${email.id}" data-name="${_.escape(senderName)}" data-amount="${amount}">
-                <div class="flex items-center justify-between mb-2">
-                    <div class="text-xl font-bold text-success">
-                        $${_.escape(amount)}
-                    </div>
-                    <div>
-                        <button class="btn btn-primary btn-sm forward-etransfer gap-2">
-                            <i class="bi bi-forward"></i>
-                            Forward eTransfer
-                        </button>
-                    </div>
-                </div>
-
-                <div class="email-header text-sm space-y-1">
-                    <div><strong>From:</strong> ${_.escape(email.from)}</div>
-                    <div><strong>Sent From:</strong> ${_.escape(senderName)}</div>
-                    <div><strong>Time:</strong> ${timeDisplay} (${timeAgo})</div>
-                    ${matchingContactsHtml}
-                </div>
-
-                <div class="email mt-4">
-                    ${emailContent.replace(/\n/g, '<br>')}
-                </div>
-            </div>
-        `;
-        });
-
-        if (html) {
-            $(".messages-container").html(html);
-            this.initializeForwardButtons();
-        } else {
-            $(".messages-container").html(`
-            <div class="alert alert-info">
-                <i class="bi bi-info-circle"></i>
-                No Interac e-Transfer emails found
-            </div>
-        `);
-        }
-    }
-    initializeForwardButtons() {
-        $('.forward-etransfer').off('click').on('click', async (e) => {
-            const $container = $(e.target).closest('.sms');
-            const senderName = $container.data('name');
-            const amount = $container.data('amount');
-            const emailId = $container.data('id');
-
-            try {
-                const staffResponse = await $.get('https://eattaco.ca/api/getStaff');
-                const activeStaff = staffResponse.filter(staff => staff.active);
-                const matches = this.fuse ? this.fuse.search(senderName) : [];
-
-                const modal = document.getElementById('etransfer_modal') || document.createElement('dialog');
-                modal.id = 'etransfer_modal';
-                modal.className = 'modal';
-
-                modal.innerHTML = `
-                <div class="modal-box">
-                    <h3 class="font-bold text-lg">Forward eTransfer</h3>
-                    <div class="py-4 space-y-4">
-                        <div class="alert alert-info">
-                            <div class="text-lg">$${amount} from ${senderName}</div>
-                        </div>
-
-                        <div class="form-control">
-                            <label class="label">
-                                <span class="label-text">Select Matching Contact</span>
-                            </label>
-                            <select class="select select-bordered" id="matchingContacts">
-                                <option value="">Select contact...</option>
-                                ${matches.map(match => {
-                    const depositPw = this.calcDepositPassword(match.item);
-                    return `
-                                        <option value="${match.item.id}" 
-                                                data-password="${depositPw}">
-                                            ${match.item.name} (${moment(match.item.startTime).format('MM/DD/YYYY')})
-                                        </option>
-                                    `;
-                }).join('')}
-                            </select>
-                        </div>
-
-                        <div class="form-control">
-                            <label class="label">
-                                <span class="label-text">Forward To Staff</span>
-                            </label>
-                            <select class="select select-bordered" id="sendStaffSelect">
-                                <option value="">Select staff member...</option>
-                                ${activeStaff.map(staff => `
-                                    <option value="${staff.email}" 
-                                            data-phone="${staff.phone}">
-                                        ${staff.user}
-                                    </option>
-                                `).join('')}
-                            </select>
-                        </div>
-                    </div>
-
-                    <div class="modal-action">
-                        <button class="btn btn-primary" id="sendEtransfer">Send</button>
-                        <button class="btn" onclick="etransfer_modal.close()">Cancel</button>
-                    </div>
-                </div>
-            `;
-
-                document.body.appendChild(modal);
-                modal.showModal();
-
-                $('#sendEtransfer').off('click').on('click', async () => {
-                    const selectedStaff = $('#sendStaffSelect').val();
-                    const selectedStaffPhone = $('#sendStaffSelect option:selected').data('phone');
-                    const selectedStaffName = $('#sendStaffSelect option:selected').text();
-                    const depositPw = $('#matchingContacts option:selected').data('password');
-
-                    if (!selectedStaff || !depositPw) {
-                        this.showToast('Please select both a contact and staff member', 'error');
-                        return;
-                    }
-
-                    try {
-                        // Forward email
-                        await $.post('/gmail/forwardEmail', {
-                            messageId: emailId,
-                            to: selectedStaff
-                        });
-
-                        // Send SMS
-                        const smsData = {
-                            to: selectedStaffPhone,
-                            message: `This is Luan from TacoTaco. The PW to the etransfer for ${senderName} is ${depositPw}. Please confirm after you've deposited. If there is a problem, message Luan on Whatsapp.`,
-                            fromName: 'Luan',
-                            amount: amount,
-                            toName: selectedStaffName
-                        };
-
-                        await $.post('https://eattaco.ca/api/sendStaffSMSInterac', smsData);
-
-                        this.showToast('eTransfer forwarded and SMS sent successfully', 'success');
-                        modal.close();
-                    } catch (error) {
-                        console.error('Error forwarding eTransfer:', error);
-                        this.showToast('Error forwarding eTransfer', 'error');
-                    }
-                });
-
-            } catch (error) {
-                console.error('Error loading staff data:', error);
-                this.showToast('Error loading staff data', 'error');
-            }
-        });
-    }
-
+  
 
     saveContactInfo() {
         let contact = _.find(this.contacts, ["id", this.currentId]);
