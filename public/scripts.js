@@ -790,10 +790,10 @@ export class EventManageApp {
             this.calculateRate();
         });
 
-        $(document).on("click", ".contactBtn", (e) => {
+        $(document).on("click", ".contactBtn", function(e)  {
             e.preventDefault();
             $('html, body').animate({ scrollTop: $('#info').offset().top }, 500);
-            this.loadContact($(e.target).parent().data("id"));
+            me.loadContact($(this).parent().data("id"));
         });
 
         $(document).on("click", ".sendToAiFromResult", (e) => {

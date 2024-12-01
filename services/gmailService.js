@@ -10,13 +10,13 @@ class GmailService {
         this.auth = auth;
         this.cacheFilePath = path.join(__dirname, '..', 'data', 'emails.json');
         this.lastRetrievalPath = path.join(__dirname, '..', 'data', 'lastRetrieval.json');
-   
+
         // Initialize user instance
         this.user = new User();
         this.user.loadSettings().catch(err => {
             console.error('Error loading user settings:', err);
         });
-        
+
         // Initialize all caches
         // In constructor
         this.emailCache = new Map();
@@ -113,14 +113,22 @@ class GmailService {
                 options.source === 'generateConfirmationEmail' ||
                 options.source === 'sendToAiTextArea';
 
-            // Get thread and message IDs for replies
             let threadId = null;
             let originalMessageId = null;
+            let originalContent = '';
+
+            // Get thread and message IDs for replies
             if (isReply && options.replyToMessageId) {
                 const originalMessage = await this.getMessage(options.replyToMessageId);
                 threadId = originalMessage.threadId;
                 const headers = originalMessage.payload.headers;
                 originalMessageId = headers.find(h => h.name === 'Message-ID')?.value;
+
+                // Format the original message content as quoted
+                originalContent = await this.formatReplyContent(content, originalMessage);
+            } else {
+                // If not replying, use the content directly
+                originalContent = this.formatEmailContent(content);
             }
 
             // Prepare email headers
@@ -138,11 +146,8 @@ class GmailService {
                 headers.push(`References: ${originalMessageId}`);
             }
 
-            // Format the email content with proper HTML structure
-            const formattedContent = this.formatEmailContent(content);
-
             // Combine headers and content
-            const emailContent = `${headers.join('\r\n')}\r\n\r\n${formattedContent}`;
+            const emailContent = `${headers.join('\r\n')}\r\n\r\n${originalContent}`;
 
             // Encode the email for sending
             const encodedMessage = Buffer.from(emailContent)
@@ -181,6 +186,7 @@ class GmailService {
             throw new Error(`Failed to send email: ${error.message}`);
         }
     }
+
 
     formatEmailContent(content) {
         // Clean up any existing HTML structure
