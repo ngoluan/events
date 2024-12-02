@@ -1,3 +1,4 @@
+
 class Contacts {
     constructor(parent) {
         if (!parent) {
@@ -161,6 +162,13 @@ class Contacts {
                 console.error(`Error updating contact ${update.id} status:`, error);
             }
         }
+    }
+
+    addContact(contact) {
+        this.contacts.push(contact);
+
+        // Re-render contacts list to reflect the new addition
+        this.renderContactsWithCalendarSync();
     }
 
     renderContactsWithCalendarSync() {

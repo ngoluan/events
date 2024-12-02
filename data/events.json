@@ -19585,8 +19585,8 @@
       "email": "wongwyedmund@gmail.com",
       "phone": "",
       "partyType": "Party",
-      "startTime": "2025-01-11T18:00",
-      "endTime": "2024-01-11T23:00",
+      "startTime": "2025-01-11T19:00",
+      "endTime": "2024-01-12T00:00",
       "room": "DiningRoom",
       "attendance": "50",
       "services": "",
@@ -19598,6 +19598,20 @@
       "rentalRate": "625",
       "minSpend": "1000",
       "createdAt": "2024-12-01T23:16:23.688Z"
+    },
+    {
+      "name": "Lauren Kilgour",
+      "email": "kilgour.lauren@gmail.com",
+      "startTime": "2024-12-13 18:00",
+      "endTime": "2024-12-13 20:00",
+      "status": "reserved",
+      "services": "bar;lights;audio;music;kareoke",
+      "room": "Lounge",
+      "phone": "14166924768",
+      "notes": "Thank you for sending over the contract so quickly! I accept the contract. Will 100 people be possible? Will it be possible to share over the F&B menu? I'll use that to design the event. Additionally, as with last year, we'll be looking for about 100 people. Will that be possible? If not possible, let's please discuss! It might mean that I'll look to have the deposit refunded. Sorry for the back and forth, please do let me know if there's anything I can do to support.",
+      "partyType": "",
+      "attendance": "100",
+      "id": 1195
     }
   ]
 }

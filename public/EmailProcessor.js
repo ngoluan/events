@@ -95,8 +95,8 @@ class EmailProcessor {
 
             // Find matching contacts using Fuse
             let matchingContactsHtml = '';
-// Inside EmailProcessor methods
-const matches = this.parent.contacts.fuse ? this.parent.contacts.fuse.search(senderName) : [];
+            // Inside EmailProcessor methods
+            const matches = this.parent.contacts.fuse ? this.parent.contacts.fuse.search(senderName) : [];
             const contact = matches.length > 0 ? matches[0].item : null;
             if (contact) {
                 const depositPw = this.calcDepositPassword(contact);
@@ -642,29 +642,38 @@ const matches = this.parent.contacts.fuse ? this.parent.contacts.fuse.search(sen
     }
     applyFilters() {
         if (!Array.isArray(this.originalEmails)) {
-            return [];  // Return empty array instead of undefined
+            return [];
         }
-
+    
+        // If no filters are active, show all non-replied emails
+        if (!this.filters.replied && 
+            !this.filters.archived && 
+            this.filters.categories.size === 0) {
+            return this.originalEmails.filter(email => !email.replied);
+        }
+    
         return this.originalEmails.filter(email => {
-            // If no filters are active, show all emails
-            if (!this.filters.replied &&
-                !this.filters.archived &&
-                this.filters.categories.size === 0) {
-                return true;
+            let matchesFilters = true;
+    
+            // If replied filter is off, only show non-replied emails
+            // If replied filter is on, show all emails regardless of reply status
+            if (!this.filters.replied) {
+                matchesFilters = matchesFilters && !email.replied;
             }
-
-            // Check each active filter
-            if (this.filters.replied && email.replied) return true;
-            if (this.filters.archived && email.labels?.includes('Label_6')) return true;
-            if (this.filters.categories.size > 0 &&
-                email.category &&
-                this.filters.categories.has(email.category)) return true;
-
-            return false;
+    
+            // Check archived status
+            if (this.filters.archived) {
+                matchesFilters = matchesFilters && email.labels?.includes('Label_6');
+            }
+    
+            // Check categories
+            if (this.filters.categories.size > 0) {
+                matchesFilters = matchesFilters && email.category && this.filters.categories.has(email.category);
+            }
+    
+            return matchesFilters;
         });
     }
-
-    // Add methods to support these handlers:
     async handleConfirmationEmail(text, email) {
         try {
             const data = await this.parent.sendAIRequest("/api/sendAIText", {

@@ -422,12 +422,7 @@
                                                 <i class="bi bi-chat-dots text-xl text-primary"></i>
                                                 <span class="text-xs font-medium">Chat</span>
                                             </button>
-                                            <button
-                                                class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
-                                                id="confirmAI">
-                                                <i class="bi bi-check-circle text-xl text-primary"></i>
-                                                <span class="text-xs font-medium">Confirm</span>
-                                            </button>
+
                                             <button
                                                 class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
                                                 id="clearAiText">
@@ -517,7 +512,7 @@
     </dialog>
     <!-- Update the existing modal content -->
     <dialog id="user_settings_modal" class="modal">
-        <div class="modal-box">
+        <div class="modal-box w-11/12 max-w-4xl">
             <h2 class="text-xl font-semibold mb-4">User Settings</h2>
 
             <!-- Google Account Section -->
@@ -539,30 +534,21 @@
                     Customize the email categories used for categorization.
                 </p>
                 <div class="form-control">
-                    <table class="table w-full">
+                    <table class="table w-full" id="emailCategoryTable">
                         <thead>
                             <tr>
                                 <th>Category</th>
                                 <th>Description</th>
+                                <th></th>
                             </tr>
                         </thead>
                         <tbody>
-                            <tr>
-                                <td>
-                                    <input type="text" id="emailCategoryName-0" class="input input-bordered w-full"
-                                        placeholder="Category Name" />
-                                </td>
-                                <td>
-                                    <input type="text" id="emailCategoryDescription-0"
-                                        class="input input-bordered w-full" placeholder="Category Description" />
-                                </td>
-                            </tr>
+                            <!-- Categories will be dynamically inserted here -->
                         </tbody>
                     </table>
                     <button class="btn btn-primary mt-2" id="addEmailCategory">Add Category</button>
                 </div>
             </div>
-
             <!-- New Background Information Section -->
             <!-- In the settings modal -->
             <div class="mb-6">

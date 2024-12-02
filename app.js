@@ -6,7 +6,6 @@ const bodyParser = require('body-parser');
 const session = require('express-session');
 const GoogleAuth = require('./services/GoogleAuth');
 const EmailProcessorServer = require('./services/EmailProcessorServer');
-const backgroundRoutes = require('./routes/BackgroundRoutes');
 const GmailService = require('./services/gmailService');
 const EventService = require('./services/eventService');
 const cron = require('node-cron');
@@ -59,7 +58,6 @@ app.use('/', eventsRoutes);
 app.use('/calendar', calendarRoutes);
 app.use('/ai', aiRoutes);
 app.use('/', emailProcessor.getRouter());
-app.use('/', backgroundRoutes);  // Add this line
 app.use('/', usersRoutes);
 
 

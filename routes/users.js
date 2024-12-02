@@ -1,7 +1,4 @@
 const express = require('express');
-const router = express.Router();
-const path = require('path');
-const fs = require('fs').promises;
 const User = require('../services/User');
 
 class UsersRoute {
@@ -12,29 +9,53 @@ class UsersRoute {
     }
 
     setupRoutes() {
+        // Get background info
+        this.router.get('/api/settings/background', async (req, res) => {
+            try {
+                const data = await this.user.getBackground();
+                res.json(data);
+            } catch (error) {
+                console.error('Error retrieving background info:', error);
+                res.status(500).json({
+                    error: 'Failed to retrieve background information',
+                    details: error.message
+                });
+            }
+        });
+
+        // Save background info
+        this.router.post('/api/settings/background', async (req, res) => {
+            try {
+                if (!req.body || typeof req.body.backgroundInfo !== 'string') {
+                    return res.status(400).json({
+                        error: 'Invalid request body. Expected { backgroundInfo: string }',
+                        receivedBody: req.body
+                    });
+                }
+
+                const success = await this.user.saveBackground(req.body.backgroundInfo);
+
+                if (success) {
+                    res.json({ success: true });
+                } else {
+                    res.status(500).json({ error: 'Failed to save background information' });
+                }
+            } catch (error) {
+                console.error('Error saving background info:', error);
+                res.status(500).json({
+                    error: 'Failed to save background information',
+                    details: error.message
+                });
+            }
+        });
+
         // Get email categories
         this.router.get('/api/settings/email-categories', async (req, res) => {
             try {
                 const settings = await this.user.loadSettings();
 
                 if (!settings || !settings.emailCategories) {
-                    // Return default categories if none exist
-                    return res.json({
-                        emailCategories: [
-                            {
-                                name: "event_platform",
-                                description: "Emails mentioning Tagvenue or Peerspace"
-                            },
-                            {
-                                name: "event",
-                                description: "Emails related to event bookings, catering, drinks. do not include opentable emails."
-                            },
-                            {
-                                name: "other",
-                                description: "Any other type of email, including receipts"
-                            }
-                        ]
-                    });
+                    return res.json({ emailCategories: this.user.getDefaultSettings().emailCategories });
                 }
 
                 res.json({ emailCategories: settings.emailCategories });
@@ -58,16 +79,15 @@ class UsersRoute {
                     });
                 }
 
-                // Validate each category has required fields
                 const validCategories = emailCategories.filter(category =>
                     category &&
                     typeof category.name === 'string' &&
                     typeof category.description === 'string'
                 );
 
-                await this.user.saveSettings({
-                    emailCategories: validCategories
-                });
+                const settings = await this.user.loadSettings();
+                settings.emailCategories = validCategories;
+                await this.user.saveSettings(settings);
 
                 res.json({
                     success: true,

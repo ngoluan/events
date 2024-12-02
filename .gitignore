@@ -3,3 +3,5 @@ node_modules/*
 /public/data/*.*
 /public/files/*
 data/*
+data/emails.json
+data/conversations.json

@@ -34,7 +34,9 @@
   .form-control .label-text {
     @apply opacity-70 font-medium;
   }
-
+  #user_settings_modal .modal-box {
+    @apply w-11/12 max-w-5xl mx-auto;
+  }
   .input,
   .select,
   .textarea {

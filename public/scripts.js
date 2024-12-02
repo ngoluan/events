@@ -1,41 +1,34 @@
 // Ensure Moment Timezone is imported if using modules
 // import moment from 'moment-timezone';
 import { CalendarManager } from './CalendarManager.js'; // Adjust the path as necessary
-
-
+import { UserSettings } from './UserSettings.js';
 export class EventManageApp {
     constructor() {
         this.emailProcessor = new EmailProcessor(this);
-        this.contacts = new Contacts(this); // Contacts instance
-        this.userEmail = '';
+        this.contacts = new Contacts(this);
         const showImportantSetting = localStorage.getItem('showImportantEmails');
         this.emailFilters = {
             showImportant: showImportantSetting === null ? false : showImportantSetting === 'true'
         };
-        this.backgroundInfo = {};
         this.emailEventUpdater = new EmailEventUpdater(this);
-        this.initializeToastContainer(); // Required by EmailProcessor
-
-        // Initialize CalendarManager
+        this.initializeToastContainer();
         this.calendarManager = new CalendarManager(this);
+        this.userSettings = new UserSettings(this);
     }
-    async init() {
-        // Load templates first
-        await this.loadTemplates();
 
-        // Load initial data
+    async init() {
+        await this.loadTemplates();
         await this.contacts.getAllContacts();
         await this.contacts.initializeFuse();
-
-        // Initialize the calendar through CalendarManager
+        await this.userSettings.initializeSettings();
+        
+        this.contacts.renderContactsWithCalendarSync();
         await this.calendarManager.initializeCalendar();
-
         this.emailProcessor.loadInitialEmails();
-        this.calendarManager.initializeMaximizeButtons(); // Initialize maximize buttons from CalendarManager
-
-        // Set up event listeners
+        this.calendarManager.initializeMaximizeButtons();
+        
         this.registerEvents();
-        this.contacts.registerEvents(); // Register contact events
+        this.contacts.registerEvents();
 
         fetch(`/ai/resetHistory`);
 
@@ -43,7 +36,7 @@ export class EventManageApp {
         if (urlParams.get('oauth') === 'success') {
             const response = await $.get('/api/getConnectedEmail');
             if (response.email) {
-                this.setConnectedEmail(response.email);
+                this.userSettings.setConnectedEmail(response.email);
             }
         }
 
@@ -52,11 +45,10 @@ export class EventManageApp {
                 ? this.contacts.getContacts()[this.contacts.getContacts().length - 1].id
                 : 0;
             eventDetails.id = lastId + 1;
-            this.contacts.getContacts().push(eventDetails);
+            this.contacts.addContact(eventDetails);
             this.contacts.loadContact(eventDetails.id);
         });
 
-        this.initializeBackgroundInfo();
         this.initializeMobileNavigation();
     }
     initializeMobileNavigation() {
@@ -125,7 +117,6 @@ export class EventManageApp {
             }
         });
     }
-    // Adjust methods that use contacts
     showReceiptManager() {
         if (this.contacts.currentId === -1) {
             this.showToast("Error: No contact selected.", "error");
@@ -210,7 +201,6 @@ export class EventManageApp {
         }
     }
 
-
     async initiateGoogleOAuth() {
         try {
             const response = await $.get('/auth/google');
@@ -253,8 +243,6 @@ export class EventManageApp {
         $('#depositCheck').on('change', (event) => {
             this.myReceipt.setDeposit(event.target.checked);
         });
-
-
     }
 
     async loadTemplates() {
@@ -297,11 +285,9 @@ export class EventManageApp {
     }
     async sendAIRequest(endpoint, data) {
         try {
-            // Only include background info if specifically requested in data
-            if (data.includeBackground && this.backgroundInfo) {
-                data.backgroundInfo = this.backgroundInfo;
+            if (data.includeBackground) {
+                data.backgroundInfo = this.userSettings.getBackgroundInfo();
             }
-
             const response = await $.post(endpoint, data);
             return response;
         } catch (error) {
@@ -309,26 +295,28 @@ export class EventManageApp {
             throw error;
         }
     }
-
     async getEventDetailsFromEmail(text, email) {
-
-        text = this.cleanEmailContent(text)
+        text = this.cleanEmailContent(text);
         text = this.templates.eventPrompt + text;
-
+    
         try {
             const data = await this.sendAIRequest("/api/sendAIEventInformation", { aiText: text });
-            const jsonData = data
-            const lastId = this.contacts.length > 0 ? this.contacts[this.contacts.length - 1].id : 0;
+            const jsonData = data;
+    
+            const contactsArray = this.contacts.getContacts();
+            const lastId = contactsArray.length > 0 ? contactsArray[contactsArray.length - 1].id : 0;
             jsonData.id = lastId + 1;
-            this.contacts.push(jsonData);
             jsonData.name = jsonData.name || "";
+    
+            // Use the addContact method
+            this.contacts.addContact(jsonData);
+    
             return jsonData.id;
         } catch (error) {
             console.error("Failed to get event details from email:", error);
             throw error;
         }
     }
-
     async summarizeEmailAI(text) {
         text = text.replace(/[-<>]/g, "").replace(/^Sent:.*$/gm, '').substring(0, 11000);
         const data = await this.sendAIRequest("/api/summarizeAI", { text: text });
@@ -392,70 +380,14 @@ export class EventManageApp {
         });
     }
 
-    sortContacts(criteria) {
-        switch (criteria) {
-            case 'name':
-                this.contacts.sort((a, b) => {
-                    return (a.name || '').localeCompare(b.name || '');
-                });
-                break;
-
-            case 'dateBooked':
-                this.contacts.sort((a, b) => {
-                    const dateA = new Date(a.createdAt || 0);
-                    const dateB = new Date(b.createdAt || 0);
-                    return dateB - dateA;
-                });
-                break;
-
-            case 'eventDate':
-                const now = moment().subtract(1, "day").startOf('day');
-
-                // First, separate future and past events
-                const futureEvents = this.contacts.filter(contact =>
-                    moment(contact.startTime).isSameOrAfter(now)
-                );
-
-                const pastEvents = this.contacts.filter(contact =>
-                    moment(contact.startTime).isBefore(now)
-                );
-
-                // Sort future events by closest date first
-                futureEvents.sort((a, b) => {
-                    const daysToA = moment(a.startTime).diff(now, 'days');
-                    const daysToB = moment(b.startTime).diff(now, 'days');
-                    return daysToA - daysToB;
-                });
-
-                // Sort past events by most recent
-                pastEvents.sort((a, b) => {
-                    const daysAgoA = moment(a.startTime).diff(now, 'days');
-                    const daysAgoB = moment(b.startTime).diff(now, 'days');
-                    return daysAgoB - daysAgoA; // Reverse sort for past events
-                });
-
-                // Combine the arrays with future events first
-                this.contacts = [...futureEvents, ...pastEvents];
-                this.contacts.reverse();
-                break;
-
-            default:
-                return 0;
-        }
-
-        // Re-render the contacts list
-        this.renderContactsWithCalendarSync();
-        this.showToast(`Sorted by ${criteria.replace(/([A-Z])/g, ' $1').toLowerCase()}`, 'success');
-    }
-    // In EventManageApp class
     async summarizeEventAiHandler() {
-        if (this.currentId === -1) {
+        if (this.contacts.currentId === -1) {
             this.showToast('No contact selected.', 'error');
             return;
         }
 
         try {
-            const response = await fetch(`/api/events/${this.currentId}/summary`);
+            const response = await fetch(`/api/events/${this.contacts.currentId}/summary`);
             if (!response.ok) {
                 throw new Error(response.statusText);
             }
@@ -468,7 +400,7 @@ export class EventManageApp {
             this.writeToAIResult(formattedResult);
 
             // Refresh the contact info to show updated notes
-            this.loadContact(this.currentId);
+            this.contacts.loadContact(this.contacts.currentId);
 
         } catch (error) {
             console.error('Error summarizing event:', error);
@@ -477,58 +409,15 @@ export class EventManageApp {
         }
     }
 
-    filterContacts(searchTerm) {
-        const $contacts = $('#contacts .contactCont');
-
-        if (!searchTerm) {
-            $contacts.show();
-            return;
-        }
-
-        $contacts.each((_, contact) => {
-            const $contact = $(contact);
-            const contactData = this.contacts.getContactById(parseInt($contact.data('id')));
-
-            if (!contactData) {
-                $contact.hide();
-                return;
-            }
-
-            // Search across multiple fields
-            const searchableText = [
-                contactData.name,
-                contactData.email,
-                contactData.phone,
-                contactData.partyType,
-                contactData.notes,
-                moment(contactData.startTime).format('MM/DD/YYYY')
-            ].filter(Boolean).join(' ').toLowerCase();
-
-            const isMatch = searchableText.includes(searchTerm);
-            $contact.toggle(isMatch);
-        });
-
-        // Show a message if no results
-        const visibleContacts = $contacts.filter(':visible').length;
-        const noResultsMessage = $('#noSearchResults');
-
-        if (visibleContacts === 0) {
-            if (!noResultsMessage.length) {
-                $('#contacts').append(`
-                    <div id="noSearchResults" class="text-center p-4 text-base-content/70">
-                        No contacts found matching "${searchTerm}"
-                    </div>
-                `);
-            }
-        } else {
-            noResultsMessage.remove();
-        }
-    }
     registerEvents() {
         let me = this;
         $('#getInterac').on('click', (e) => {
             e.preventDefault();
             this.getInteracEmails();
+        });
+        $(document).on("click", "#refreshCalendarSync", (e) => {
+            e.preventDefault();
+            this.calendarManager.refreshSync();
         });
         $(document).on("click", "#generateDeposit", (e) => {
             e.preventDefault();
@@ -565,7 +454,6 @@ export class EventManageApp {
             this.showReceiptManager();
         });
 
-
         $(document).on("click", "#actionsEmailContract", (e) => {
             e.preventDefault();
             this.actionsEmailContract();
@@ -600,10 +488,7 @@ export class EventManageApp {
                     this.showToast("Failed to copy to clipboard", "error");
                 });
         });
-        $(document).on("click", "#confirmAI", (e) => {
-            e.preventDefault();
-            this.appendConfirmationPrompt();
-        });
+      
 
         document.getElementById('aiText').addEventListener('paste', (e) => {
             e.preventDefault();
@@ -625,8 +510,6 @@ export class EventManageApp {
 
         });
 
-
-
         $(document).on("click", ".getEventDetails", async (e) => {
             e.preventDefault();
             const text = $(e.target).closest(".sms").find(".email").text();
@@ -647,40 +530,29 @@ export class EventManageApp {
             e.preventDefault();
             this.calendarManager.createBooking();
         });
-        
 
-        $(document).on("click", "#actionsCreateContract", (e) => {
-            e.preventDefault();
-            this.createContract();
-        });
-
-
-
-        // Initiate Google OAuth
         $('#googleOAuthButton').on('click', () => {
-            this.initiateGoogleOAuth();
+            this.userSettings.initiateGoogleOAuth();
+        });
+        $('#logoutButton').on('click', () => {
+            this.userSettings.logout();
         });
 
-        // Logout
-        $('#logoutButton').on('click', () => {
-            this.logout();
+        $('#saveBackgroundInfo').on('click', async () => {
+            await this.userSettings.saveSettings();
         });
+
 
         $(document).on("click", "#calcRate", (e) => {
             e.preventDefault();
             this.calculateRate();
         });
 
-
-
         $(document).on("click", ".sendToAiFromResult", (e) => {
             e.preventDefault();
             this.sendToAiFromResult(e);
         });
-
-
     }
-
 
     extractEmail() {
         const aiText = $("#aiText").text();
@@ -689,17 +561,11 @@ export class EventManageApp {
         return { match, aiText };
     }
 
-    appendConfirmationPrompt() {
-        $("#aiText").prepend("Write an email to confirm that the event is tomorrow and some of the key details. Also, ask if they have an updated attendance count and ask about catering choices. Be semi-formal.");
-    }
-
-
+    
     async handleGetEventDetailsFromEvent(text, email) {
         const newId = await this.getEventDetailsFromEmail(text, email);
-        this.loadContact(newId);
+        this.contacts.loadContact(newId);
     }
-
-
 
     calculateRate() {
         const timezone = 'America/New_York';
@@ -721,9 +587,6 @@ export class EventManageApp {
         $("#aiText").focus();
     }
 
-
-
-
     initializeTooltips() {
         // Remove any existing tooltip initialization
         $('.icon-btn[data-tooltip]').tooltip('dispose');
@@ -735,204 +598,6 @@ export class EventManageApp {
         });
     }
 
-
-    loadContact(id) {
-        const contact = this.contacts.getContactById(id);
-        if (!contact) {
-            this.currentId = -1;
-            return;
-        }
-        this.currentId = contact.id;
-        this.contacts.ensureArrayFields(contact);
-
-        // Populate form fields
-        $("#infoId").val(contact.id);
-        $("#infoName").val(contact.name || "");
-        $("#infoEmail").val(contact.email || "");
-        $("#infoStartTime").val(moment.tz(contact.startTime, 'America/New_York').format("YYYY-MM-DD HH:mm"));
-        $("#infoEndTime").val(moment.tz(contact.endTime, 'America/New_York').format("YYYY-MM-DD HH:mm"));
-
-        // Handle multi-select fields
-        const $statusSelect = $("#infoStatus");
-        $statusSelect.val([]);  // Clear previous selections
-        if (contact.status) {
-            const statusArray = Array.isArray(contact.status) ?
-                contact.status : contact.status.split(';').filter(s => s);
-            $statusSelect.val(statusArray);
-        }
-
-        const $roomSelect = $("#infoRoom");
-        $roomSelect.val([]);
-        if (contact.room) {
-            const roomArray = Array.isArray(contact.room) ?
-                contact.room : contact.room.split(';').filter(s => s);
-            $roomSelect.val(roomArray);
-        }
-
-        const $servicesSelect = $("#infoServices");
-        $servicesSelect.val([]);
-        if (contact.services) {
-            const servicesArray = Array.isArray(contact.services) ?
-                contact.services : contact.services.split(';').filter(s => s);
-            $servicesSelect.val(servicesArray);
-        }
-
-        $("#actionsPhone").val(contact.phone || "");
-        $("#infoNotes").val(contact.notes || "");
-        $("#infoRentalRate").val(contact.rentalRate || "");
-        $("#infoMinSpend").val(contact.minSpend || "");
-        $("#infoPartyType").val(contact.partyType || "");
-        $("#infoAttendance").val(contact.attendance || "");
-
-        if (contact.email) {
-            // Pass options to show all emails for this contact without filters
-            this.emailProcessor.readGmail(contact.email, {
-                showAll: true,
-                ignoreFilters: true
-            });
-        }
-        $("#depositPw").html(this.emailProcessor.calcDepositPassword(contact));
-    }
-
-    async initializeBackgroundInfo() {
-        try {
-            // Load background info
-            const backgroundResponse = await fetch('/api/settings/background');
-            const backgroundData = await backgroundResponse.json();
-            $('#backgroundInfo').val(backgroundData.backgroundInfo || '');
-
-            // Load email categories
-            const categoriesResponse = await fetch('/api/settings/email-categories');
-            const data = await categoriesResponse.json();
-
-            if (!data.emailCategories || !Array.isArray(data.emailCategories)) {
-                throw new Error('Invalid email categories format');
-            }
-
-            // Generate rows from categories array
-            const categoryRows = data.emailCategories.map((category, index) => `
-                <tr>
-                    <td>
-                        <input type="text" 
-                               id="emailCategoryName-${index}" 
-                               class="input input-bordered w-full" 
-                               value="${_.escape(category.name)}" />
-                    </td>
-                    <td>
-                        <input type="text" 
-                               id="emailCategoryDescription-${index}" 
-                               class="input input-bordered w-full" 
-                               value="${_.escape(category.description)}" />
-                    </td>
-                    <td>
-                        <button class="btn btn-square btn-sm btn-error delete-category" data-index="${index}">
-                            <i class="bi bi-trash"></i>
-                        </button>
-                    </td>
-                </tr>
-            `).join('');
-
-            $('#emailCategoryTable tbody').html(categoryRows);
-
-            // Handle delete category
-            $(document).off('click', '.delete-category').on('click', '.delete-category', function () {
-                $(this).closest('tr').remove();
-            });
-
-            $('#addEmailCategory').off('click').on('click', () => {
-                const newRow = `
-                    <tr>
-                        <td>
-                            <input type="text" 
-                                   id="emailCategoryName-${$('#emailCategoryTable tbody tr').length}" 
-                                   class="input input-bordered w-full" 
-                                   placeholder="Category Name" />
-                        </td>
-                        <td>
-                            <input type="text" 
-                                   id="emailCategoryDescription-${$('#emailCategoryTable tbody tr').length}" 
-                                   class="input input-bordered w-full" 
-                                   placeholder="Category Description" />
-                        </td>
-                        <td>
-                            <button class="btn btn-square btn-sm btn-error delete-category">
-                                <i class="bi bi-trash"></i>
-                            </button>
-                        </td>
-                    </tr>
-                `;
-                $('#emailCategoryTable tbody').append(newRow);
-            });
-
-            $('#saveBackgroundInfo').off('click').on('click', async () => {
-                try {
-                    // Save background info
-                    const backgroundInfo = $('#backgroundInfo').val();
-                    await fetch('/api/settings/background', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({ backgroundInfo })
-                    });
-
-                    // Save email categories
-                    const emailCategories = [];
-                    $('#emailCategoryTable tbody tr').each((index, row) => {
-                        const name = $(`#emailCategoryName-${index}`, row).val().trim();
-                        const description = $(`#emailCategoryDescription-${index}`, row).val().trim();
-                        if (name !== '') {
-                            emailCategories.push({ name, description });
-                        }
-                    });
-
-                    await this.emailProcessor.userSettings.saveSettings({ emailCategories });
-                    this.showToast('Settings saved successfully', 'success');
-                } catch (error) {
-                    console.error('Error saving settings:', error);
-                    this.showToast('Failed to save settings', 'error');
-                }
-            });
-        } catch (error) {
-            console.error('Failed to load background info:', error);
-            this.showToast('Failed to load background info', 'error');
-        }
-    }
-    populateBackgroundFields() {
-        // Populate form fields with loaded data
-        $('#venueName').val(this.backgroundInfo.venueName || '');
-        $('#venueAddress').val(this.backgroundInfo.address || '');
-        $('#venueCapacity').val(this.backgroundInfo.capacity || '');
-        $('#venueFacilities').val(this.backgroundInfo.facilities || '');
-        $('#venueServices').val(this.backgroundInfo.services || '');
-        $('#venuePolicies').val(this.backgroundInfo.policies || '');
-        $('#venuePricing').val(this.backgroundInfo.pricing || '');
-        $('#venueNotes').val(this.backgroundInfo.specialNotes || '');
-    }
-    async saveBackgroundInfo() {
-        // Get the text directly from the textarea
-        const backgroundInfo = $('#backgroundInfo').val();
-
-        try {
-            const response = await fetch('/api/settings/background', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ backgroundInfo })  // Send as { backgroundInfo: "text content" }
-            });
-
-            if (response.ok) {
-                this.backgroundInfo = backgroundInfo;
-                this.showSaveStatus('success');
-            } else {
-                this.showSaveStatus('error');
-            }
-        } catch (error) {
-            console.error('Failed to save background info:', error);
-            this.showSaveStatus('error');
-        }
-    }
 
     showSaveStatus(status) {
         const $saveStatus = $('#saveStatus');
@@ -949,78 +614,6 @@ export class EventManageApp {
             $saveStatus.addClass('hidden');
         }, 3000);
     }
-    // Add these methods to your EventManageApp class
-
-
-    saveContactInfo() {
-        let contact = this.contacts.getContactById(this.currentId);
-        if (!contact) {
-            // If contact doesn't exist, create a new one
-            contact = {};
-        }
-
-        // Get the selected values from the multi-select
-        const selectedStatus = Array.from($("#infoStatus").find("option:selected")).map(opt => opt.value);
-        const selectedServices = Array.from($("#infoServices").find("option:selected")).map(opt => opt.value);
-        const selectedRoom = Array.from($("#infoRoom").find("option:selected")).map(opt => opt.value);
-
-        contact.id = parseInt(contact.id) || null;
-        contact.name = $("#infoName").val();
-        contact.email = $("#infoEmail").val();
-        contact.phone = $("#actionsPhone").val();
-        contact.startTime = $("#infoStartTime").val();
-        contact.endTime = $("#infoEndTime").val();
-        contact.status = selectedStatus.join(";");
-        contact.services = selectedServices.join(";");
-        contact.room = selectedRoom.join(";");
-        contact.rentalRate = $("#infoRentalRate").val();
-        contact.minSpend = $("#infoMinSpend").val();
-        contact.partyType = $("#infoPartyType").val();
-        contact.attendance = $("#infoAttendance").val();
-        contact.notes = $("#infoNotes").val();
-
-        // Determine if we are updating or creating
-        if (contact.id) {
-            // Update existing contact
-            $.ajax({
-                url: `/api/events/${contact.id}`,
-                type: 'PUT',
-                data: JSON.stringify(contact),
-                contentType: 'application/json',
-                success: (response) => {
-                    this.showToast("Contact updated", "success");
-                    // Update the local contacts array
-                    const index = this.contacts.findIndex(c => c.id === contact.id);
-                    if (index !== -1) {
-                        this.contacts[index] = contact;
-                    }
-                },
-                error: (xhr, status, error) => {
-                    console.error("Failed to update contact:", error);
-                    this.showToast("Failed to update contact", "error");
-                }
-            });
-        } else {
-            // Create new contact
-            $.ajax({
-                url: `/api/events`,
-                type: 'POST',
-                data: JSON.stringify(contact),
-                contentType: 'application/json',
-                success: (response) => {
-                    // Assuming the server returns the new contact with an ID
-                    contact.id = response.id;
-                    this.contacts.push(contact);
-                    this.showToast("Contact created", "success");
-                },
-                error: (xhr, status, error) => {
-                    console.error("Failed to create contact:", error);
-                    this.showToast("Failed to create contact", "error");
-                }
-            });
-        }
-    }
-
 
     async syncEvents() {
         try {
@@ -1032,13 +625,12 @@ export class EventManageApp {
             this.showToast('Failed to sync events', 'error');
         }
     }
-
     async actionsEmailContract() {
-        if (this.currentId === -1) {
+        if (this.contacts.currentId === -1) {
             alert("Error: No contact selected.");
             return;
         }
-        const contact = _.find(this.contacts, ["id", this.currentId]);
+        const contact = this.contacts.getContactById(this.contacts.currentId);
         if (!contact) {
             alert("Error: Contact not found.");
             return;
@@ -1050,24 +642,22 @@ export class EventManageApp {
         const subject = `Event Contract ${date}`;
         const body = `Hi ${contact.name},
     
-        Please see attached for the event contract. The contract has been pre-filled but if you can't see the details, please view the contract on a computer rather than a phone. Let me know if you have any questions otherwise you can simply respond to this email saying that you accept it, and attach a picture of your ID (we only need a picture of your face and your name). To fully reserve the date, please transfer the deposit to info@eattaco.ca, with the password '${formattedPassword}'.
-        
-        TacoTaco Events Team
-        TacoTaco 
-        www.eattaco.ca`;
+    Please see attached for the event contract. The contract has been pre-filled but if you can't see the details, please view the contract on a computer rather than a phone. Let me know if you have any questions otherwise you can simply respond to this email saying that you accept it, and attach a picture of your ID (we only need a picture of your face and your name). To fully reserve the date, please transfer the deposit to info@eattaco.ca, with the password '${formattedPassword}'.
+    
+    TacoTaco Events Team
+    TacoTaco 
+    www.eattaco.ca`;
 
         const mailtoLink = `mailto:${encodeURIComponent(contact.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 
         window.location.href = mailtoLink;
     }
-
-
     createContract() {
-        if (this.currentId === -1) {
+        if (this.contacts.currentId === -1) {
             alert("Error: No contact selected.");
             return;
         }
-        const contact = _.find(this.contacts, ["id", this.currentId]);
+        const contact = this.contacts.getContactById(this.contacts.currentId);
         if (!contact) {
             alert("Error: Contact not found.");
             return;
@@ -1134,6 +724,5 @@ export class EventManageApp {
         $("#infoNotes").val(updatedNotes);
         this.showToast("Deposit information added to notes", "success");
     }
-
 
 }

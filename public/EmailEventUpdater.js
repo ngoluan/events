@@ -7,19 +7,16 @@ class EmailEventUpdater {
     async updateEventFromEmail(emailContent, emailAddress) {
         try {
             // Find the corresponding event
-            const event = this.app.contacts.find(contact => 
+            const event = this.app.contacts.getContacts().find(contact => 
                 contact.email && contact.email.toLowerCase() === emailAddress.toLowerCase()
             );
 
             if (!event) {
                 this.app.showToast('No matching event found for this email', 'error');
-                return;
+                return false;
             }
 
-            // Load the contact details
-            this.app.loadContact(event.id);
-
-            // Get AI analysis of the update
+            // First, get AI analysis of the update
             const response = await fetch('/ai/analyzeEventUpdate', {
                 method: 'POST',
                 headers: {
@@ -41,27 +38,51 @@ class EmailEventUpdater {
                 throw new Error(result.error || 'Failed to analyze event update');
             }
 
-            // Update the event notes
+            // Update the event notes with timestamp and summary
             const timestamp = moment().format('MM/DD/YYYY HH:mm');
             const updatedNotes = `[${timestamp}] Update from email:\n${result.summary}\n\n${event.notes || ''}`;
             
             // Update the event object
             event.notes = updatedNotes;
-            
-            // Update the UI
+
+            // Save the updated notes to the server
+            await fetch(`/api/events/${event.id}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(event)
+            });
+
+            // Update the UI to show the new notes
             const updatedFields = new Set(['notes']);
             this.updateUI(event, updatedFields);
 
-            // Automatically save the updated event
-            //await this.app.saveContactInfo();
+            // Get the message ID from the email container
+            const messageId = $(`.sms[to="${emailAddress}"]`).data('id');
+            
+            // Archive the email
+            if (messageId) {
+                const archiveResponse = await fetch(`/gmail/archiveEmail/${messageId}`, {
+                    method: 'POST'
+                });
+
+                if (archiveResponse.ok) {
+                    // Remove the email from the UI
+                    $(`.sms[data-id="${messageId}"]`).fadeOut(300, function() {
+                        $(this).remove();
+                    });
+                }
+            }
 
             // Show success message
-            //this.app.showToast('Event information updated', 'success');
-
+            this.app.showToast('Event updated and email archived', 'success');
+            
             return true;
+
         } catch (error) {
             console.error('Error updating event from email:', error);
-            this.app.showToast('Failed to update event information', 'error');
+            this.app.showToast('Failed to update event: ' + error.message, 'error');
             return false;
         }
     }

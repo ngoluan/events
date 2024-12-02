@@ -1,13 +1,13 @@
 const OpenAI = require('openai');
 const fs = require('fs');
 const path = require('path');
-const backgroundService = require('./BackgroundService');
+const User = require('./User');
 const { zodResponseFormat } = require('openai/helpers/zod');
 const Groq = require("groq-sdk");
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 class AIService {
   constructor() {
-    // Initialize AI providers
+    this.user = new User();
     this.providers = {
       openai: new OpenAI({ apiKey: process.env.OPENAI_API_KEY }),
       groq: new Groq({ apiKey: process.env.GROQ_API_KEY }),
@@ -125,16 +125,15 @@ class AIService {
       contextualizedMessages.push(...messages);
 
       if (includeBackground) {
-        const { backgroundInfo } = backgroundService.getBackground();
-        if (backgroundInfo) {
+        const settings = await this.user.getBackground();
+        if (settings.backgroundInfo) {
           const systemMessage = {
             role: 'system',
-            content: `Use this venue information as context for your response:\n\n${backgroundInfo}\n\n${messages.find(m => m.role === 'system')?.content || ''}`
+            content: `Use this venue information as context for your response:\n\n${settings.backgroundInfo}\n\n${messages.find(m => m.role === 'system')?.content || ''}`
           };
-
+          
           const systemIndex = contextualizedMessages.findIndex(m => m.role === 'system');
           contextualizedMessages.push(systemMessage);
-
         }
       }
 
