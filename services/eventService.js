@@ -108,9 +108,7 @@ class EventService {
         }
       ], {
         includeBackground: false,
-        resetHistory: true,
-        provider: 'google',
-        model: 'gemini-1.5-flash'
+        resetHistory: true
       });
 
       return {
@@ -390,9 +388,7 @@ class EventService {
               }
             ], {
               includeBackground: true,
-              resetHistory: true,
-              provider: 'google',
-              model: 'gemini-1.5-flash'
+              resetHistory: true
             });
 
 

@@ -74,7 +74,6 @@ export class CalendarManager {
                 this.eventManageApp.contacts.renderContactsWithCalendarSync();
             }
 
-            this.eventManageApp.showToast('Calendar initialized successfully', 'success');
         } catch (error) {
             console.error('Error loading calendar events:', error);
             this.eventManageApp.showToast('Failed to load calendar events', 'error');

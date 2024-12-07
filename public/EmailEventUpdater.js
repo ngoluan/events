@@ -3,11 +3,11 @@ class EmailEventUpdater {
         this.app = app;
         this.highlightedFields = new Set();
     }
-
     async updateEventFromEmail(emailContent, emailAddress) {
         try {
-            // Find the corresponding event
-            const event = this.app.contacts.getContacts().find(contact => 
+            // Use getContacts() method to get the array of contacts first
+            const contacts = this.app.contacts.getContacts();
+            const event = contacts.reverse().find(contact =>
                 contact.email && contact.email.toLowerCase() === emailAddress.toLowerCase()
             );
 
@@ -33,7 +33,7 @@ class EmailEventUpdater {
             }
 
             const result = await response.json();
-            
+
             if (!result.success) {
                 throw new Error(result.error || 'Failed to analyze event update');
             }
@@ -41,7 +41,7 @@ class EmailEventUpdater {
             // Update the event notes with timestamp and summary
             const timestamp = moment().format('MM/DD/YYYY HH:mm');
             const updatedNotes = `[${timestamp}] Update from email:\n${result.summary}\n\n${event.notes || ''}`;
-            
+
             // Update the event object
             event.notes = updatedNotes;
 
@@ -60,24 +60,21 @@ class EmailEventUpdater {
 
             // Get the message ID from the email container
             const messageId = $(`.sms[to="${emailAddress}"]`).data('id');
-            
-            // Archive the email
-            if (messageId) {
-                const archiveResponse = await fetch(`/gmail/archiveEmail/${messageId}`, {
-                    method: 'POST'
-                });
 
-                if (archiveResponse.ok) {
-                    // Remove the email from the UI
-                    $(`.sms[data-id="${messageId}"]`).fadeOut(300, function() {
-                        $(this).remove();
-                    });
+            // Ask if user wants to archive the email
+            if (messageId && confirm('Would you like to archive this email?')) {
+                const archiveSuccess = await this.app.emailProcessor.archiveEmail(messageId);
+                if (archiveSuccess) {
+                    this.app.showToast('Event updated and email archived', 'success');
+                } else {
+                    this.app.showToast('Event updated but failed to archive email', 'warning');
                 }
+            } else {
+                this.app.showToast('Event updated successfully', 'success');
             }
 
-            // Show success message
-            this.app.showToast('Event updated and email archived', 'success');
-            
+
+
             return true;
 
         } catch (error) {
@@ -86,7 +83,6 @@ class EmailEventUpdater {
             return false;
         }
     }
-
     updateUI(event, updatedFields) {
         // Clear previous highlights
         this.clearHighlights();

@@ -78,6 +78,7 @@ class Contacts {
 
                 // Combine the arrays with future events first
                 this.contacts = [...futureEvents, ...pastEvents];
+                this.contacts.reverse()
                 break;
 
             default:

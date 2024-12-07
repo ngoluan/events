@@ -1,1 +1,55 @@
-[]
+[
+  {
+    "role": "system",
+    "content": "You are a venue coordinator assistant analyzing email inquiries.",
+    "timestamp": "2024-12-07T14:18:53.590Z"
+  },
+  {
+    "role": "user",
+    "content": "\n                    Email content: Erica Initial Inquiry4:40 PM EST\r\n                                    I am looking to have my wedding In Etobicoke as my husband is from there we moved to\rQuebec but Etobicoke will always be my heart <3\rEnter your reply here\rEvent Overview\rErica's Wedding Ceremony + Reception\r150 Guests\rSat, Oct 24, 2026\r1:00PM (4.0 Hours)\r$2500 - $5000 Budget.\n                \n                        This person does not yet have an event with us. \n\n                    \n                Please analyze the email and determine the inquiry type. Provide a summary.\n                Inquiry types:\n                - availability: asking for availability and pricing\n                - additionalEventInfo: already have an event (i.e. has associated event details) and providing drink or food choices\n                - foodOrDrinkQuestion: asking about food or drink packages\n                - confirmEvent: indicated that they agree to the contract and sent in deposit\n                - askingForContract: indicated that they're ready to book\n                - other: all else\n                ",
+    "timestamp": "2024-12-07T14:18:53.590Z"
+  },
+  {
+    "role": "assistant",
+    "content": "{\"inquiries\":[{\"inquiryType\":\"availability\",\"date\":\"2026-10-24\",\"time\":\"13:00\",\"fromEmail\":\"erica@example.com\",\"summary\":\"Erica is inquiring about the availability and pricing for her wedding ceremony and reception on October 24, 2026, in Etobicoke for 150 guests.\"}]}",
+    "timestamp": "2024-12-07T14:18:53.590Z",
+    "provider": "openai",
+    "model": "gpt-4o-mini"
+  },
+  {
+    "role": "user",
+    "content": "Client Inquiry: Erica Initial Inquiry4:40 PM EST\r\n                                    I am looking to have my wedding In Etobicoke as my husband is from there we moved to\rQuebec but Etobicoke will always be my heart <3\rEnter your reply here\rEvent Overview\rErica's Wedding Ceremony + Reception\r150 Guests\rSat, Oct 24, 2026\r1:00PM (4.0 Hours)\r$2500 - $5000 Budget. Which room are they asking for? Moonlight Lounge or TacoTaco Dining Room (aka Tropical Event Space). If they don't specify, if party is 50 and larger, recommend Moonlight Lounge. If party is below 50, then recommend dining room.",
+    "timestamp": "2024-12-07T14:18:54.314Z"
+  },
+  {
+    "role": "assistant",
+    "content": "The client, Erica, does not specify a particular room in her initial inquiry. Since her party size is 150 guests, which is above 50, I would recommend the Moonlight Lounge. \n\nSo, the recommended room for Erica's wedding ceremony and reception would be the Moonlight Lounge.",
+    "timestamp": "2024-12-07T14:18:54.314Z",
+    "provider": "groq",
+    "model": "llama-3.3-70b-versatile"
+  },
+  {
+    "role": "user",
+    "content": "\n                        Please analyze the availability for an event request based on the following:\n            \n                        Current bookings for 2026-10-24:\n                        []\n            \n                        The recommended room is \"The client, Erica, does not specify a particular room in her initial inquiry. Since her party size is 150 guests, which is above 50, I would recommend the Moonlight Lounge. \n\nSo, the recommended room for Erica's wedding ceremony and reception would be the Moonlight Lounge.\".\n                        \n                        Their requested time is 13:00\n            \n                        Is there availability or is it already booked?\n\n                        The dining room and moonlight lounge are separate and can be booked separately.\n                    ",
+    "timestamp": "2024-12-07T14:18:54.823Z"
+  },
+  {
+    "role": "assistant",
+    "content": "Since there are no current bookings for 2026-10-24, and the client's requested time is 13:00, I can confirm that the Moonlight Lounge is available for Erica's wedding ceremony and reception.\n\nAvailability status: Available\n\nThe Moonlight Lounge can be booked for Erica's event on 2026-10-24 at 13:00, as there are no existing bookings for that date and time.",
+    "timestamp": "2024-12-07T14:18:54.823Z",
+    "provider": "groq",
+    "model": "llama-3.3-70b-versatile"
+  },
+  {
+    "role": "user",
+    "content": "\n                        Draft a response to the inquiry. Here's the email: Erica Initial Inquiry4:40 PM EST\r\n                                    I am looking to have my wedding In Etobicoke as my husband is from there we moved to\rQuebec but Etobicoke will always be my heart <3\rEnter your reply here\rEvent Overview\rErica's Wedding Ceremony + Reception\r150 Guests\rSat, Oct 24, 2026\r1:00PM (4.0 Hours)\r$2500 - $5000 Budget\n\n                        Here's the availablity information \"Since there are no current bookings for 2026-10-24, and the client's requested time is 13:00, I can confirm that the Moonlight Lounge is available for Erica's wedding ceremony and reception.\n\nAvailability status: Available\n\nThe Moonlight Lounge can be booked for Erica's event on 2026-10-24 at 13:00, as there are no existing bookings for that date and time.\".\n\n                        Don't respond with a subject heading or start with Dear. Be concise. \n\n                        If they mention food or drinks, provide them with information. And tell them about the services included.                       \n                    ",
+    "timestamp": "2024-12-07T14:18:55.876Z"
+  },
+  {
+    "role": "assistant",
+    "content": "We've checked the availability for your wedding ceremony and reception on October 24, 2026, and the Moonlight Lounge is available for your event. The rental rate for the Moonlight Lounge on Saturdays is $150 per hour, and the minimum spending requirement is $2000. \n\nFor food options, we offer light appetizers at $6 per person, tacos and appetizers ranging from $10 to $16 per person, and a full plated buffet catering at $30 per person. Our bar options include a cash bar, drink tickets, and open tabs with limits. \n\nOur services include a dancefloor, professional sound system with karaoke, party lights, smoke machine, private bar staffed with two bartenders, and private washrooms. We also have a TV available for use with an HDMI port. \n\nPlease let us know if you'd like to proceed with booking the Moonlight Lounge for your special day.\n\nTacoTaco Events Team\n647-692-4768 \n\nFull menu available at eattaco.ca/menu.",
+    "timestamp": "2024-12-07T14:18:55.876Z",
+    "provider": "groq",
+    "model": "llama-3.3-70b-versatile"
+  }
+]

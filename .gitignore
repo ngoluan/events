@@ -2,6 +2,9 @@ node_modules/*
 .env
 /public/data/*.*
 /public/files/*
-data/*
+/data/*
+/data/emails.json
+/data/conversations.json
+data/token.json
+data/events.json
 data/emails.json
-data/conversations.json

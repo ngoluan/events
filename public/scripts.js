@@ -21,12 +21,12 @@ export class EventManageApp {
         await this.contacts.getAllContacts();
         await this.contacts.initializeFuse();
         await this.userSettings.initializeSettings();
-        
+
         this.contacts.renderContactsWithCalendarSync();
         await this.calendarManager.initializeCalendar();
         this.emailProcessor.loadInitialEmails();
         this.calendarManager.initializeMaximizeButtons();
-        
+
         this.registerEvents();
         this.contacts.registerEvents();
 
@@ -138,69 +138,88 @@ export class EventManageApp {
         if (!document.getElementById('toast-container')) {
             const toastContainer = document.createElement('div');
             toastContainer.id = 'toast-container';
-            toastContainer.className = 'fixed bottom-4 right-4 z-50 flex flex-col gap-2';
+            toastContainer.className = 'fixed bottom-4 right-4 z-[9999] flex flex-col-reverse gap-2';
             document.body.appendChild(toastContainer);
         }
     }
-
     showToast(message, type = 'info') {
         const toast = document.createElement('div');
 
-        // Set base classes using Tailwind/DaisyUI
-        toast.className = `alert shadow-lg max-w-sm opacity-0 transform translate-x-full transition-all duration-300`;
+        // Set initial classes for entry animation
+        toast.className = 'alert transform translate-x-full transition-all duration-300 ease-in-out shadow-lg max-w-sm';
 
-        // Add type-specific classes
+        // Add type-specific classes and icons
         switch (type) {
             case 'success':
                 toast.className += ' alert-success';
+                toast.innerHTML = `
+                    <div>
+                        <i class="bi bi-check-circle-fill"></i>
+                        <span>${message}</span>
+                    </div>
+                `;
                 break;
             case 'error':
                 toast.className += ' alert-error';
+                toast.innerHTML = `
+                    <div>
+                        <i class="bi bi-x-circle-fill"></i>
+                        <span>${message}</span>
+                    </div>
+                `;
                 break;
             case 'warning':
                 toast.className += ' alert-warning';
+                toast.innerHTML = `
+                    <div>
+                        <i class="bi bi-exclamation-triangle-fill"></i>
+                        <span>${message}</span>
+                    </div>
+                `;
                 break;
             default:
                 toast.className += ' alert-info';
+                toast.innerHTML = `
+                    <div>
+                        <i class="bi bi-info-circle-fill"></i>
+                        <span>${message}</span>
+                    </div>
+                `;
         }
 
-        toast.innerHTML = `
-            <div class="flex items-center justify-between w-full">
-                <span class="text-sm">${message}</span>
-                <button class="btn btn-ghost btn-xs" aria-label="Close">
-                    <i class="bi bi-x text-lg"></i>
-                </button>
-            </div>
-        `;
+        // Add close button
+        const closeButton = document.createElement('button');
+        closeButton.className = 'btn btn-ghost btn-sm btn-square absolute right-2';
+        closeButton.innerHTML = '<i class="bi bi-x text-lg"></i>';
+        closeButton.onclick = () => removeToast(toast);
+        toast.appendChild(closeButton);
 
         // Add to container
         const container = document.getElementById('toast-container');
         container.appendChild(toast);
 
-        // Trigger animation
+        // Trigger enter animation
         requestAnimationFrame(() => {
-            toast.className = toast.className.replace('opacity-0 translate-x-full', 'opacity-100 translate-x-0');
+            toast.classList.remove('translate-x-full');
+            toast.classList.add('translate-x-0');
         });
 
-        // Setup close button
-        const closeButton = toast.querySelector('button');
-        closeButton.onclick = () => {
-            removeToast(toast);
-        };
-
         // Auto remove after 3 seconds
-        setTimeout(() => {
-            removeToast(toast);
-        }, 3000);
+        const timeout = setTimeout(() => removeToast(toast), 3000);
 
-        function removeToast(toast) {
-            toast.className = toast.className.replace('opacity-100 translate-x-0', 'opacity-0 translate-x-full');
+        function removeToast(toastElement) {
+            clearTimeout(timeout);
+            toastElement.classList.remove('translate-x-0');
+            toastElement.classList.add('translate-x-full');
+
+            // Remove after animation
             setTimeout(() => {
-                toast?.remove();
-            }, 300); // Match the CSS transition duration
+                if (toastElement.parentElement) {
+                    toastElement.remove();
+                }
+            }, 300);
         }
     }
-
     async initiateGoogleOAuth() {
         try {
             const response = await $.get('/auth/google');
@@ -298,19 +317,19 @@ export class EventManageApp {
     async getEventDetailsFromEmail(text, email) {
         text = this.cleanEmailContent(text);
         text = this.templates.eventPrompt + text;
-    
+
         try {
             const data = await this.sendAIRequest("/api/sendAIEventInformation", { aiText: text });
             const jsonData = data;
-    
+
             const contactsArray = this.contacts.getContacts();
             const lastId = contactsArray.length > 0 ? contactsArray[contactsArray.length - 1].id : 0;
             jsonData.id = lastId + 1;
             jsonData.name = jsonData.name || "";
-    
+
             // Use the addContact method
             this.contacts.addContact(jsonData);
-    
+
             return jsonData.id;
         } catch (error) {
             console.error("Failed to get event details from email:", error);
@@ -411,6 +430,10 @@ export class EventManageApp {
 
     registerEvents() {
         let me = this;
+        $(document).on("click", "#actionsCreateContract", (e) => {
+            e.preventDefault();
+            this.createContract();
+        });
         $('#getInterac').on('click', (e) => {
             e.preventDefault();
             this.getInteracEmails();
@@ -488,7 +511,7 @@ export class EventManageApp {
                     this.showToast("Failed to copy to clipboard", "error");
                 });
         });
-      
+
 
         document.getElementById('aiText').addEventListener('paste', (e) => {
             e.preventDefault();
@@ -561,7 +584,7 @@ export class EventManageApp {
         return { match, aiText };
     }
 
-    
+
     async handleGetEventDetailsFromEvent(text, email) {
         const newId = await this.getEventDetailsFromEmail(text, email);
         this.contacts.loadContact(newId);

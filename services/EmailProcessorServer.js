@@ -55,9 +55,7 @@ class EmailProcessorServer {
                 }
             ], {
                 includeBackground: false,
-                resetHistory: false,
-                provider: 'google',
-                model: 'gemini-1.5-flash'
+                resetHistory: false
             });
 
             const roomResponse = roomResult.response;
@@ -82,9 +80,7 @@ class EmailProcessorServer {
                 }
             ], {
                 includeBackground: false,
-                resetHistory: false,
-                provider: 'google',
-                model: 'gemini-1.5-flash'
+                resetHistory: false
             });
 
             const availabilityResponse = availabilityResult.response;
@@ -105,9 +101,7 @@ class EmailProcessorServer {
                 }
             ], {
                 includeBackground: true,
-                resetHistory: false,
-                provider: 'google',
-                model: 'gemini-1.5-flash'
+                resetHistory: false
             });
 
             return { response };
@@ -275,6 +269,7 @@ class EmailProcessorServer {
         });
 
         this.router.post('/api/getAIEmail', async (req, res) => {
+       
             try {
                 let { emailText, eventDetails } = req.body;
 
@@ -336,7 +331,9 @@ class EmailProcessorServer {
                     includeHistory: false,
                     resetHistory: true,
                     schema: inquirySchema,
-                    schemaName: 'inquirySchema'
+                    schemaName: 'inquirySchema',
+                    provider:"openai",
+                    model:'gpt-4o-mini'
                 });
 
 
@@ -362,9 +359,7 @@ class EmailProcessorServer {
                                     content: `Generate a confirmation email response for: ${emailText}. Say that you're now booked.`
                                 }
                             ], {
-                                includeBackground: !hasIncludedBackground,
-                                provider: 'google',
-                                model: 'gemini-1.5-flash'
+                                includeBackground: !hasIncludedBackground
                             });
                             hasIncludedBackground = hasIncludedBackground || followUpResponse.includedBackground;
                             break;
@@ -372,12 +367,10 @@ class EmailProcessorServer {
                             followUpResponse = await aiService.generateResponse([
                                 {
                                     role: 'user',
-                                    content: `Generate a response addressing the ${inquiry.inquiryType} inquiry: ${emailText}`
+                                    content: `Generate a response addressing the ${inquiry.inquiryType} inquiry: ${emailText}. Be concise. `
                                 }
                             ], {
-                                includeBackground: !hasIncludedBackground,
-                                provider: 'google',
-                                model: 'gemini-1.5-flash'
+                                includeBackground: !hasIncludedBackground
                             });
                             hasIncludedBackground = hasIncludedBackground || followUpResponse.includedBackground;
                             break;
@@ -385,12 +378,10 @@ class EmailProcessorServer {
                             followUpResponse = await aiService.generateResponse([
                                 {
                                     role: 'user',
-                                    content: `Generate a response addressing the ${inquiry.inquiryType} inquiry: ${emailText}`
+                                    content: `Generate a response addressing the ${inquiry.inquiryType} inquiry: ${emailText}. Be concise. `
                                 }
                             ], {
-                                includeBackground: !hasIncludedBackground,
-                                provider: 'google',
-                                model: 'gemini-1.5-flash'
+                                includeBackground: !hasIncludedBackground
                             });
                             hasIncludedBackground = hasIncludedBackground || followUpResponse.includedBackground;
                             break;
@@ -401,9 +392,7 @@ class EmailProcessorServer {
                                     content: `Generate a response indicating that we'll send over a contract with all the details. If no phone number or email address is provided, ask for one.  Anwer any other question they may have: ${emailText}`
                                 }
                             ], {
-                                includeBackground: !hasIncludedBackground,
-                                provider: 'google',
-                                model: 'gemini-1.5-flash'
+                                includeBackground: !hasIncludedBackground
                             });
                             hasIncludedBackground = hasIncludedBackground || followUpResponse.includedBackground;
                             break;
@@ -414,9 +403,7 @@ class EmailProcessorServer {
                                     content: `Generate a general response for: ${emailText}`
                                 }
                             ], {
-                                includeBackground: !hasIncludedBackground,
-                                provider: 'google',
-                                model: 'gemini-1.5-flash'
+                                includeBackground: !hasIncludedBackground
                             });
                             hasIncludedBackground = hasIncludedBackground || followUpResponse.includedBackground;
                     }
@@ -449,9 +436,7 @@ class EmailProcessorServer {
                             content: `Original email: ${emailText}\n\nResponses to combine:\n${responsesContext}`
                         }
                     ], {
-                        includeBackground: false,
-                        provider: 'google',
-                        model: 'gemini-1.5-flash'
+                        includeBackground: false
                     });
 
                     finalResponse = {
@@ -533,7 +518,9 @@ class EmailProcessorServer {
                     resetHistory: true,
                     schema: eventDetailsSchema,
                     schemaName: 'eventDetails',
-                    metadata: { type: 'eventExtraction' }
+                    metadata: { type: 'eventExtraction' },
+                    provider:'openai',
+                    model:"gpt-4o-mini"
                 });
 
                 // Get the parsed data from the response
@@ -696,9 +683,7 @@ class EmailProcessorServer {
                     }
                 ], {
                     includeBackground: false,
-                    resetHistory: true,
-                    provider: 'google',
-                    model: 'gemini-1.5-flash'
+                    resetHistory: true
                 });
     
 
@@ -810,9 +795,7 @@ class EmailProcessorServer {
                 }
             ], {
                 includeBackground: true,
-                resetHistory: true,
-                provider: 'google',
-                model: 'gemini-1.5-flash'
+                resetHistory: true
             });
 
             return {

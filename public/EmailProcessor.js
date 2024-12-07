@@ -644,33 +644,33 @@ class EmailProcessor {
         if (!Array.isArray(this.originalEmails)) {
             return [];
         }
-    
+
         // If no filters are active, show all non-replied emails
-        if (!this.filters.replied && 
-            !this.filters.archived && 
+        if (!this.filters.replied &&
+            !this.filters.archived &&
             this.filters.categories.size === 0) {
             return this.originalEmails.filter(email => !email.replied);
         }
-    
+
         return this.originalEmails.filter(email => {
             let matchesFilters = true;
-    
+
             // If replied filter is off, only show non-replied emails
             // If replied filter is on, show all emails regardless of reply status
             if (!this.filters.replied) {
                 matchesFilters = matchesFilters && !email.replied;
             }
-    
+
             // Check archived status
             if (this.filters.archived) {
                 matchesFilters = matchesFilters && email.labels?.includes('Label_6');
             }
-    
+
             // Check categories
             if (this.filters.categories.size > 0) {
                 matchesFilters = matchesFilters && email.category && this.filters.categories.has(email.category);
             }
-    
+
             return matchesFilters;
         });
     }
@@ -728,11 +728,15 @@ class EmailProcessor {
                 $("#aiText").removeData('replyToMessageId');
                 $("#aiText").removeData('source');
 
-                // Refresh emails if needed
-                if (replyToMessageId) {
+
+                if (replyToMessageId && confirm("Would you like to archive the original email?")) {
+                    const archiveSuccess = await this.archiveEmail(replyToMessageId);
+                    if (archiveSuccess) {
+                        this.parent.showToast("Email archived successfully", "success");
+                    }
                     await this.readGmail();
-                    this.updateReplyStatus(replyToMessageId);
                 }
+
             } else {
                 throw new Error(response.error || 'Failed to send email');
             }

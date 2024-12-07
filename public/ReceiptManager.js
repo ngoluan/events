@@ -259,7 +259,7 @@ class ReceiptManager {
     const tip = (tipableAmount * this.tipPercent) / 100;
     const tax = subtotal * this.taxRate;
     const subtotalWithTipAndTax = subtotal + tip + tax;
-    const surcharge = this.ccSurcharge ? subtotalWithTipAndTax * 0.024 : 0;
+    const surcharge = this.ccSurcharge ? subtotal * 0.027 : 0;
     const total = subtotalWithTipAndTax + surcharge;
 
     document.getElementById('subtotalAmount').textContent = `$${subtotal.toFixed(2)}`;

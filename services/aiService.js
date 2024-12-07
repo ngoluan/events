@@ -15,18 +15,18 @@ class AIService {
     };
     // Default configuration
     this.currentProvider = {
-      name: 'openai',
-      model: 'gpt-4o-mini-2024-07-18'
+      name: 'groq',
+      model: 'llama-3.3-70b-versatile'
     };
     // Provider-specific model mappings
     this.modelMappings = {
       openai: {
-        default: 'gpt-4o-mini-2024-07-18',
+        default: 'gpt-4o-mini',
         alternative: 'gpt-4'
       },
       groq: {
-        default: 'mixtral-8x7b-32768',
-        alternative: 'llama2-70b-4096'
+        default: 'llama-3.3-70b-versatile',
+        alternative: 'llama-3.1-8b-instant'
       },
       google: {
         default: 'gemini-1.5-flash',
@@ -131,8 +131,7 @@ class AIService {
             role: 'system',
             content: `Use this venue information as context for your response:\n\n${settings.backgroundInfo}\n\n${messages.find(m => m.role === 'system')?.content || ''}`
           };
-          
-          const systemIndex = contextualizedMessages.findIndex(m => m.role === 'system');
+
           contextualizedMessages.push(systemMessage);
         }
       }
@@ -140,31 +139,28 @@ class AIService {
       let response;
       let parsedData;
 
+      // Ensure all message content is string before processing
+      const processedMessages = contextualizedMessages.map(msg => ({
+        ...msg,
+        content: typeof msg.content === 'object' ? JSON.stringify(msg.content) : String(msg.content)
+      }));
+
       // Process messages based on provider
       switch (provider) {
         case 'openai':
           if (schema) {
             const result = await this.providers.openai.beta.chat.completions.parse({
               model,
-              messages: contextualizedMessages,
+              messages: processedMessages,
               response_format: zodResponseFormat(schema, schemaName),
               ...(maxTokens && { max_tokens: maxTokens })
             });
             parsedData = result.choices[0].message.parsed;
             response = parsedData;
           } else {
-            const contents = contextualizedMessages.map(msg => {
-              if (typeof msg.content === 'object' && msg.content !== null) {
-                msg.content = JSON.stringify(msg.content);
-              }
-              return {
-                role: msg.role,
-                content: msg.content
-              }; F
-            });
             const result = await this.providers.openai.chat.completions.create({
               model,
-              messages: contents,
+              messages: processedMessages,
               ...(maxTokens && { max_tokens: maxTokens })
             });
             response = result.choices[0].message.content;
@@ -172,25 +168,23 @@ class AIService {
           break;
 
         case 'groq':
+          const groqMessages = processedMessages.map(msg => ({
+            role: msg.role,
+            content: msg.content
+          }));
           const groqResult = await this.providers.groq.chat.completions.create({
             model,
-            messages: contextualizedMessages,
-            ...(maxTokens && { max_tokens: maxTokens })
+            messages: groqMessages
           });
           response = groqResult.choices[0].message.content;
           break;
 
         case 'google':
           const geminiModel = this.providers.google.getGenerativeModel({ model });
-          const contents = contextualizedMessages.map(msg => {
-            if (typeof msg.content === 'object' && msg.content !== null) {
-              msg.content = JSON.stringify(msg.content);
-            }
-            return {
-              role: msg.role === 'assistant' ? 'model' : (msg.role === 'system' ? 'user' : msg.role),
-              parts: [{ text: msg.content }]
-            };
-          });
+          const contents = processedMessages.map(msg => ({
+            role: msg.role === 'assistant' ? 'model' : (msg.role === 'system' ? 'user' : msg.role),
+            parts: [{ text: msg.content }]
+          }));
           const geminiResult = await geminiModel.generateContent({ contents });
           response = geminiResult.response.text();
           break;

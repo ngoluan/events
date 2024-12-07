@@ -354,7 +354,7 @@
                         </div>
                     </div>
                 </section>
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[calc(100vh-12rem)]">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     <!-- Messages Section -->
                     <section id="messages" class="card bg-base-100 shadow-lg h-full">
                         <div class="card-body flex flex-col h-full p-6">
@@ -441,19 +441,18 @@
                                                 <i class="bi bi-envelope text-xl text-primary"></i>
                                                 <span class="text-xs font-medium">Email</span>
                                             </button>
-                                        </div>
-
-                                        <div class="flex items-center gap-2">
-                                            <input type="text" id="sendMailEmail" class="input input-bordered flex-1"
-                                                placeholder="Email">
-                                            <input type="text" id="sendMailSubject" class="input input-bordered flex-1"
-                                                placeholder="Subject">
-                                            <button
-                                                class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
-                                                id="sendEmail">
+                                            <button class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors" id="sendEmail">
                                                 <i class="bi bi-send text-xl text-primary"></i>
                                                 <span class="text-xs font-medium">Send</span>
                                             </button>
+                                        </div>
+
+                                        <div class="flex flex-col sm:flex-row gap-2">
+                                            <input type="text" id="sendMailEmail" class="input input-bordered w-full"
+                                                placeholder="Email">
+                                            <input type="text" id="sendMailSubject" class="input input-bordered w-full"
+                                                placeholder="Subject">
+
                                         </div>
                                     </div>
                                 </div>

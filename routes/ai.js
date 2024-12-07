@@ -17,11 +17,7 @@ router.post('/chat', async (req, res) => {
       {role:'user',
         content:message
       }
-    ],
-      {
-        provider: 'google',
-        model: 'gemini-1.5-flash'
-      }
+    ]
     );
 
     res.json({ response: aiResponse.response });
