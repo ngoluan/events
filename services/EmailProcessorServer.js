@@ -51,7 +51,7 @@ class EmailProcessorServer {
             const roomResult = await aiService.generateResponse([
                 {
                     role: 'user',
-                    content: `Client Inquiry: ${emailText}. Which room are they asking for? Moonlight Lounge or TacoTaco Dining Room (aka Tropical Event Space). If they don't specify, if party is 50 and larger, recommend Moonlight Lounge. If party is below 50, then recommend dining room.`
+                    content: `Client Inquiry: [${emailText}]. Which room are they asking for? Moonlight Lounge or TacoTaco Dining Room (aka Tropical Event Space). If they don't specify, if party is 50 and larger, recommend Moonlight Lounge. If party is below 50, then recommend dining room.`
                 }
             ], {
                 includeBackground: false,
@@ -90,11 +90,11 @@ class EmailProcessorServer {
                 {
                     role: 'user',
                     content: `
-                        Draft a response to the inquiry. Here's the email: ${emailText}
+                        Draft a response to the inquiry. Here's the email: "${emailText}"
 
                         Here's the availablity information "${availabilityResponse}".
 
-                        Don't respond with a subject heading or start with Dear. Be concise. 
+                        Don't respond with a subject heading or start with Dear. Be concise.  Maintain a professional but friendly tone.
 
                         If they mention food or drinks, provide them with information. And tell them about the services included.                       
                     `
@@ -293,7 +293,7 @@ class EmailProcessorServer {
 
                 if (eventDetails) {
                     prompt += `
-                    Currently has an event iwht us, here are event details:
+                    Currently has an event with us, here are event details:
                     ${JSON.stringify(eventDetails, null, 2)}
                     `;
                 }
@@ -356,7 +356,7 @@ class EmailProcessorServer {
                             followUpResponse = await aiService.generateResponse([
                                 {
                                     role: 'user',
-                                    content: `Generate a confirmation email response for: ${emailText}. Say that you're now booked.`
+                                    content: `Generate a confirmation email response for: "${emailText}". Say that you're now booked.`
                                 }
                             ], {
                                 includeBackground: !hasIncludedBackground
@@ -367,7 +367,7 @@ class EmailProcessorServer {
                             followUpResponse = await aiService.generateResponse([
                                 {
                                     role: 'user',
-                                    content: `Generate a response addressing the ${inquiry.inquiryType} inquiry: ${emailText}. Be concise. `
+                                    content: `Generate a response addressing the ${inquiry.inquiryType} inquiry: "${emailText}". Be concise. `
                                 }
                             ], {
                                 includeBackground: !hasIncludedBackground
@@ -378,7 +378,7 @@ class EmailProcessorServer {
                             followUpResponse = await aiService.generateResponse([
                                 {
                                     role: 'user',
-                                    content: `Generate a response addressing the ${inquiry.inquiryType} inquiry: ${emailText}. Be concise. `
+                                    content: `Generate a response addressing the ${inquiry.inquiryType} inquiry: "${emailText}". Be concise. `
                                 }
                             ], {
                                 includeBackground: !hasIncludedBackground
@@ -389,7 +389,7 @@ class EmailProcessorServer {
                             followUpResponse = await aiService.generateResponse([
                                 {
                                     role: 'user',
-                                    content: `Generate a response indicating that we'll send over a contract with all the details. If no phone number or email address is provided, ask for one.  Anwer any other question they may have: ${emailText}`
+                                    content: `Generate a response indicating that we'll send over a contract with all the details. If no phone number or email address is provided, ask for one.  Anwer any other question they may have: "${emailText}"`
                                 }
                             ], {
                                 includeBackground: !hasIncludedBackground
@@ -400,7 +400,7 @@ class EmailProcessorServer {
                             followUpResponse = await aiService.generateResponse([
                                 {
                                     role: 'user',
-                                    content: `Generate a general response for: ${emailText}`
+                                    content: `Generate a general response for: "${emailText}"`
                                 }
                             ], {
                                 includeBackground: !hasIncludedBackground
@@ -427,13 +427,10 @@ class EmailProcessorServer {
                     ).join('\n\n');
 
                     const combinedResponse = await aiService.generateResponse([
-                        {
-                            role: 'system',
-                            content: 'You are a venue coordinator assistant. Combine the following separate responses into one coherent, well-structured email response. Maintain a professional but friendly tone.'
-                        },
+
                         {
                             role: 'user',
-                            content: `Original email: ${emailText}\n\nResponses to combine:\n${responsesContext}`
+                            content: ` Combine the following separate responses into one coherent, well-structured email response. Maintain a professional but friendly tone. Original email: "${emailText}"\n\nResponses to combine:\n"${responsesContext}"`
                         }
                     ], {
                         includeBackground: false

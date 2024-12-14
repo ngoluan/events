@@ -373,7 +373,19 @@
             </main>
         </div>
     </div>
-
+    <dialog id="ai_logic_modal" class="modal">
+        <div class="modal-box w-11/12 max-w-7xl h-[90vh]">
+            <h3 class="font-bold text-lg mb-4">AI Logic History</h3>
+            <div id="aiLogicContent" class="overflow-y-auto max-h-[calc(100%-8rem)]">
+                <!-- Conversations will be loaded here -->
+            </div>
+            <div class="modal-action">
+                <form method="dialog">
+                    <button class="btn">Close</button>
+                </form>
+            </div>
+        </div>
+    </dialog>
     <!-- Footer Navigation for Mobile -->
     <nav class="navbar bg-base-200 fixed bottom-0 w-full md:hidden">
         <div class="flex justify-around w-full">

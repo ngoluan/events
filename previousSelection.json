@@ -1,9 +1,8 @@
 [
-  "services/User.js",
-  "services/EmailProcessorServer.js",
-  "routes/BackgroundRoutes.js",
-  "data/userSettings.json",
+  "services/eventService.js",
+  "routes/events.js",
   "public/scripts.js",
   "public/index.html",
-  "public/EmailProcessor.js"
+  "public/ReceiptManager.js",
+  "public/Contacts.js"
 ]

@@ -80,7 +80,7 @@ class EventService {
         attendance: contact.attendance || '',
         notes: contact.notes || '',
         createdAt: contact.createdAt || ''  // In case this is available
-    };
+      };
       // Prepare the prompt for AI
       const prompt = `Summarize this event. In particular, tell me:
         - Event organizer (no contact info)
@@ -299,13 +299,20 @@ class EventService {
   }
   async generateWeeklySummary() {
     try {
+      console.log('Starting weekly summary generation');
+
       // Get calendar events using the route
+      console.log('Fetching calendar events...');
       const calendarEvents = await this.calendarService.listEvents();
+      console.log(`Retrieved ${calendarEvents.length} calendar events`);
 
       // Load local events
+      console.log('Loading local events...');
       const localEvents = this.loadEvents();
+      console.log(`Loaded ${localEvents.length} local events`);
 
       // Filter events for next week
+      console.log('Filtering events for next week...');
       const startOfWeek = moment().tz('America/New_York').startOf('day').add(1, 'day');
       const endOfWeek = moment().tz('America/New_York').add(7, 'days').endOf('day');
 
@@ -313,8 +320,10 @@ class EventService {
         const eventStart = moment(event.start.dateTime || event.start.date);
         return eventStart.isBetween(startOfWeek, endOfWeek);
       });
+      console.log(`Found ${upcomingEvents.length} upcoming events for next week`);
 
       if (upcomingEvents.length === 0) {
+        console.log('No upcoming events found, sending empty summary email');
         const noEventsEmail = {
           subject: 'Weekly Event Summary - No Upcoming Events',
           html: 'No events scheduled for the upcoming week.'
@@ -327,13 +336,16 @@ class EventService {
       let eventSummaries = [];
 
       // Process each event
+      console.log('Processing individual events...');
       for (const event of upcomingEvents) {
+        console.log(`\nProcessing event: ${event.summary || 'Unnamed Event'}`);
         const eventName = event.summary || 'Unnamed Event';
         const eventStart = moment(event.start.dateTime || event.start.date);
         const eventStartFormatted = eventStart.format('MMMM Do YYYY, h:mm a');
         const eventStartDate = eventStart.format('YYYY-MM-DD');
 
         // Find matching local event
+        console.log('Looking for matching local event...');
         const localEvent = localEvents.find(e => {
           if (typeof e.name === 'undefined') return false;
           const localEventName = e.name.toLowerCase();
@@ -342,13 +354,19 @@ class EventService {
             localEventDate === eventStartDate;
         });
 
+        if (localEvent) {
+          console.log(`Found matching local event with ID: ${localEvent.id}`);
+        } else {
+          console.log('No matching local event found');
+        }
+
         let eventDetails = 'Event found in calendar but no matching contact details in system.';
         let cateringStatus = 'Unknown';
         let followUpMailto = '';
 
         if (localEvent) {
           try {
-            // Get event summary using the existing endpoint
+            console.log('Fetching event summary...');
             const summaryResponse = await axios.get(`${process.env.HOST}/api/events/${localEvent.id}/summary`);
             eventDetails = summaryResponse.data.summary;
 
@@ -357,25 +375,27 @@ class EventService {
               Array.isArray(localEvent.services) &&
               localEvent.services.includes('catering')
               ? 'Requested' : 'Not Requested';
+            console.log(`Catering status: ${cateringStatus}`);
 
             // Generate follow-up email content using AI
+            console.log('Generating follow-up email content...');
             const followUpPrompt = `
-                        Generate a follow-up email for an upcoming event. The email should:
-                        1. Express excitement for their event
-                        2. Confirm the event date and time
-                        3. Ask for an updated attendee count
-                        Based on the email summary, if catering is requested, a package has been picked and the individual choices(i.e. types of tacos or types of appetizers) have been picked, then confirm the choices. 
-                        
-                        If catering is requested and a package has been picked, but individual options (like tacos or buffet choices) have not been picked, ask for the choices. We need it about 72 hours before the event.
-                        
-                        If they don't mention catering, ask if they would be interested in our catering services, mentioning our $6 light appetizers option'
-                        
-                        4. Be concise - no more than 3-4 short paragraphs. Don't add a subject line.
-                        
-                        Event Summary: ${eventDetails}
-                        Event Date: ${eventStartFormatted}
-                        Client Name: ${localEvent.name}
-                    `;
+              Generate a follow-up email for an upcoming event. The email should:
+              1. Express excitement for their event
+              2. Confirm the event date and time
+              3. Ask for an updated attendee count
+              Based on the email summary, if catering is requested, a package has been picked and the individual choices(i.e. types of tacos or types of appetizers) have been picked, then confirm the choices. 
+              
+              If catering is requested and a package has been picked, but individual options (like tacos or buffet choices) have not been picked, ask for the choices. We need it about 72 hours before the event.
+              
+              If they don't mention catering, ask if they would be interested in our catering services, mentioning our $6 light appetizers option'
+              
+              4. Be concise - no more than 3-4 short paragraphs. Don't add a subject line.
+              
+              Event Summary: ${eventDetails}
+              Event Date: ${eventStartFormatted}
+              Client Name: ${localEvent.name}
+            `;
 
             const { response: emailContent } = await aiService.generateResponse([
               {
@@ -390,7 +410,7 @@ class EventService {
               includeBackground: true,
               resetHistory: true
             });
-
+            console.log('Follow-up email content generated successfully');
 
             // Create mailto link with AI-generated content
             const subject = `Excited for your event on ${eventStart.format('MMMM Do')}`;
@@ -420,29 +440,30 @@ class EventService {
       }
 
       // Generate email HTML
+      console.log('Generating email HTML...');
       const emailHtml = `
-            <h2>Weekly Event Summary</h2>
-            <p>Here are the upcoming events for the next week:</p>
-            ${eventSummaries.map(event => `
-                <div style="margin-bottom: 30px; padding: 15px; border: 1px solid #ddd; border-radius: 5px;">
-                    <h3>${event.name}</h3>
-                    <p><strong>Date:</strong> ${event.date}</p>
-                    <p><strong>Email:</strong> ${event.email}</p>
-                    <div style="margin: 10px 0;">
-                        <h4>Event Details:</h4>
-                        <p>${event.details}</p>
-                    </div>
-                    ${event.followUpMailto ? `
-                       <a href="${event.followUpMailto}" 
-                          style="display: inline-block; padding: 10px 20px; 
-                                background-color: #007bff; color: white; 
-                                text-decoration: none; border-radius: 5px;">
-                          Send Follow-up Email
-                      </a>
-                    ` : ''}
-                </div>
-            `).join('')}
-        `;
+        <h2>Weekly Event Summary</h2>
+        <p>Here are the upcoming events for the next week:</p>
+        ${eventSummaries.map(event => `
+          <div style="margin-bottom: 30px; padding: 15px; border: 1px solid #ddd; border-radius: 5px;">
+            <h3>${event.name}</h3>
+            <p><strong>Date:</strong> ${event.date}</p>
+            <p><strong>Email:</strong> ${event.email}</p>
+            <div style="margin: 10px 0;">
+              <h4>Event Details:</h4>
+              <p>${event.details}</p>
+            </div>
+            ${event.followUpMailto ? `
+              <a href="${event.followUpMailto}" 
+                style="display: inline-block; padding: 10px 20px; 
+                      background-color: #007bff; color: white; 
+                      text-decoration: none; border-radius: 5px;">
+                Send Follow-up Email
+              </a>
+            ` : ''}
+          </div>
+        `).join('')}
+      `;
 
       const emailData = {
         subject: `Weekly Event Summary - ${upcomingEvents.length} Upcoming Events`,
@@ -450,7 +471,9 @@ class EventService {
       };
 
       // Send email using the gmail service
+      console.log('Sending weekly summary email...');
       await this.gmailService.sendEmail('info@eattaco.ca', emailData.subject, emailData.html);
+      console.log('Weekly summary email sent successfully');
 
       return emailData;
     } catch (error) {

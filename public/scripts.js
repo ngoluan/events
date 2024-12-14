@@ -434,6 +434,10 @@ export class EventManageApp {
             e.preventDefault();
             this.createContract();
         });
+        // Add this to your registerEvents() method
+        $('#viewAiLogic').on('click', () => {
+            this.loadAndDisplayConversations();
+        });
         $('#getInterac').on('click', (e) => {
             e.preventDefault();
             this.getInteracEmails();
@@ -724,6 +728,56 @@ export class EventManageApp {
                 window.open(`/files/EventContract_${sanitizedDate}_${sanitizedName}.pdf`);
             }
         });
+    }
+    async loadAndDisplayConversations() {
+        try {
+            const response = await fetch('/ai/conversations');
+            const conversations = await response.json();
+
+            const formattedHtml = conversations.map(msg => `
+                <div class="border border-base-300 rounded-lg p-4 bg-base-100 mb-4">
+                    <div class="flex justify-between items-start mb-2">
+                        <span class="badge badge-primary">${msg.role}</span>
+                        <div class="text-xs text-base-content/70">
+                            ${new Date(msg.timestamp).toLocaleString()}
+                        </div>
+                    </div>
+                    <div class="prose max-w-none">
+                        ${this.formatConversationContent(msg.content)}
+                    </div>
+                    ${msg.provider && msg.model ? `
+                        <div class="mt-2 flex gap-2">
+                            <span class="badge badge-ghost">${msg.provider}</span>
+                            <span class="badge badge-ghost">${msg.model}</span>
+                        </div>
+                    ` : ''}
+                </div>
+            `).join('');
+
+            document.getElementById('aiLogicContent').innerHTML = formattedHtml;
+            window.ai_logic_modal.showModal();
+
+        } catch (error) {
+            console.error('Error loading conversations:', error);
+            document.getElementById('aiLogicContent').innerHTML = `
+                <div class="alert alert-error">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    <span>Failed to load conversations</span>
+                </div>
+            `;
+        }
+    }
+    formatConversationContent(content) {
+        if (typeof content === 'object') {
+            return `<pre class="bg-base-200 p-4 rounded-lg overflow-x-auto">${JSON.stringify(content, null, 2)}</pre>`;
+        }
+
+        return content
+            .replace(/\\r\\n/g, '\n')
+            .replace(/\\n/g, '\n')
+            .split('\n')
+            .map(line => `<p class="${line.trim() === '' ? 'h-4' : ''}">${line}</p>`)
+            .join('');
     }
     generateDeposit() {
         const rentalFee = parseFloat($("#infoRentalRate").val()) || 0;

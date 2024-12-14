@@ -14,8 +14,9 @@ router.post('/chat', async (req, res) => {
 
     // Send the conversation history to the AI service
     const aiResponse = await aiService.generateResponse([
-      {role:'user',
-        content:message
+      {
+        role: 'user',
+        content: message
       }
     ]
     );
@@ -23,6 +24,15 @@ router.post('/chat', async (req, res) => {
     res.json({ response: aiResponse.response });
   } catch (error) {
     res.status(500).json({ error: 'AI service error' });
+  }
+});
+router.get('/conversations', (req, res) => {
+  try {
+    const conversations = aiService.loadConversations();
+    res.json(conversations || []); // Ensure we always send an array
+  } catch (error) {
+    console.error('Error getting conversation history:', error);
+    res.status(500).json({ error: 'Failed to get conversations' });
   }
 });
 router.post('/analyzeEventUpdate', async (req, res) => {

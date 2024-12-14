@@ -515,7 +515,9 @@ class GmailService {
                 {
                     schema: categorySchema,
                     schemaName: 'EmailCategory',
-                    resetHistory: true
+                    resetHistory: true,
+                    provider:"openai",
+                    model:"gpt-4o-mini"
                 }
             );
 

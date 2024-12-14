@@ -388,13 +388,18 @@
 
                             <!-- AI Conversation Area -->
                             <div class="flex-1 flex flex-col bg-base-200 rounded-lg p-4">
-                                <!-- AI Result Header -->
                                 <div class="flex justify-between items-center mb-2">
                                     <h3 class="font-bold">AI Conversation</h3>
-                                    <button id="maximizeAiResult" class="btn btn-ghost btn-xs btn-square tooltip"
-                                        data-tip="Maximize">
-                                        <i class="bi bi-arrows-fullscreen"></i>
-                                    </button>
+                                    <div class="flex gap-2">
+                                        <button id="viewAiLogic" class="btn btn-ghost btn-xs btn-square tooltip"
+                                            data-tip="View AI Logic">
+                                            <i class="bi bi-code-slash"></i>
+                                        </button>
+                                        <button id="maximizeAiResult" class="btn btn-ghost btn-xs btn-square tooltip"
+                                            data-tip="Maximize">
+                                            <i class="bi bi-arrows-fullscreen"></i>
+                                        </button>
+                                    </div>
                                 </div>
 
                                 <!-- AI Result Content - Flexible height -->
@@ -441,7 +446,9 @@
                                                 <i class="bi bi-envelope text-xl text-primary"></i>
                                                 <span class="text-xs font-medium">Email</span>
                                             </button>
-                                            <button class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors" id="sendEmail">
+                                            <button
+                                                class="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-base-200 transition-colors"
+                                                id="sendEmail">
                                                 <i class="bi bi-send text-xl text-primary"></i>
                                                 <span class="text-xs font-medium">Send</span>
                                             </button>
@@ -584,7 +591,19 @@
             </div>
         </div>
     </dialog>
-
+    <dialog id="ai_logic_modal" class="modal">
+        <div class="modal-box w-11/12 max-w-7xl h-[90vh]">
+            <h3 class="font-bold text-lg mb-4">AI Logic History</h3>
+            <div id="aiLogicContent" class="overflow-y-auto max-h-[calc(100%-8rem)]">
+                <!-- Conversations will be loaded here -->
+            </div>
+            <div class="modal-action">
+                <form method="dialog">
+                    <button class="btn">Close</button>
+                </form>
+            </div>
+        </div>
+    </dialog>
     <!-- Scripts -->
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.21/lodash.min.js"

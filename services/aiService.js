@@ -66,6 +66,7 @@ class AIService {
           this.messageHistory = lastConversation.messages;
           this.currentConversationId = lastConversation.id;
         }
+        return conversations;
       }
     } catch (error) {
       console.error('Error loading conversations:', error);
@@ -230,15 +231,7 @@ class AIService {
       throw error;
     }
   }
-  clearHistory() {
-    this.messageHistory = [];
-    this.currentConversationId = Date.now().toString();
-    this.saveConversations();
-  }
 
-  getMessageHistory() {
-    return this.messageHistory;
-  }
 }
 
 module.exports = new AIService();
