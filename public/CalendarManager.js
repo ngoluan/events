@@ -76,7 +76,7 @@ export class CalendarManager {
 
         } catch (error) {
             console.error('Error loading calendar events:', error);
-            this.eventManageApp.showToast('Failed to load calendar events', 'error');
+            this.eventManageApp.showToast('Failed to load calendar events. You may need to reauthorize Google via the settings screen.', 'error');
         }
     }
 
@@ -118,61 +118,84 @@ export class CalendarManager {
             this.eventManageApp.showToast("Error: No contact selected.", "error");
             return;
         }
-    
+
         const contact = this.eventManageApp.contacts.getContactById(this.eventManageApp.contacts.currentId);
         if (!contact) {
             this.eventManageApp.showToast("Error: Contact not found.", "error");
             return;
         }
-    
+
         try {
-            // Create the calendar event
-            await this.openGoogleCalendar(contact);
-    
+            // Create the calendar event directly using the API
+            const eventData = {
+                name: `${contact.name} (${Array.isArray(contact.room) ? contact.room.join(", ") : contact.room})`,
+                location: Array.isArray(contact.room) ? contact.room.join(", ") : contact.room,
+                notes: contact.notes,
+                startTime: moment.tz(contact.startTime, "YYYY-MM-DD HH:mm", this.timezone).format(),
+                endTime: moment.tz(contact.endTime, "YYYY-MM-DD HH:mm", this.timezone).format()
+            };
+
+            // Call the API endpoint to create the event
+            await $.post("/calendar/addCalendarBooking", eventData);
+
+            await this.initializeCalendar();
+
+            // Set calendar to display the month of the booking
+            const bookingDate = moment.tz(contact.startTime, this.timezone);
+            const currentDate = moment(this.mainCalendar.currentDate);
+
+            // Calculate number of months to move
+            const monthsDiff = (bookingDate.year() - currentDate.year()) * 12 + (bookingDate.month() - currentDate.month());
+
+            // Use the Calendar's changeMonth method to properly update the display
+            await this.mainCalendar.changeMonth(monthsDiff);
+            this.eventManageApp.showToast("Booking created successfully", "success");
+
+
             // Update contact status
             if (typeof contact.status === 'string') {
                 contact.status = contact.status.split(';');
             } else if (!Array.isArray(contact.status)) {
                 contact.status = [];
             }
-    
+
             if (!contact.status.includes("reserved")) {
                 contact.status.push("reserved");
             }
-    
+
             // Save the updated contact
             this.eventManageApp.contacts.saveContactInfo();
-    
-            // Refresh calendar events via CalendarManager
+
+            // Refresh calendar events
             await this.initializeCalendar();
-    
+
             this.eventManageApp.showToast("Booking created successfully", "success");
-    
+
             // Ask about sending confirmation email
             const sendEmail = confirm("Would you like to send a confirmation email to the event organizer?");
-    
+
             if (sendEmail) {
                 const eventDate = moment(contact.startTime).format('MMMM Do');
                 const eventTime = `${moment(contact.startTime).format('h:mm A')} - ${moment(contact.endTime).format('h:mm A')}`;
-    
+
                 const emailSubject = "You're all set for " + eventDate + "";
                 const emailBody = `
-    Hi ${contact.name}!
-    
-    Great news - you're officially booked in for ${eventDate} from ${eventTime}! 
-    
-    We've received your contract and deposit, and I've just sent you a calendar invite. You'll have access to ${contact.room} for your event.
-    
-    Quick reminder: Three days before the big day, could you let us know:
-    - Final guest count
-    - Catering preferences (if you'd like our food & beverage service)
-    
-    Can't wait to help make your event amazing! Let me know if you need anything before then.
-    
-    Cheers,
-    TacoTaco Events Team
+                Hi ${contact.name}!
+                
+                Great news - you're officially booked in for ${eventDate} from ${eventTime}! 
+                
+                We've received your contract and deposit, and I've just added this to your calendar. You'll have access to ${contact.room} for your event.
+                
+                Quick reminder: Three days before the big day, could you let us know:
+                - Final guest count
+                - Catering preferences (if you'd like our food & beverage service)
+                
+                Can't wait to help make your event amazing! Let me know if you need anything before then.
+                
+                Cheers,
+                TacoTaco Events Team
                 `.trim();
-    
+
                 try {
                     await $.post("/gmail/sendEmail", {
                         html: emailBody.replace(/\n/g, '<br>'),
@@ -185,27 +208,27 @@ export class CalendarManager {
                     this.eventManageApp.showToast("Failed to send confirmation email", "error");
                 }
             }
-    
+
         } catch (error) {
             console.error('Error creating booking:', error);
             this.eventManageApp.showToast("Failed to create booking", "error");
         }
     }
-    
+
     openGoogleCalendar(contact) {
         const timezone = this.timezone;
-    
+
         const startMoment = moment.tz(contact.startTime, "YYYY-MM-DD HH:mm", timezone);
         const endMoment = moment.tz(contact.endTime, "YYYY-MM-DD HH:mm", timezone);
-    
+
         const startDateUTC = startMoment.clone().utc().format("YYYYMMDDTHHmmss") + "Z";
         const endDateUTC = endMoment.clone().utc().format("YYYYMMDDTHHmmss") + "Z";
-    
+
         const title = `${contact.name} (${contact.room.join(", ")})`;
         const details = `${contact.notes} - Email: ${contact.email}`;
-    
+
         const googleCalendarUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(title)}&dates=${startDateUTC}/${endDateUTC}&details=${encodeURIComponent(details)}`;
-    
+
         window.open(googleCalendarUrl, '_blank');
     }
 }

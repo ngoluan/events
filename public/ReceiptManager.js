@@ -5,11 +5,12 @@ class ReceiptManager {
     this.ccSurcharge = false;
     this.taxRate = 0.13;
     this.rentalFee = rentalFee || 0;
+    this.contactId = window.app.contacts.currentId;
 
+    // Load existing receipt if it exists
+    this.loadReceipt();
     this.createDialog();
     this.initializeEventListeners();
-
-    // Show the dialog after initialization
     this.dialog.showModal();
   }
   createDialog() {
@@ -97,52 +98,58 @@ class ReceiptManager {
                     </div>
 
                     <!-- Input Fields as Table -->
-                    <div class="overflow-x-auto">
-                        <table class="table w-full">
-                            <thead>
-                                <tr>
-                                    <th class="text-left">Item</th>
-                                    <th class="text-left">Quantity</th>
-                                    <th class="text-left">Price</th>
-                                    <th></th> <!-- For the add button -->
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr>
-                                    <td>
-                                        <input type="text" id="newItemName" placeholder="Item name" value="Rental"
-                                               class="input input-bordered input-sm w-full">
-                                    </td>
-                                    <td>
-                                        <input type="number" id="newItemQty" placeholder="Qty" value="1" min="1"
-                                               class="input input-bordered input-sm w-full">
-                                    </td>
-                                    <td>
-                                        <input type="number" id="newItemPrice" placeholder="Price" step="0.01"
-                                               value="${((this.rentalFee/2)/1.13).toFixed(2)}"
-                                               class="input input-bordered input-sm w-full">
-                                    </td>
-                                    <td class="text-center">
-                                        <button id="addItemBtn" class="btn btn-sm btn-ghost btn-square text-success">
-                                            <span class="font-bold text-lg">+</span>
-                                        </button>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
+                   <!-- Input Fields as Responsive Grid -->
+                  <div class="overflow-x-auto">
+                      <div class="grid grid-cols-1 gap-4 sm:grid-cols-4">
+                          <!-- Item Name -->
+                          <div class="flex flex-col">
+                              <label for="newItemName" class="sr-only">Item Name</label>
+                              <input type="text" id="newItemName" placeholder="Item name" value="Rental"
+                                    class="input input-bordered input-sm w-full" />
+                          </div>
+                          
+                          <!-- Quantity -->
+                          <div class="flex flex-col">
+                              <label for="newItemQty" class="sr-only">Quantity</label>
+                              <input type="number" id="newItemQty" placeholder="Qty" value="1" min="1"
+                                    class="input input-bordered input-sm w-full" />
+                          </div>
+                          
+                          <!-- Price -->
+                          <div class="flex flex-col">
+                              <label for="newItemPrice" class="sr-only">Price</label>
+                              <input type="number" id="newItemPrice" placeholder="Price" step="0.01"
+                                    value="${((this.rentalFee/2)/1.13).toFixed(2)}"
+                                    class="input input-bordered input-sm w-full" />
+                          </div>
+                          
+                          <!-- Add Button -->
+                          <div class="flex items-center justify-center">
+                              <button id="addItemBtn" class="btn btn-sm btn-ghost btn-square text-success">
+                                  <span class="font-bold text-lg">+</span>
+                              </button>
+                          </div>
+                      </div>
+                  </div>
+
                 </div>
 
-                <!-- Actions -->
-                <div class="modal-action mt-6 print:hidden">
-                    <button id="downloadReceiptBtn" class="btn btn-success gap-2">
-                        Save as Image
+                <!-- Action buttons -->
+                <div class="modal-action mt-6 print:hidden flex flex-wrap gap-2">
+                    <button id="saveReceiptBtn" class="btn btn-sm md:btn-md btn-primary gap-2">
+                        <i class="bi bi-save"></i> <span class="hidden sm:inline">Save</span> Receipt
                     </button>
-                    <button id="printReceiptBtn" class="btn btn-primary">
-                        Print
+                    <button id="resetReceiptBtn" class="btn btn-sm md:btn-md btn-error gap-2">
+                        <i class="bi bi-trash"></i> <span class="hidden sm:inline">Reset</span>
+                    </button>
+                    <button id="downloadReceiptBtn" class="btn btn-sm md:btn-md btn-success gap-2">
+                        <i class="bi bi-download"></i> Save as Image
+                    </button>
+                    <button id="printReceiptBtn" class="btn btn-sm md:btn-md btn-info gap-2">
+                        <i class="bi bi-printer"></i> <span class="hidden sm:inline">Print</span>
                     </button>
                     <form method="dialog">
-                        <button class="btn">Close</button>
+                        <button class="btn btn-sm md:btn-md">Close</button>
                     </form>
                 </div>
             </div>
@@ -156,15 +163,85 @@ class ReceiptManager {
     this.dialog = document.getElementById('receiptDialog');
 }
 
+  async loadReceipt() {
+    try {
+      const contact = window.app.contacts.getContactById(this.contactId);
+      if (contact && contact.receipt) {
+        this.items = contact.receipt.items || [];
+        this.tipPercent = contact.receipt.tipPercent || 0;
+        this.ccSurcharge = contact.receipt.ccSurcharge || false;
+        
+        // Update UI after loading
+        setTimeout(() => {
+          this.renderItems();
+          this.updateTotals();
+          document.getElementById('tipPercent').value = this.tipPercent;
+          document.getElementById('ccSurcharge').checked = this.ccSurcharge;
+        }, 100);
+      }
+    } catch (error) {
+      console.error('Error loading receipt:', error);
+      window.app.showToast('Error loading receipt', 'error');
+    }
+  }
 
-  // Rest of the methods remain the same
+  async saveReceipt() {
+    try {
+      const receiptData = {
+        items: this.items,
+        tipPercent: this.tipPercent,
+        ccSurcharge: this.ccSurcharge,
+        lastUpdated: new Date().toISOString()
+      };
+
+      const contact = window.app.contacts.getContactById(this.contactId);
+      if (!contact) {
+        throw new Error('No contact selected');
+      }
+
+      contact.receipt = receiptData;
+
+      const response = await fetch(`/api/events/${this.contactId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(contact)
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to save receipt');
+      }
+
+      window.app.showToast('Receipt saved successfully', 'success');
+    } catch (error) {
+      console.error('Error saving receipt:', error);
+      window.app.showToast('Error saving receipt', 'error');
+    }
+  }
+
+  resetReceipt() {
+    this.items = [];
+    this.tipPercent = 0;
+    this.ccSurcharge = false;
+    
+    // Reset UI
+    document.getElementById('tipPercent').value = "0";
+    document.getElementById('ccSurcharge').checked = false;
+    document.getElementById('tipPercentDisplay').textContent = "0";
+    
+    this.renderItems();
+    this.updateTotals();
+    
+    window.app.showToast('Receipt reset', 'success');
+  }
+
   initializeEventListeners() {
-    // Add Item Button
+    // Existing event listeners
     document.getElementById('addItemBtn').addEventListener('click', () => {
       this.handleAddItem();
     });
 
-    // Add item on Enter key in price field
     document.getElementById('newItemPrice').addEventListener('keypress', (e) => {
       if (e.key === 'Enter') {
         this.handleAddItem();
@@ -176,30 +253,39 @@ class ReceiptManager {
       document.getElementById('tipPercentDisplay').textContent = this.tipPercent;
       this.updateTotals();
     });
-    // CC Surcharge Toggle
+    
     document.getElementById('ccSurcharge').addEventListener('change', (e) => {
       this.ccSurcharge = e.target.checked;
       document.getElementById('ccLabel').textContent = this.ccSurcharge ? '(2.4%)' : '';
       this.updateTotals();
     });
 
-    // Print Button
+    // New event listeners for save/reset functionality
+    document.getElementById('saveReceiptBtn').addEventListener('click', () => {
+      this.saveReceipt();
+    });
+
+    document.getElementById('resetReceiptBtn').addEventListener('click', () => {
+      if (confirm('Are you sure you want to reset this receipt? This cannot be undone.')) {
+        this.resetReceipt();
+      }
+    });
+
     document.getElementById('printReceiptBtn').addEventListener('click', () => {
       window.print();
     });
 
-    // Download Button
     document.getElementById('downloadReceiptBtn').addEventListener('click', () => {
       this.downloadAsImage();
     });
 
-    // Cleanup when dialog closes
     this.dialog.addEventListener('close', () => {
       this.dialog.remove();
       delete window.currentReceipt;
     });
   }
 
+  // Rest of the existing methods remain the same
   handleAddItem() {
     const nameInput = document.getElementById('newItemName');
     const qtyInput = document.getElementById('newItemQty');
@@ -234,18 +320,18 @@ class ReceiptManager {
   renderItems() {
     const tbody = document.querySelector('#receiptItems tbody');
     const itemsHtml = this.items.map(item => `
-          <tr class="border-b">
-              <td class="p-2">${item.name}</td>
-              <td class="text-right p-2">${item.quantity}</td>
-              <td class="text-right p-2">$${item.price.toFixed(2)}</td>
-              <td class="text-right p-2">$${(item.quantity * item.price).toFixed(2)}</td>
-              <td class="text-right p-2 print:hidden">
-                  <button onclick="window.currentReceipt.removeItem(${item.id})" class="text-red-600 hover:text-red-700">
-                      <i class="bi bi-x"></i>
-                  </button>
-              </td>
-          </tr>
-      `).join('');
+      <tr class="border-b">
+        <td class="p-2">${item.name}</td>
+        <td class="text-right p-2">${item.quantity}</td>
+        <td class="text-right p-2">$${item.price.toFixed(2)}</td>
+        <td class="text-right p-2">$${(item.quantity * item.price).toFixed(2)}</td>
+        <td class="text-right p-2 print:hidden">
+          <button onclick="window.currentReceipt.removeItem(${item.id})" class="text-red-600 hover:text-red-700">
+            <i class="bi bi-x"></i>
+          </button>
+        </td>
+      </tr>
+    `).join('');
 
     tbody.innerHTML = itemsHtml;
   }
@@ -256,8 +342,13 @@ class ReceiptManager {
       .filter(item => item.name.toLowerCase() !== 'rental')
       .reduce((sum, item) => sum + (item.quantity * item.price), 0);
 
+    // Calculate tax only on items containing "Drink Tickets"
+    const taxableAmount = this.items
+      .filter(item => item.name.toLowerCase().includes('drink tickets')||item.name.toLowerCase().includes('rental'))
+      .reduce((sum, item) => sum + (item.quantity * item.price), 0);
+
     const tip = (tipableAmount * this.tipPercent) / 100;
-    const tax = subtotal * this.taxRate;
+    const tax = taxableAmount * this.taxRate;
     const subtotalWithTipAndTax = subtotal + tip + tax;
     const surcharge = this.ccSurcharge ? subtotal * 0.027 : 0;
     const total = subtotalWithTipAndTax + surcharge;
@@ -284,9 +375,7 @@ class ReceiptManager {
       link.click();
     } catch (error) {
       console.error('Error generating image:', error);
-      alert('Could not generate receipt image. Please try printing instead.');
+      window.app.showToast('Could not generate receipt image', 'error');
     }
   }
-  
-
 }

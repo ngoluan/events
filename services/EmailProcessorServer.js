@@ -479,13 +479,19 @@ class EmailProcessorServer {
                 const cleanedText = Utils.cleanEmailContent(aiText);
 
                 const messages = [
-                    {
-                        role: 'system',
-                        content: 'You extract event details from inquiry emails.'
-                    },
+
                     {
                         role: 'user',
                         content: `
+                        Extract details from this email chain. 
+
+                        Make sure you capture their phone number correctly.
+
+                        Prioritize information from the most recent email first, because they may have changed their mind. 
+
+                        If year is not provided, assume it's the current year: ` + new Date().getFullYear() + `.
+                        
+                        Here is the email chain:
                       ${cleanedText}
                     `
                     }
@@ -501,11 +507,11 @@ class EmailProcessorServer {
                     startTime: z.string(),
                     endTime: z.string(),
                     room: z.string(),
-                    attendance: z.string(),
+                    attendance: z.string().optional(),
                     services: z.union([
                         z.array(z.string()),
                         z.string().transform(str => [str])
-                    ]).transform(val => Array.isArray(val) ? val : [val]),
+                    ]).transform(val => Array.isArray(val) ? val : [val]).optional(),
                     notes: z.string().optional()
                 });
 

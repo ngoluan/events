@@ -3256,7 +3256,33 @@
       "partyType": "Corporate party",
       "attendance": "100",
       "source": "",
-      "notes": "$412.50 deposit to book via Square invoice; will buy light appetizers+tacos, and open bar tab for beers (other drinks will be paid individually)"
+      "notes": "$412.50 deposit to book via Square invoice; will buy light appetizers+tacos, and open bar tab for beers (other drinks will be paid individually)",
+      "createdAt": "2024-12-14T16:07:05.621Z",
+      "receipt": {
+        "items": [
+          {
+            "name": "Rental",
+            "quantity": 1,
+            "price": 365.04,
+            "id": 1734192441757
+          },
+          {
+            "name": "Catering",
+            "quantity": 50,
+            "price": 16,
+            "id": 1734233244097
+          },
+          {
+            "name": "Rental",
+            "quantity": 1,
+            "price": 825,
+            "id": 1734233309851
+          }
+        ],
+        "tipPercent": 18,
+        "ccSurcharge": false,
+        "lastUpdated": "2024-12-15T03:28:41.852Z"
+      }
     },
     {
       "phone": "16479645805",
@@ -13200,7 +13226,26 @@
       "attendance": "25",
       "source": "",
       "notes": "[11/26/2024 20:07] Update from email:\n- Catering preference: Buffet option confirmed; additional items may be added for an extra charge.\n- No changes to attendance, drink selections, setup requests, or timing details noted. \n- Special accommodations: None requested.\n\n$400 deposit to book; catering + bar package TBD",
-      "createdAt": "2024-11-27T01:05:00.497Z"
+      "createdAt": "2024-11-27T01:05:00.497Z",
+      "receipt": {
+        "items": [
+          {
+            "name": "Rental",
+            "quantity": 1,
+            "price": 331.86,
+            "id": 1734648443927
+          },
+          {
+            "name": "Catering",
+            "quantity": 21,
+            "price": 30,
+            "id": 1734648450703
+          }
+        ],
+        "tipPercent": 18,
+        "ccSurcharge": false,
+        "lastUpdated": "2024-12-19T22:47:37.223Z"
+      }
     },
     {
       "phone": "14166168202",
@@ -18132,7 +18177,33 @@
       "attendance": "",
       "source": "",
       "notes": "$437.5 deposit to book",
-      "summary": "Katie is looking for information on renting Taco Taco for New Year's Eve on December 31, 2024, and is interested in pricing and capacity."
+      "summary": "Katie is looking for information on renting Taco Taco for New Year's Eve on December 31, 2024, and is interested in pricing and capacity.",
+      "createdAt": "2024-12-28T00:56:24.895Z",
+      "receipt": {
+        "items": [
+          {
+            "name": "Rental",
+            "quantity": 1,
+            "price": 387.17,
+            "id": 1735348387751
+          },
+          {
+            "name": "Catering",
+            "quantity": 44,
+            "price": 6,
+            "id": 1735348399702
+          },
+          {
+            "name": "Drink Tickets",
+            "quantity": 168,
+            "price": 8,
+            "id": 1735348430692
+          }
+        ],
+        "tipPercent": 18,
+        "ccSurcharge": true,
+        "lastUpdated": "2024-12-28T01:15:19.411Z"
+      }
     },
     {
       "phone": "14166924768",
@@ -18251,14 +18322,14 @@
       "room": "Lounge",
       "name": "Marlene Saunders",
       "email": "marlene@marlenesaunders.com",
-      "startTime": "2024-11-21T19:00",
-      "endTime": "2024-11-21T22:00",
+      "startTime": "2025-02-20T19:00",
+      "endTime": "2025-02-20T22:00",
       "rentalRate": "300",
       "minSpend": "300",
       "partyType": "jobseeker networking event",
       "attendance": "100",
       "source": "",
-      "notes": "[11/19/2024 17:50] Update from email:\n- Setup chairs pointing towards the stage for approximately 60+ attendees (possible increase in attendance).\n- Organizer plans to arrive at 6:30 PM for setup.\n- Acknowledgment of hard stop at 10:00 PM, with potential extension of up to 30 minutes.\n\n$150 deposit to book",
+      "notes": "$150 deposit to book",
       "summary": "Marlene is looking to book the Moonlight Lounge for a jobseeker networking event on November 21, from 7 PM to 10 PM, and wants to finalize food and drink arrangements closer to the event date.",
       "createdAt": "2024-11-19T22:48:49.293Z"
     },
@@ -18496,7 +18567,27 @@
       "attendance": "",
       "source": "",
       "notes": "$250 deposit to book; catering TBD",
-      "summary": "Helen is inquiring about booking the Lounge on December 14, 2024, from 1:00 pm to 5:00 pm."
+      "summary": "Helen is inquiring about booking the Lounge on December 14, 2024, from 1:00 pm to 5:00 pm.",
+      "createdAt": "2024-12-14T16:09:17.088Z",
+      "receipt": {
+        "items": [
+          {
+            "name": "Rental",
+            "quantity": 1,
+            "price": 221.24,
+            "id": 1734192565746
+          },
+          {
+            "name": "Catering",
+            "quantity": 35,
+            "price": 35,
+            "id": 1734204992492
+          }
+        ],
+        "tipPercent": 0,
+        "ccSurcharge": true,
+        "lastUpdated": "2024-12-14T19:36:36.489Z"
+      }
     },
     {
       "phone": "19023040055",
@@ -18569,7 +18660,33 @@
       "attendance": "40",
       "source": "",
       "notes": "$150 deposit to book",
-      "summary": "Sarah Lau is booking the Restaurant for a 1st birthday party with 40 guests on December 21, 2024, from 12:00 pm to 3:00 pm."
+      "summary": "Sarah Lau is booking the Restaurant for a 1st birthday party with 40 guests on December 21, 2024, from 12:00 pm to 3:00 pm.",
+      "createdAt": "2024-12-21T18:40:07.793Z",
+      "receipt": {
+        "items": [
+          {
+            "name": "Rental",
+            "quantity": 1,
+            "price": 132.74,
+            "id": 1734806438194
+          },
+          {
+            "name": "Tacos+Apps",
+            "quantity": 50,
+            "price": 16,
+            "id": 1734806449457
+          },
+          {
+            "name": "Churros",
+            "quantity": 50,
+            "price": 5,
+            "id": 1734806455383
+          }
+        ],
+        "tipPercent": 18,
+        "ccSurcharge": false,
+        "lastUpdated": "2024-12-21T18:41:02.719Z"
+      }
     },
     {
       "phone": "437-962-3839",
@@ -18927,7 +19044,27 @@
       "attendance": "100",
       "source": "",
       "notes": "$1000 deposit to book, minimum spend portion fully refundable if min spend is reached",
-      "summary": "Booking inquiry for a corporate event in the Moonlight Lounge on November 7, 2024, from 9:00 PM to 2:00 AM."
+      "summary": "Booking inquiry for a corporate event in the Moonlight Lounge on November 7, 2024, from 9:00 PM to 2:00 AM.",
+      "createdAt": "2024-12-28T00:56:24.895Z",
+      "receipt": {
+        "items": [
+          {
+            "name": "Rental",
+            "quantity": 1,
+            "price": 221.24,
+            "id": 1735348204953
+          },
+          {
+            "name": "Champagne",
+            "quantity": 100,
+            "price": 3,
+            "id": 1735348233512
+          }
+        ],
+        "tipPercent": 18,
+        "ccSurcharge": true,
+        "lastUpdated": "2024-12-28T01:12:07.764Z"
+      }
     },
     {
       "name": "Elvan Tayhani",
@@ -19391,14 +19528,33 @@
       "room": "Lounge",
       "attendance": "60",
       "services": "bar;lights;audio;kareoke;catering",
-      "notes": "[11/25/2024 21:26] Update from email:\n- Additional main dish request.\n- A variety of hot sauces to be provided for guests.\n- Signature mocktail called the “Mian-tini” to be provided (details to follow).\n- Need for a seating chart to be sent prior to the event.\n- Inquiry about personalized name cards for seating arrangements. \n- Emphasis on quality and freshness of food. \n- Remaining balance due date inquiry (expected after final headcount).\n\n$375.00 deposit to book.",
+      "notes": "FULL BILL SETTLED\n[11/25/2024 21:26] Update from email:\n- Additional main dish request.\n- A variety of hot sauces to be provided for guests.\n- Signature mocktail called the “Mian-tini” to be provided (details to follow).\n- Need for a seating chart to be sent prior to the event.\n- Inquiry about personalized name cards for seating arrangements. \n- Emphasis on quality and freshness of food. \n- Remaining balance due date inquiry (expected after final headcount).\n\n$375.00 deposit to book.",
       "messageCount": 3,
       "historyIncluded": false,
       "id": 1183,
       "status": "reserved",
       "rentalRate": "750",
       "minSpend": "1750",
-      "createdAt": "2024-11-25T23:53:24.775Z"
+      "createdAt": "2024-11-25T23:53:24.775Z",
+      "receipt": {
+        "items": [
+          {
+            "name": "Rental",
+            "quantity": 1,
+            "price": 331.86,
+            "id": 1735432930311
+          },
+          {
+            "name": "Catering",
+            "quantity": 75,
+            "price": 34,
+            "id": 1735433052085
+          }
+        ],
+        "tipPercent": 18,
+        "ccSurcharge": true,
+        "lastUpdated": "2024-12-29T00:44:15.299Z"
+      }
     },
     {
       "name": "Aiden Parker",
@@ -19441,7 +19597,7 @@
     {
       "name": "Heather Corner",
       "email": "heathercorner@gmail.com",
-      "phone": "14166472667",
+      "phone": "(647) 966-6267",
       "partyType": "Social Gathering",
       "startTime": "2025-01-22T19:00",
       "endTime": "2025-01-22T22:00",
@@ -19453,8 +19609,8 @@
       "historyIncluded": false,
       "id": 1186,
       "status": "",
-      "rentalRate": "600",
-      "minSpend": "400",
+      "rentalRate": "300",
+      "minSpend": "",
       "createdAt": "2024-11-27T19:27:01.716Z"
     },
     {
@@ -19529,7 +19685,32 @@
       "status": "reserved",
       "rentalRate": "150",
       "minSpend": "500",
-      "createdAt": "2024-12-01T23:13:11.898Z"
+      "createdAt": "2024-12-01T23:13:11.898Z",
+      "receipt": {
+        "items": [
+          {
+            "name": "Rental",
+            "quantity": 1,
+            "price": 66.37,
+            "id": 1734396199485
+          },
+          {
+            "name": "Catering",
+            "quantity": 40,
+            "price": 16,
+            "id": 1734396207968
+          },
+          {
+            "name": "Drink Tickets",
+            "quantity": 50,
+            "price": 8,
+            "id": 1734396228962
+          }
+        ],
+        "tipPercent": 18,
+        "ccSurcharge": false,
+        "lastUpdated": "2024-12-17T00:43:53.327Z"
+      }
     },
     {
       "name": "Katrina D",
@@ -19567,7 +19748,20 @@
       "status": "reserved",
       "rentalRate": "",
       "minSpend": "600",
-      "createdAt": "2024-12-02T17:19:09.699Z"
+      "createdAt": "2024-12-02T17:19:09.699Z",
+      "receipt": {
+        "items": [
+          {
+            "name": "Catering",
+            "quantity": 6,
+            "price": 40,
+            "id": 1734396261955
+          }
+        ],
+        "tipPercent": 18,
+        "ccSurcharge": true,
+        "lastUpdated": "2024-12-17T02:19:23.254Z"
+      }
     },
     {
       "name": "Lauren Kilgour",
@@ -19702,17 +19896,17 @@
       "email": "katherine.li.7@hotmail.com",
       "phone": "5195204546",
       "partyType": "Private Party",
-      "startTime": "2025-05-17T20:00",
+      "startTime": "2025-05-17T19:30",
       "endTime": "2025-05-18T01:00",
       "room": "Lounge",
       "attendance": "70",
       "services": "",
-      "notes": "$375.00 deposit to book.",
+      "notes": "She paid $375 deposit so she'll need to pay higher at end of night ",
       "messageCount": 11,
       "historyIncluded": false,
       "id": 1200,
-      "status": "",
-      "rentalRate": "750",
+      "status": "reserved",
+      "rentalRate": "825",
       "minSpend": "2000",
       "createdAt": "2024-12-11T20:06:27.534Z"
     },
@@ -19721,17 +19915,17 @@
       "email": "carleyren37@gmail.com",
       "phone": "9052360037",
       "partyType": "30th Birthday Party",
-      "startTime": "2025-01-24T21:30",
+      "startTime": "2025-01-24T21:45",
       "endTime": "2025-01-25T02:00",
       "room": "Lounge",
       "attendance": "70",
       "services": "catering",
-      "notes": "$337.50 deposit to book.",
+      "notes": "$337.50 deposit to book. Rental fee changed to $600, remainder for final bill is 262.5",
       "messageCount": 3,
       "historyIncluded": false,
       "id": 1201,
-      "status": "contractSent",
-      "rentalRate": "675",
+      "status": "contractSent;reserved",
+      "rentalRate": "600",
       "minSpend": "1750",
       "createdAt": "2024-12-13T19:32:09.673Z"
     },
@@ -19753,6 +19947,193 @@
       "rentalRate": "350",
       "minSpend": "500",
       "createdAt": "2024-12-13T19:33:59.312Z"
+    },
+    {
+      "name": "Ryan Williams",
+      "email": "RWilliams@loftcs.org",
+      "phone": "4168930486",
+      "partyType": "Corporate Party",
+      "startTime": "2025-01-24T18:00",
+      "endTime": "2025-01-24T21:30",
+      "room": "Lounge",
+      "attendance": "100",
+      "services": "",
+      "notes": "$262.50 deposit to book.",
+      "messageCount": 3,
+      "historyIncluded": false,
+      "id": 1203,
+      "status": "reserved",
+      "rentalRate": "525",
+      "minSpend": "1500",
+      "createdAt": "2024-12-17T18:14:58.063Z"
+    },
+    {
+      "name": "Kate",
+      "email": "kate.keskikyla@gmail.com",
+      "phone": "14168595494",
+      "partyType": "Birthday",
+      "startTime": "2025-03-29T20:00",
+      "endTime": "2025-03-30T02:00",
+      "room": "DiningRoom",
+      "attendance": "30",
+      "services": "",
+      "notes": "Interested in booking for 30th Birthday party.",
+      "messageCount": 3,
+      "historyIncluded": false,
+      "id": 1204,
+      "status": "contractSent",
+      "rentalRate": "750",
+      "minSpend": "1000",
+      "createdAt": "2024-12-22T21:29:04.559Z"
+    },
+    {
+      "name": "Rachel Mann",
+      "email": "rachmann2000@gmail.com",
+      "phone": "6475342973",
+      "partyType": "Birthday",
+      "startTime": "2025-01-10T21:30",
+      "endTime": "2025-01-11T01:00",
+      "room": "DiningRoom",
+      "attendance": "30",
+      "services": "",
+      "notes": "$62.50 deposit to book.",
+      "messageCount": 5,
+      "historyIncluded": false,
+      "id": 1205,
+      "status": "reserved",
+      "rentalRate": "125",
+      "minSpend": "800",
+      "createdAt": "2024-12-18T19:39:02.398Z"
+    },
+    {
+      "name": "Oghenejemrore Erhiaganoma",
+      "email": "jemmy.erhi@gmail.com",
+      "phone": "6472611836",
+      "partyType": "Cocktail reception",
+      "startTime": "2025-01-17T19:00",
+      "endTime": "2025-01-18T01:00",
+      "room": "DiningRoom",
+      "attendance": "35",
+      "services": "",
+      "notes": "To host an event, a deposit of $1000.00 is required along with a minimum spend of $2000.00 for the night. If the minimum spend requirement is met, the full deposit amount will be refunded. However, if the spend falls below the minimum requirement, the deposit will be forfeited in proportion to the amount by which the spend falls short.",
+      "messageCount": 3,
+      "historyIncluded": false,
+      "id": 1206,
+      "status": "reserved",
+      "rentalRate": "",
+      "minSpend": "2000",
+      "createdAt": "2024-12-19T15:45:29.966Z"
+    },
+    {
+      "name": "Jamil Nathoo",
+      "email": "jamil407@hotmail.com",
+      "phone": "14167461239",
+      "partyType": "30th birthday",
+      "startTime": "2025-01-04T21:00",
+      "endTime": "2025-01-05T01:00",
+      "room": "DiningRoom",
+      "attendance": "25",
+      "services": "",
+      "notes": "$200.00 deposit to book.",
+      "messageCount": 10,
+      "historyIncluded": false,
+      "id": 1207,
+      "status": "reserved",
+      "rentalRate": "400",
+      "minSpend": "600",
+      "createdAt": "2024-12-23T19:24:03.843Z"
+    },
+    {
+      "name": "Antara Kamath",
+      "email": "antara.kamath@rotman.utoronto.ca",
+      "phone": "16473388832",
+      "partyType": "End-of-Year Social E",
+      "startTime": "2025-04-01T18:00",
+      "endTime": "2025-04-02T00:00",
+      "room": "Lounge",
+      "attendance": "110",
+      "services": "bar;lights;audio;music;kareoke",
+      "notes": "Requesting snacks and drink tickets for the guests. Looking for quote including light apps options with a maximum of 2 drink tickets per guest. Expected attendance of 110 guests. Date is early to mid April at 6pm, finalized date not specified yet. Awaiting response on hours to book and quote details from Taco Taco.",
+      "messageCount": 4,
+      "historyIncluded": false,
+      "id": 1208,
+      "status": "",
+      "rentalRate": "600",
+      "minSpend": "500"
+    },
+    {
+      "name": "Heather Corner",
+      "email": "heathercorner@gmail.com",
+      "phone": "16479666267",
+      "partyType": "Social Gathering",
+      "startTime": "2025-03-31T19:00",
+      "endTime": "2025-03-31T22:00",
+      "room": "Lounge",
+      "attendance": "",
+      "services": "",
+      "notes": "$150 deposit to book",
+      "messageCount": 2,
+      "historyIncluded": false,
+      "id": 1209,
+      "status": "",
+      "rentalRate": "",
+      "minSpend": "300",
+      "createdAt": "2024-12-26T02:25:37.099Z"
+    },
+    {
+      "name": "Nouran Hassan",
+      "email": "nouran_f2001@yahoo.com",
+      "phone": "16473943697",
+      "partyType": "birthday party",
+      "startTime": "2025-01-10T20:30",
+      "endTime": "2025-01-11T02:00",
+      "room": "Lounge",
+      "attendance": "40",
+      "services": "bar;lights;audio;music;kareoke",
+      "notes": "To host an event, a deposit of $625.00 is required along with a minimum spend of $1250.00 for the night. If the minimum spend requirement is met, the full deposit amount will be refunded. However, if the spend falls below the minimum requirement, the deposit will be forfeited in proportion to the amount by which the spend falls short.",
+      "messageCount": 10,
+      "historyIncluded": false,
+      "id": 1213,
+      "status": "",
+      "rentalRate": "",
+      "minSpend": "1250",
+      "createdAt": "2024-12-28T21:46:51.403Z"
+    },
+    {
+      "name": "Tanner D.",
+      "email": "tannerdarocha@gmail.com",
+      "phone": "14169854343",
+      "partyType": "Birthday",
+      "startTime": "2025-02-01T20:00",
+      "endTime": "2025-02-02T01:00",
+      "room": "DiningRoom",
+      "attendance": "45",
+      "services": "bar;lights;audio;music;kareoke",
+      "notes": "No deposit required",
+      "messageCount": 4,
+      "historyIncluded": false,
+      "id": 1215,
+      "status": "",
+      "rentalRate": "",
+      "minSpend": "600"
+    },
+    {
+      "name": "Patrick de Belen",
+      "email": "patrick@fuelchange.org",
+      "phone": "14163058118",
+      "partyType": "Social Impact",
+      "startTime": "2025-01-15T18:00",
+      "endTime": "2025-01-15T20:00",
+      "room": "Lounge",
+      "attendance": "50",
+      "services": "bar;lights;audio;music;kareoke",
+      "notes": "",
+      "messageCount": 2,
+      "historyIncluded": false,
+      "id": 1216,
+      "status": "",
+      "rentalRate": "200",
+      "minSpend": "300"
     }
   ]
 }

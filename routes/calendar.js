@@ -17,7 +17,7 @@ module.exports = (googleAuth) => {
     }
   });
 
-  router.post('/calendar/events', async (req, res) => {
+  router.post('/addCalendarBooking', async (req, res) => {
     const eventData = req.body;
     try {
       const event = await calendarService.addEvent(eventData);

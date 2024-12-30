@@ -30,7 +30,7 @@ class GoogleCalendarService {
     const authClient = await this.auth.getOAuth2Client();
     const calendar = google.calendar({ version: 'v3', auth: authClient });
     const event = {
-      summary: `Event: ${eventData.name}`,
+      summary: `${eventData.name}`,
       location: eventData.location || '',
       description: eventData.notes || '',
       start: {
